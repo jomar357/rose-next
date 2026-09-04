@@ -358,6 +358,40 @@ their separators **doubled** (`3DData\\effect\\…`), which the walk collapses.
 
 Phoenix Wings ships `flying_ef.eft` + `flying_ef.ptl`; `twinkle_03.dds` we already had.
 
+### 4.6 FIXED — icons on the last row/column of an atlas sheet drew a torn strip
+
+Reported in game on Vampire Mantle, Bee Wings and Megadrake Wings: about a fifth of the
+icon replaced by a torn slice, to the right or downwards.
+
+`ITEM1.TSI` lays each **512x512** sheet out as a **13x13 grid of 40px cells**, and
+13 x 40 = **520**. The last column and last row hang **8px** off the texture; the engine's
+default address mode is `ZZ_TADDRESS_WRAP`, so those 8px sample from the opposite edge.
+8/40 is exactly the fifth that was reported.
+
+**The geometry is retail's and retail is unaffected anyway** — every shipped sheet has the
+same 25 bad cells and paints art into all of them, but of 1,953 retail icon indices
+actually referenced by items, **zero** are bad cells. The defect has been dormant in the
+shipped data since launch.
+
+Our allocator woke it: `add_icon` filled cells densely from 0, so once a sheet passed cell
+155 it started handing them out. **21 items** had landed there — 14 from batch 2 and 7
+older RoseZA imports, which is why this had been seen before and never explained.
+
+- `add-item-icon.py` now allocates only cells that fit — **144 per sheet, not 169** — and
+  picks by which cells are *occupied* rather than by counting entries.
+- `scripts/fix-icon-atlas-overrun.py` repairs what shipped: it relocates each over-hanging
+  sprite and rewrites the entry in place, so **every sprite keeps its index and no STB
+  column 9 changes**. That works because the client reads sprites in flat order (index =
+  position, so a sprite must never change block) but resolves the texture from the
+  per-sprite id, not the block (`io_imageres.cpp`). Retail's 1,250 dormant ones are left
+  alone.
+- Art on a bad cell was also physically short — `add_icon` pasted 40x40 at the origin and
+  PIL clipped at the image bounds, so only 32x40 / 40x32 / 32x32 was ever written.
+  Relocation moves what survives; batch 2's 14 were then re-pasted at full size from the
+  Jrose atlas via the manifest. The 7 older ones keep a clipped edge, no source recorded.
+
+---
+
 ## 6. Where this stands
 
 Done: the tooling changes (§4.0–4.2), the five above imported and verified on disk,
