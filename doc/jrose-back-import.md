@@ -387,8 +387,20 @@ older RoseZA imports, which is why this had been seen before and never explained
   alone.
 - Art on a bad cell was also physically short — `add_icon` pasted 40x40 at the origin and
   PIL clipped at the image bounds, so only 32x40 / 40x32 / 32x32 was ever written.
-  Relocation moves what survives; batch 2's 14 were then re-pasted at full size from the
-  Jrose atlas via the manifest. The 7 older ones keep a clipped edge, no source recorded.
+  Relocation moves what survives; the missing strip has to come from the source atlas.
+  Batch 2's 14 were re-pasted from Jrose via the manifest.
+
+**All 21 referenced icons now carry full-width art.** The 7 older ones had no recorded
+source, so `scripts/find-icon-source.py` identified it by matching their surviving 32
+columns against every `ITEM1.TSI` under the test-client directory. Our copy is the decoded
+source pixels stored uncompressed, so a correct hit scores **MAD 0.000** and everything
+else is far away — an identification, not a similarity search.
+
+Searching every dump rather than the assumed one mattered: five were in RoseZA, but
+**Akela Bowgun and Golden Angel Shield were in QQ-iROSE**, and a RoseZA-only search had
+confidently offered wrong answers for them at MAD 7.4 and 29.4. Two further clipped
+sprites match nothing anywhere (MAD ~9–11) and are referenced by no item, so they are left
+alone — most likely added from a PNG rather than cropped from a dump.
 
 ---
 
