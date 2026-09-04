@@ -133,13 +133,29 @@ def zsc_truncate(imp, path, count, dry):
     return keep
 
 
-def stl_truncate(imp, path, keys, dry):
+def stl_check_trailing(imp, path, keys):
+    """Refuse unless the doomed keys really are the tail of the STL.
+
+    Split out of stl_truncate so main() can run it *before* anything is written.
+    STL key order is not row order in our shipped data -- keys were appended in
+    a different sequence over the years -- so a block that is trailing in the STB
+    can easily not be trailing in the STL. That used to be caught only after the
+    STB and every ZSC had already been truncated, which left the tables half-cut
+    and the STL intact. --from-id makes such a block trivial to ask for.
+    """
     ks, langs = imp.stl_read(path)
     doomed = {k if isinstance(k, bytes) else k.encode() for k in keys}
     tail = [k for k, _ in ks[-len(doomed):]]
     if set(tail) != doomed:
-        sys.exit(f"{path}: trailing keys {tail} do not match {sorted(doomed)}")
-    keep = len(ks) - len(doomed)
+        sys.exit("%s: the rows you selected are not the tail of the STL, so removing them "
+                 "would leave a hole -- refusing.\n  STL tail: %s\n  selected: %s"
+                 % (path,
+                    [k.decode("ascii", "replace") for k in tail[:12]],
+                    sorted(k.decode("ascii", "replace") for k in doomed)[:12]))
+    return ks, langs, len(ks) - len(doomed)
+
+def stl_truncate(imp, path, keys, dry):
+    ks, langs, keep = stl_check_trailing(imp, path, keys)
     if not dry:
         imp.stl_write(path, ks[:keep], [rows[:keep] for rows in langs], dry)
     return keep
@@ -148,8 +164,16 @@ def stl_truncate(imp, path, keys, dry):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--type", required=True)
-    ap.add_argument("--name-prefix", required=True,
-                    help="every removed row's name must start with this")
+    sel = ap.add_mutually_exclusive_group(required=True)
+    sel.add_argument("--name-prefix",
+                     help="every removed row's name must start with this")
+    sel.add_argument("--from-id", type=int,
+                     help="remove every row from this id to the end of the table. Use for a "
+                          "batch whose names share no prefix -- the id is unambiguous about "
+                          "where the block starts, and the trailing-block check below still "
+                          "refuses to leave a hole. Always --dry-run first: unlike "
+                          "--name-prefix there is no second signal that you named the right "
+                          "rows, so read the list it prints.")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -161,8 +185,14 @@ def main():
 
     stb_path = os.path.join(OURS, stb_rel)
     _, _, rows, cols, data = imp.stb_read(stb_path)
-    ids = [i for i in range(1, rows - 1)
-           if data[i][0].decode("euc-kr", "replace").startswith(args.name_prefix)]
+    if args.from_id is not None:
+        if not 1 <= args.from_id <= rows - 2:
+            sys.exit(f"--from-id {args.from_id} out of range "
+                     f"(table holds ids 1..{rows - 2})")
+        ids = list(range(args.from_id, rows - 1))
+    else:
+        ids = [i for i in range(1, rows - 1)
+               if data[i][0].decode("euc-kr", "replace").startswith(args.name_prefix)]
     if not ids:
         print(f"no rows in {os.path.basename(stb_rel)} start with {args.name_prefix!r}")
         return
@@ -186,6 +216,11 @@ def main():
     while run < len(drop) and total - 1 - run in drop:
         run += 1
     print(f"   icons introduced here: {drop or 'none'}  -> dropping {run} trailing sprite(s)")
+
+    # Pre-flight every check that can refuse, before the first write. The STB and
+    # the ZSCs are truncated in place, so a late refusal would leave them cut and
+    # the STL whole.
+    stl_check_trailing(imp, os.path.join(OURS, stl_rel), keys)
 
     new_rows = stb_truncate(stb_path, ids, args.dry_run)
     print(f"   STB {rows - 1} -> {new_rows} rows")
