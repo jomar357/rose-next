@@ -3,7 +3,7 @@
 **Status:** **60 back items imported** — IDs **957–986** (batches 1–2, confirmed in game,
 including icons) and **987–1016** (batch 3, awaiting an in-game look). Model-carried
 effects (wing trails) implemented and confirmed.
-**Date:** 2026-09-04.
+**Date:** 2026-09-04, batch 3 2026-09-05.
 **Source:** `C:\Users\Thomas\Desktop\Testclients\Jrose` (loose `3Ddata\`).
 **Prerequisite reading:** [doc/jrose-survey.md](jrose-survey.md) for the dump as a whole.
 
