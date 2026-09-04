@@ -1,0 +1,45 @@
+# Jrose back-item import, batch 2 -- our IDs 962-986, imported 2026-09-04.
+#
+# data/ is gitignored, so this file is the only record of what was imported and
+# with what stats. Fields, pipe-separated:
+#
+#   jrose_row | our_template_row | name | description | DEF | RES | required_level |
+#
+# The template row is one of OUR LIST_BACK rows; --art-only clones every stat
+# column from it and then DEF/RES/level are overridden here. Nothing is read from
+# the Jrose row except the model, its icon and (where present) its effect.
+#
+# Replay (from the repo root; --dry-run first):
+#
+#   grep -v '^#' doc/jrose-back-batch2.txt | while IFS='|' read -r row tmpl name desc def res lv _; do
+#     python scripts/import-item.py --type back #       --source "C:/Users/Thomas/Desktop/Testclients/Jrose" #       --source-row "$row" --art-only --template-row "$tmpl" #       --name "$name" --desc "$desc" --def "$def" --res "$res" --req-level "$lv" #       --copy-icon --copy-effects
+#   done
+#
+# Then: scripts/add-dds-mipmaps.py, delete any .bak under data/, bake, deploy.
+# Roll the whole batch back with:
+#   python scripts/remove-trailing-items.py --type back --from-id 962 --dry-run
+1008|233|Fallen Gabriel Wings|Six pinions that kept their shape but not their light.|24|30|140|
+1057|233|Metatron Wings|Feathers of hammered white gold, warm even in shadow.|22|28|135|
+1062|233|Ignis Wings|Draconic wings that trail heat where they beat.|26|24|145|
+858|227|Gold Seraph Wings|Gilded seraph feathers, heavy for their size.|19|26|110|
+938|227|Great Crow Wings|The spread of a carrion bird twice its proper size.|14|16|75|
+1076|227|Moonlight Swallowtail Wings|Swallowtail wings lit as if by a moon behind them.|16|18|95|
+884|227|Megadrake Wings|Frost-rimed drake wings that never quite thaw.|12|10|65|
+882|221|Bee Wings|A blur of small wings, more noise than lift.|6|8|30|
+1259|233|Aetherforge Wings|Machined pinions on a gimbal, driven by a sealed core.|28|22|150|
+1249|227|Candy Seraph Wings|Seraph wings in two impossible sugar colours.|15|20|90|
+1170|891|Buster Blade|A slab of iron worn across the back. Edge optional.|34|14|130|
+1175|212|Secret Scroll|A sealed scroll case. The seal is older than the case.|14|24|100|
+1223|891|Skull Brand|A grinning pack of bone lashed with black cord.|36|16|135|
+951|245|Armored Carapace|A dense shell plate strapped over the shoulders.|22|10|70|
+952|212|Arcane Crystal|A slow-turning crystal that never touches your back.|18|22|105|
+249|891|Assassin's Guard|A flat sheath-board favoured by people who leave quickly.|32|14|125|
+266|233|Vampire Coffin|A coffin worn upright. Nobody asks twice.|30|22|120|
+1324|284|White Wolf Mantle|A pelt mantle from something that hunted in snow.|16|14|85|
+1449|284|Vampire Mantle|A high black collar and a cape that drinks light.|14|18|80|
+1450|284|Supreme Mantle|A heavy ceremonial cape, worn by nobody humble.|18|20|100|
+1144|212|Electric Guitar|Cherry sunburst, six strings, no amplifier anywhere.|12|12|60|
+1239|245|Travelling Parasol|A pink parasol angled permanently over one shoulder.|10|14|45|
+1243|245|Portable Fireworks|A mortar rack that fires on its own schedule.|12|10|55|
+1233|212|Fujin's Windbag|A stitched leather sack that will not stop bulging.|16|18|95|
+1561|233|Draco Felix|A coiled fire-drake that has decided you are furniture.|24|26|145|

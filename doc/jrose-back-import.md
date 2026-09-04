@@ -1,7 +1,8 @@
 # Importing Back Items From Jrose
 
-**Status:** done and **confirmed in game** — five back items imported as IDs **957–961**,
-and model-carried effects (wing trails) implemented, with the Phoenix trail rendering.
+**Status:** **30 back items imported** — IDs **957–961** (batch 1, confirmed in game) and
+**962–986** (batch 2, awaiting in-game check). Model-carried effects (wing trails)
+implemented and confirmed.
 **Date:** 2026-09-04.
 **Source:** `C:\Users\Thomas\Desktop\Testclients\Jrose` (loose `3Ddata\`).
 **Prerequisite reading:** [doc/jrose-survey.md](jrose-survey.md) for the dump as a whole.
@@ -374,9 +375,31 @@ stripped (§4.2). Seven files, 2.4 MB, verified for brightness as well as presen
 
 Still to do:
 
-The remaining **189 models** are the same command with different numbers. §4.4's sex-split
-list and the disabled-row levels are the only per-item traps; pass `--copy-effects` for
-anything carrying a trail.
+**Batch 2 (2026-09-04): 25 more as IDs 962–986**, manifest in
+[doc/jrose-back-batch2.txt](jrose-back-batch2.txt) — that file is the only record of what
+was imported and with what stats, since `data/` is gitignored, and it carries the replay
+and rollback commands in its header.
+
+Chosen for spread: 10 wings, 7 back-worn items, 3 mantles, 5 novelty pieces, across
+required levels 30–150. Two things it deliberately exercised:
+
+- **The `icon52.dds` transition.** `icon51` had exactly 20 free cells, so items 1–20 filled
+  it to cell 168 (index 8618) and items 21–25 opened `icon52` at cell 0 (index 8619).
+  `add_icon` starts the new sheet on its own; the TSI went 51 → 52 textures and 8,599 →
+  8,624 sprites, and sprites either side of the boundary carry real art. **Ship
+  `icon52.dds`** — it is a new file in `3DDATA/CONTROL/RES/`.
+- **A second, richer effect.** Portable Fireworks (Jrose row 1243) carries
+  `FireWork_Star02.eft`, which pulls in **4** particle files and **3** textures against
+  Phoenix's single `.ptl`. The recursive walk resolved all of them. Those are the only two
+  of Jrose's 5,001 back objects with a dummy point.
+
+Verified as before: STB rows == ZSC objects (987 each), no dangling indices table-wide, no
+missing assets, all 25 STL keys resolving in all five language blocks, and the client
+reaching zone loading with no exception.
+
+That leaves **164 models**. Same command with different numbers; §4.4's sex-split list and
+the disabled-row levels are the only per-item traps, and `--copy-effects` is free to pass
+always (it is a no-op for the models with no dummy point).
 
 Per-import checklist: `import-item.py --art-only [--copy-effects] …` →
 `add-dds-mipmaps.py` → delete any `.bak` under `data/` → bake → deploy.
