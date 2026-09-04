@@ -1,8 +1,8 @@
 # Importing Back Items From Jrose
 
-**Status:** **30 back items imported** — IDs **957–961** (batch 1, confirmed in game) and
-**962–986** (batch 2, awaiting in-game check). Model-carried effects (wing trails)
-implemented and confirmed.
+**Status:** **60 back items imported** — IDs **957–986** (batches 1–2, confirmed in game,
+including icons) and **987–1016** (batch 3, awaiting an in-game look). Model-carried
+effects (wing trails) implemented and confirmed.
 **Date:** 2026-09-04.
 **Source:** `C:\Users\Thomas\Desktop\Testclients\Jrose` (loose `3Ddata\`).
 **Prerequisite reading:** [doc/jrose-survey.md](jrose-survey.md) for the dump as a whole.
@@ -443,9 +443,22 @@ Verified as before: STB rows == ZSC objects (987 each), no dangling indices tabl
 missing assets, all 25 STL keys resolving in all five language blocks, and the client
 reaching zone loading with no exception.
 
-That leaves **164 models**. Same command with different numbers; §4.4's sex-split list and
+**Batch 3 (2026-09-05): 30 more as IDs 987–1016**, manifest in
+[doc/jrose-back-batch3.txt](jrose-back-batch3.txt). Weighted toward what batches 1–2
+skipped — 10 wings, 2 mantles, 6 back-worn pieces, 7 animal packs, 3 props, across
+required levels 12–145. Uneventful: no tooling changes were needed, the icons stayed
+inside `icon52` (30 of 144 good cells were in use, 114 free), and verification was clean
+first time — STB rows == ZSC objects (1017 each), no dangling indices, no missing assets,
+all 30 STL keys in all five language blocks, all 30 icons carrying real art.
+
+Worth noting for future batches: the candidate scan excludes already-imported models
+**by mesh signature**, not by row, so it cannot re-offer something a previous batch took
+even under a different Jrose row.
+
+That leaves **133 models**. Same command with different numbers; §4.4's sex-split list and
 the disabled-row levels are the only per-item traps, and `--copy-effects` is free to pass
-always (it is a no-op for the models with no dummy point).
+always (it is a no-op for the models with no dummy point — only 2 of Jrose's 5,001 back
+objects have one, and both are already in).
 
 Per-import checklist: `import-item.py --art-only [--copy-effects] …` →
 `add-dds-mipmaps.py` → delete any `.bak` under `data/` → bake → deploy.

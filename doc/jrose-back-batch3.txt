@@ -1,0 +1,53 @@
+# Jrose back-item import, batch 3 -- our IDs 987-1016, imported 2026-09-05.
+#
+# data/ is gitignored, so this file is the only record of what was imported and
+# with what stats. Fields, pipe-separated:
+#
+#   jrose_row | our_template_row | name | description | DEF | RES | required_level
+#
+# The template row is one of OUR LIST_BACK rows; --art-only clones every stat
+# column from it and then DEF/RES/level are overridden here. Nothing is read from
+# the Jrose row except the model and its icon.
+#
+# Weighted toward what batches 1-2 skipped: 10 wings, 2 mantles, 6 back-worn
+# pieces, 7 animal packs, 3 props, over required levels 12-145.
+#
+# Replay (from the repo root; --dry-run first):
+#
+#   grep -v '^#' doc/jrose-back-batch3.txt | while IFS='|' read -r row tmpl name desc def res lv; do
+#     python scripts/import-item.py --type back #       --source "C:/Users/Thomas/Desktop/Testclients/Jrose" #       --source-row "$row" --art-only --template-row "$tmpl" #       --name "$name" --desc "$desc" --def "$def" --res "$res" --req-level "$lv" #       --copy-icon --copy-effects
+#   done
+#
+# Then: scripts/add-dds-mipmaps.py, delete any .bak under data/, bake, deploy.
+# Roll the whole batch back with:
+#   python scripts/remove-trailing-items.py --type back --from-id 987 --dry-run
+857|227|Cupid's Wings|Small feathered wings that beat far too fast to lift anyone.|14|18|75
+1248|227|Duotone Angel Wings|A matched pair, each feathered in a different white.|17|20|95
+863|221|Lesser Astarot Wings|A half-size copy of a wing nobody has seen in years.|8|14|40
+929|221|Hatchling Wings|Stubby wings, still more down than feather.|7|9|25
+982|221|Insect Wings (Blue)|Chitinous wings that hold a blue sheen at any angle.|9|6|35
+1429|233|Battle Insect Wings|Armoured chitin over a wing that still works.|20|14|120
+900|221|Imp Wings (Cream)|Little devil wings in an entirely undevilish colour.|8|10|30
+794|227|Chill Wings|Wings that fog the air a hand's width around them.|13|17|80
+1470|233|Dreamdrift Butterfly|Wings that blur at the edges, as if half-remembered.|22|26|140
+1451|233|Skyborn Wings|Broad wings cut for altitude, not for show.|24|20|145
+897|284|Wanderer's Mantle|A road-worn cloak that has outlasted several owners.|12|14|65
+1418|891|Military Mantle|A weighted field cape with a stiffened collar.|26|18|130
+261|245|Lesser Buffalo Guard|A small hide-and-horn plate worn across the shoulders.|16|8|55
+1181|891|Powered Suit Wings|Replica thruster vanes. They glow; they do not thrust.|24|16|125
+1285|233|Aurum Lupus Tail|A gilded wolf tail that moves a beat behind you.|21|24|135
+1315|891|Boar Hide Pack|Bristled hide over a hardwood frame.|28|20|140
+1456|212|Tesla Box|A humming crate that raises the hair on your arms.|18|24|115
+1461|233|Fortune Tiger Pack|A tiger-faced fortune sack, stuffed past sensible.|23|22|130
+1520|233|Crimson Lepus|A long-eared hood-and-pack in deep red.|20|22|125
+1486|227|Lily Moonlight|A spray of night lilies bound across the back.|18|22|105
+774|202|Bear Backpack|A round brown bear, arms permanently around you.|4|4|12
+775|202|White Rabbit Backpack|A white rabbit that hangs on by the ears.|4|4|15
+781|202|Penguin Backpack|A penguin riding along, entirely unbothered.|5|5|20
+1112|245|Red Panda Backpack|A red panda draped over both shoulders.|8|8|35
+1113|245|Owl Backpack|An owl that appears to be watching behind you.|8|8|40
+1114|245|Lion Backpack|A maned lion cub, heavier than it looks.|10|7|45
+961|202|Fox Backpack|A russet fox curled into a pack.|6|6|28
+1543|212|Portable Fan|A back-mounted fan. The draught is real.|10|10|60
+1585|284|Holly Night Wreath|A wreath of holly and cold iron bells.|12|16|85
+1547|245|Halloween Basket|A lantern basket that smells of burnt sugar.|9|11|50
