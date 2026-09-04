@@ -27,9 +27,32 @@ RES_DIR = os.path.join("data", "3DDATA", "CONTROL", "RES")
 TSI = os.path.join(RES_DIR, "ITEM1.TSI")
 SHEET_SIZE = 512
 CELL = 40
-GRID = 13                    # 13x13 cells per sheet
-CELLS_PER_SHEET = GRID * GRID
+GRID = 13                    # 13x13 cells per sheet, as the retail atlas is laid out
 FIRST_EXT_SHEET = 51         # original data uses icon01..icon50
+
+# 13 * 40 = 520 on a 512px sheet, so the last column and the last row hang 8px
+# off the texture. The engine's default address mode is WRAP (ZZ_TADDRESS_WRAP,
+# zz_interface.h), so those 8px sample from the opposite edge and the icon draws
+# with a torn strip of a neighbouring cell down its right side or along its
+# bottom -- 8/40, exactly a fifth of the icon.
+#
+# Retail lays its sheets out the same way and *paints* all 169 cells, but no item
+# in the shipped tables points at one of the 25 bad ones, so the defect lies
+# dormant there. Our allocator filled cells densely from 0, walked straight into
+# them, and put 21 imported icons on the bad cells before anyone noticed.
+#
+# So allocate only cells that fit. That costs the last row and column: 144 usable
+# per sheet instead of 169.
+GOOD_CELLS = [c for c in range(GRID * GRID)
+              if (c % GRID) * CELL + CELL <= SHEET_SIZE
+              and (c // GRID) * CELL + CELL <= SHEET_SIZE]
+CELLS_PER_SHEET = len(GOOD_CELLS)
+
+def cell_xy(cell):
+    return (cell % GRID) * CELL, (cell // GRID) * CELL
+
+def rect_fits(x1, y1, x2, y2):
+    return x2 <= SHEET_SIZE and y2 <= SHEET_SIZE
 
 # ---------------------------------------------------------------- TSI
 def tsi_read(path):
@@ -71,9 +94,33 @@ def texture_entry(name):
     return (name, struct.pack("<h", len(nb)) + nb + struct.pack("<I", 0))
 
 def sprite_entry(texid, cell, label):
-    x, y = (cell % GRID) * CELL, (cell // GRID) * CELL
+    x, y = cell_xy(cell)
     sid = label.encode("ascii", "replace")[:31].ljust(32, b"\x00")
     return struct.pack("<h4iI", texid, x, y, x + CELL, y + CELL, 0) + sid
+
+def iter_sprites(blocks):
+    """Yield (flat_index, block_index, slot, texid, x1, y1, x2, y2) for every sprite.
+
+    The flat index is what an STB icon column means, and it is the position
+    across all blocks in order -- so a sprite must never move between blocks. Its
+    *texture* is a separate thing, read per sprite by the client.
+    """
+    flat = 0
+    for bi, (cnt, raw) in enumerate(blocks):
+        for i in range(cnt):
+            ent = raw[i * 54:(i + 1) * 54]
+            texid, x1, y1, x2, y2 = struct.unpack_from("<h4i", ent, 0)
+            yield flat, bi, i, texid, x1, y1, x2, y2
+            flat += 1
+
+def occupied_cells(textures, blocks):
+    """{(texid, cell)} for every sprite that sits on the 40px grid."""
+    out = set()
+    for _f, _b, _s, texid, x1, y1, _x2, _y2 in iter_sprites(blocks):
+        if x1 % CELL or y1 % CELL:
+            continue
+        out.add((texid, (y1 // CELL) * GRID + (x1 // CELL)))
+    return out
 
 # ---------------------------------------------------------------- DDS (uncompressed BGRA)
 def dds_write(path, img, dry):
@@ -157,24 +204,37 @@ def add_icon(art, label, dry):
     textures, blocks = tsi_read(TSI)
     total_before = sum(c for c, _ in blocks)
 
-    # extend the last extension sheet if it has room, else start a new one
+    # extend the last extension sheet if it has room, else start a new one.
+    #
+    # Placement is chosen from the cells actually occupied, not from the sprite
+    # count. Those used to be the same thing, and are not any more: a sprite can
+    # live in one texture's block while pointing at another (the client resolves
+    # the texture from the per-sprite id, not from the block -- io_imageres.cpp),
+    # which is what lets fix-icon-atlas-overrun.py relocate a bad sprite without
+    # renumbering it. Counting entries would hand out a cell that already holds
+    # relocated art.
     last_name = textures[-1][0].lower()
     ext_nums = [int(n[4:-4]) for n, _ in textures
                 if n.lower().startswith("icon") and n.lower().endswith(".dds")
                 and n[4:-4].isdigit() and int(n[4:-4]) >= FIRST_EXT_SHEET]
-    if ext_nums and last_name == "icon%02d.dds" % max(ext_nums) and blocks[-1][0] < CELLS_PER_SHEET:
+    taken = occupied_cells(textures, blocks)
+    free = []
+    if ext_nums and last_name == "icon%02d.dds" % max(ext_nums):
+        tid = len(textures) - 1
+        free = [c for c in GOOD_CELLS if (tid, c) not in taken]
+    if free:
         sheet_name = textures[-1][0]
-        cell = blocks[-1][0]
+        cell = free[0]
         sheet = dds_read_bgra(os.path.join(RES_DIR, sheet_name))
         new_sheet = False
     else:
         num = max(ext_nums) + 1 if ext_nums else FIRST_EXT_SHEET
         sheet_name = "icon%02d.dds" % num
-        cell = 0
+        cell = GOOD_CELLS[0]
         sheet = Image.new("RGBA", (SHEET_SIZE, SHEET_SIZE), (0, 0, 0, 0))
         new_sheet = True
 
-    x, y = (cell % GRID) * CELL, (cell // GRID) * CELL
+    x, y = cell_xy(cell)
     sheet.paste(art, (x, y))
     dds_write(os.path.join(RES_DIR, sheet_name), sheet, dry)
 
