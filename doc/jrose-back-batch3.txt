@@ -18,6 +18,13 @@
 #     python scripts/import-item.py --type back #       --source "C:/Users/Thomas/Desktop/Testclients/Jrose" #       --source-row "$row" --art-only --template-row "$tmpl" #       --name "$name" --desc "$desc" --def "$def" --res "$res" --req-level "$lv" #       --copy-icon --copy-effects
 #   done
 #
+# NOTE: id 997 was first imported from Jrose row 897 (Wanderer's Mantle), whose
+# model turned out to be `mant_dammy_m.zms` -- a 3-vertex placeholder. It equipped
+# and showed nothing. The row above has been corrected to Jrose 1510, which is what
+# id 997 actually holds now; the swap was done in place with
+# scripts/replace-item-model.py so the id did not move. import-item.py now refuses
+# a placeholder source object outright.
+#
 # Then: scripts/add-dds-mipmaps.py, delete any .bak under data/, bake, deploy.
 # Roll the whole batch back with:
 #   python scripts/remove-trailing-items.py --type back --from-id 987 --dry-run
@@ -31,7 +38,7 @@
 794|227|Chill Wings|Wings that fog the air a hand's width around them.|13|17|80
 1470|233|Dreamdrift Butterfly|Wings that blur at the edges, as if half-remembered.|22|26|140
 1451|233|Skyborn Wings|Broad wings cut for altitude, not for show.|24|20|145
-897|284|Wanderer's Mantle|A road-worn cloak that has outlasted several owners.|12|14|65
+1510|284|Cloak of the Defeated|A hunter's cloak, taken from someone who stopped needing it.|12|14|65
 1418|891|Military Mantle|A weighted field cape with a stiffened collar.|26|18|130
 261|245|Lesser Buffalo Guard|A small hide-and-horn plate worn across the shoulders.|16|8|55
 1181|891|Powered Suit Wings|Replica thruster vanes. They glow; they do not thrust.|24|16|125

@@ -404,6 +404,43 @@ alone — most likely added from a PNG rather than cropped from a dump.
 
 ---
 
+### 4.7 A source model can be a placeholder — refuse it, and the candidate filter is too strict
+
+Reported in game: **Wanderer's Mantle** (id 997) equipped and showed nothing.
+
+Its model is Jrose's `mant_dammy_m.zms` — "dammy" is *dummy*. **3 vertices, bounding box
+0.0014 units across, 150 bytes.** **76** of their back rows use it: Jrose draws mantles
+through some other system (those textures live under `3Ddata/NPC/MANT/`, away from the
+avatar art) and the back slot only holds a stand-in. The import was faithful; the source
+asset is empty.
+
+`import-item.py` now refuses a source object **whose every part is degenerate** (`≤8`
+vertices *and* `<0.05` extent), with `--allow-placeholder` to override. Judged per object,
+not per mesh — plenty of good models have a tiny second part (a strap, a charm), so a small
+mesh on its own means nothing. A sweep of the whole Jrose back table finds exactly **two**
+such objects; the other, `skeleton_back_0212_wa.zms` (4 verts, extent 0.0), was never
+imported.
+
+**Removing the item was the wrong repair.** 997 is not the last row, and item ids are baked
+into inventories, banks, drop tables and shop stock, so dropping it would have renumbered
+the 19 items above it — which had already been spawned and tested. `scripts/replace-item-model.py`
+swaps the model **in place** instead: same id, same STB row, same STL key, so nothing moves.
+Its ZSC writer is proved by `--selftest`, which re-serialises the whole file with no
+substitution and asserts byte-identical output — objects are variable-length records, so a
+subtly wrong writer would corrupt every object *after* the one it touched, and that reads as
+unrelated items losing their models rather than as a bad write.
+
+Id 997 is now **Cloak of the Defeated** (Jrose row 1510, 378 verts).
+
+**The candidate filter is stricter than `--art-only` needs.** Finding a replacement turned up
+two perfectly usable cloaks the scan had never offered — rows 1510 and 1572 — rejected for
+`itemtype 1000161`, a disabled-row level of 1259, and ability id 195. **`--art-only` reads
+none of those columns.** The filter's stat checks only matter for the stat-copying path, so
+the "models remaining" figure is understated; when hunting for a specific look, search by
+mesh and name rather than trusting the clean list.
+
+---
+
 ## 6. Where this stands
 
 Done: the tooling changes (§4.0–4.2), the five above imported and verified on disk,
@@ -444,7 +481,8 @@ missing assets, all 25 STL keys resolving in all five language blocks, and the c
 reaching zone loading with no exception.
 
 **Batch 3 (2026-09-05): 30 more as IDs 987–1016**, manifest in
-[doc/jrose-back-batch3.txt](jrose-back-batch3.txt). Weighted toward what batches 1–2
+[doc/jrose-back-batch3.txt](jrose-back-batch3.txt). One of the thirty shipped a placeholder
+model and was repaired in place — see §4.7. Weighted toward what batches 1–2
 skipped — 10 wings, 2 mantles, 6 back-worn pieces, 7 animal packs, 3 props, across
 required levels 12–145. Uneventful: no tooling changes were needed, the icons stayed
 inside `icon52` (30 of 144 good cells were in use, 114 free), and verification was clean

@@ -214,6 +214,62 @@ class Zsc:
 def norm(p):
     return p.decode("ascii", "replace").replace("\\", "/").lower()
 
+def zms_extent(path):
+    """(vertex count, largest bbox extent) from a ZMS header, or None.
+
+    Both come out of the header, which is read eagerly regardless of lazy
+    geometry loading, so this is cheap.
+    """
+    try:
+        with open(path, "rb") as fh:
+            d = fh.read(64)
+    except OSError:
+        return None
+    try:
+        i = d.index(b"\x00") + 1
+        if not d[:i - 1].startswith(b"ZMS"):
+            return None
+        j = i + 4                                   # skip the format flags
+        bmin = struct.unpack_from("<3f", d, j)
+        bmax = struct.unpack_from("<3f", d, j + 12)
+        j += 24
+        nbone, = struct.unpack_from("<H", d, j)
+        j += 2 + nbone * 2
+        nvert, = struct.unpack_from("<H", d, j)
+    except Exception:
+        return None
+    return nvert, max(bmax[k] - bmin[k] for k in range(3))
+
+def object_is_placeholder(source, src_zsc, obj_idx):
+    """True when every part of a source object is degenerate geometry.
+
+    Some source models are stand-ins for a system we do not have. Jrose's
+    `mant_dammy_m.zms` -- "dammy" is dummy -- is 3 vertices in a bounding box
+    0.0014 units across, and 76 of their back rows use it: their mantles are
+    drawn elsewhere (those textures live under `3Ddata/NPC/MANT/`, away from the
+    avatar art) and the back slot only holds a placeholder. Imported faithfully,
+    such an item equips and shows nothing, which reads as a broken import rather
+    than a faithful one.
+
+    Judged per *object*, not per mesh: plenty of good models have a tiny second
+    part (a strap, a charm), so a small mesh alone means nothing. Only an object
+    with no visible geometry at all is a placeholder.
+    """
+    _cyl, parts, _dummies, _bb = src_zsc.objects[obj_idx]
+    if not parts:
+        return False                                # empty is handled separately
+    for mid, _tid, _props in parts:
+        rel = norm(src_zsc.meshes[mid]).replace("/", os.sep)
+        if rel.lower().startswith("3ddata"):
+            rel = rel.split(os.sep, 1)[1]
+        info = zms_extent(os.path.join(source, "3DDATA", rel))
+        if info is None:
+            return False                            # unreadable: not our call to make
+        nvert, extent = info
+        if nvert > 8 and extent >= 0.05:
+            return False
+    return True
+
 # Paths inside .eft/.ptl are length-prefixed rather than NUL-terminated, and the
 # prefix width varies, so match the path shape directly instead of parsing the
 # container. Missing one is not fatal -- the engine's contract is that an absent
@@ -572,6 +628,9 @@ def main():
                          "and copies the .eft plus the particle files and textures it pulls "
                          "in. Without this such a dummy point is dropped, since a dangling "
                          "effect index crashes the client on load.")
+    ap.add_argument("--allow-placeholder", action="store_true",
+                    help="import even if the source model is degenerate geometry (it will "
+                         "equip and show nothing); normally such a row is refused")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -778,6 +837,14 @@ def main():
         src_zsc = Zsc(os.path.join(args.source, rel))
         if not src_zsc.objects[args.source_row][1]:
             empty_models.add(rel)
+        elif object_is_placeholder(args.source, src_zsc, args.source_row) \
+                and not args.allow_placeholder:
+            sys.exit("source object %d in %s is a placeholder -- every part is degenerate "
+                     "geometry (a few vertices in a near-zero bounding box), so the item "
+                     "would equip and show nothing. The source most likely draws this "
+                     "through a system we do not have. Pick a different row, or pass "
+                     "--allow-placeholder if you really mean it."
+                     % (args.source_row, os.path.basename(rel)))
         obj_id, files_needed, blob = zsc_build_append(
             os.path.join(OURS, rel), src_zsc, args.source_row,
             args.source, args.copy_effects)
