@@ -8,7 +8,7 @@ use roselib::io::RoseFile;
 
 /// Item category = which STB the item lives in.
 /// The numeric value is the ROSE item type, which is also the encoding used
-/// by the game: full_item_no = type * 1000 + id (see common/shared/citem.cpp).
+/// by the game's shop-slot encoding (see common/store_item_code.h).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum ItemCategory {
@@ -85,20 +85,40 @@ impl ItemCategory {
     }
 }
 
-/// Decode a store slot value stored in LIST_SELL.STB into (type, id).
-/// Encoding: `full = type * 1000 + id` (see citem.cpp:80-81).
+// Keep these and the codec in sync with
+// src/common/include/rose/common/store_item_code.h (client and server).
+const STORE_WIDE_BASE: i32 = 100_000;
+const STORE_LEGACY_MAX_ITEM_NO: i32 = 999;
+const STORE_MAX_ITEM_NO: i32 = 2047;
+
+/// Decode either a legacy or wide LIST_SELL.STB slot into (type, id).
 pub fn decode_item_no(full: i32) -> Option<(ItemCategory, i32)> {
-    if full <= 1000 {
+    if full <= 0 {
         return None;
     }
-    let ty = full / 1000;
-    let id = full % 1000;
+    let base = if full >= STORE_WIDE_BASE {
+        STORE_WIDE_BASE
+    } else {
+        1000
+    };
+    let ty = full / base;
+    let id = full % base;
+    if !(1..=STORE_MAX_ITEM_NO).contains(&id) {
+        return None;
+    }
     let cat = ItemCategory::ALL.iter().find(|c| **c as i32 == ty)?;
     Some((*cat, id))
 }
 
+/// Preserve legacy codes for IDs up to 999; larger IDs need the wide form
+/// or the excess digits silently turn them into a different item category.
 pub fn encode_item_no(cat: ItemCategory, id: i32) -> i32 {
-    (cat as i32) * 1000 + id
+    let base = if id <= STORE_LEGACY_MAX_ITEM_NO {
+        1000
+    } else {
+        STORE_WIDE_BASE
+    };
+    (cat as i32) * base + id
 }
 
 #[derive(Debug, Clone)]
@@ -572,6 +592,88 @@ fn backup_once(path: &Path) -> Result<()> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn store_codes_match_game_format_at_legacy_and_wire_boundaries() {
+        // Fixed expectations from the shared C++ shop codec, including the
+        // reported Back #1001 collision and Huzam's existing weapon codes.
+        for (cat, id, packed) in [
+            (ItemCategory::Face, 1, 1001),
+            (ItemCategory::Back, 999, 6999),
+            (ItemCategory::Back, 1000, 601000),
+            (ItemCategory::Back, 1001, 601001),
+            (ItemCategory::Weapon, 1368, 801368),
+            (ItemCategory::Weapon, 1379, 801379),
+            (ItemCategory::UseItem, 1060, 1001060),
+            (ItemCategory::Vehicle, 2047, 1402047),
+        ] {
+            assert_eq!(encode_item_no(cat, id), packed);
+            assert_eq!(decode_item_no(packed), Some((cat, id)));
+        }
+        // The game also accepts the wide form for a low ID.
+        assert_eq!(decode_item_no(600001), Some((ItemCategory::Back, 1)));
+        for packed in [
+            0,
+            -1,
+            999,
+            1000,
+            8000,
+            100000,
+            600000,
+            602048,
+            15001,
+            i32::MAX,
+        ] {
+            assert_eq!(decode_item_no(packed), None, "invalid code {}", packed);
+        }
+    }
+
+    #[test]
+    #[ignore = "requires the workspace's extracted data assets"]
+    fn workspace_wide_shop_items_resolve_and_catalog_ids_round_trip() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../data");
+        let data = DataSet::load(&root).unwrap();
+        let mut wide_count = 0;
+        for row in &data.sell_stb.data {
+            for packed in row
+                .iter()
+                .skip(3)
+                .take(SHOP_TAB_SLOT_COUNT)
+                .filter_map(|cell| cell.parse::<i32>().ok())
+                .filter(|packed| *packed >= STORE_WIDE_BASE)
+            {
+                let (cat, id) = decode_item_no(packed).expect("wide shop code must decode");
+                assert!(
+                    data.item_db.lookup(cat, id).is_some(),
+                    "missing item for {}",
+                    packed
+                );
+                wide_count += 1;
+            }
+        }
+        assert!(
+            wide_count > 0,
+            "expected existing wide shop codes in workspace data"
+        );
+        let mut catalog_count = 0;
+        for item in data
+            .item_db
+            .all()
+            .filter(|item| (1..=STORE_MAX_ITEM_NO).contains(&item.id))
+        {
+            assert_eq!(
+                decode_item_no(encode_item_no(item.category, item.id)),
+                Some((item.category, item.id)),
+                "{}",
+                item.name
+            );
+            catalog_count += 1;
+        }
+        println!(
+            "Resolved {} existing wide shop entries; round-tripped {} catalog items",
+            wide_count, catalog_count
+        );
+    }
+
     fn shared_shop() -> DataSet {
         let mut npc_stb = STB::new();
         npc_stb.headers = vec![String::new(); 26];
@@ -626,8 +728,10 @@ mod tests {
 
         // Choose the very last slot despite earlier holes, then replace an
         // occupied slot. Neither operation may shift neighbours or compact gaps.
-        assert_eq!(data.place_shop_item(0, 0, Some(47), 8003).unwrap(), 47);
-        assert_eq!(data.place_shop_item(0, 0, Some(0), 8004).unwrap(), 0);
+        let back = encode_item_no(ItemCategory::Back, 1001);
+        let weapon = encode_item_no(ItemCategory::Weapon, 1379);
+        assert_eq!(data.place_shop_item(0, 0, Some(47), back).unwrap(), 47);
+        assert_eq!(data.place_shop_item(0, 0, Some(0), weapon).unwrap(), 0);
         let copied_row = data.npcs[0].shop_tab_rows[0] as usize;
         assert_ne!(copied_row, 1);
         assert_eq!(data.npcs[1].shop_tab_rows[0], 1);
@@ -641,8 +745,8 @@ mod tests {
         assert_eq!(npcs.data[1][22], "1");
         for (slot, old) in original.iter().enumerate() {
             let expected = match slot {
-                0 => 8004,
-                47 => 8003,
+                0 => 801379,
+                47 => 601001,
                 _ => *old,
             };
             assert_eq!(sell.data[copied_row][3 + slot], expected.to_string());
