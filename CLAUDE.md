@@ -476,7 +476,7 @@ Verify manually with `scripts/verify-vfs.py <game-dir>` after any bulk bake — 
 
 The failure looks nothing like its cause. Whichever files happen to land past the boundary are simply the tail of the archive — when it first hit, that was `SCRIPTS\INIT.LUA`, so the client died at startup with a Lua `invalid control char near 'char(6)'` parse error followed by `assert: failed. zz_shader::check_system_shaders()`. Nothing pointed at the archive.
 
-`pack.rs` now **rolls over to `rose_2.vfs`, `rose_3.vfs`, …** at 1.9 GB (the margin absorbs the largest single asset, since the check runs before writing) and hard-errors if an offset would still overflow. Both the `.idx` format (`VfsIndex::file_systems` is a list) and the runtime (`CVFS_Manager::m_vecVFS`, searched by `OpenFile`) already supported multiple archives — only the packer was hardcoded to one. **Ship every `rose*.vfs` alongside `data.idx`**, not just `rose.vfs`.
+`pack.rs` now **rolls over to `rose_2.vfs`, `rose_3.vfs`, …** at 4.2 GB (`VFS_MAX_BYTES`; the margin below the 4 GiB ceiling absorbs the largest single asset, since the check runs before writing — it was 1.9 GB while the offset field was still signed) and hard-errors if an offset would still overflow. Both the `.idx` format (`VfsIndex::file_systems` is a list) and the runtime (`CVFS_Manager::m_vecVFS`, searched by `OpenFile`) already supported multiple archives — only the packer was hardcoded to one. **Ship every `rose*.vfs` alongside `data.idx`**, not just `rose.vfs`.
 
 Diagnosing a suspected bad bake: parse the `.idx` FAT (`short len; char name[len]; long off,len,blk; BYTE deleted,compress,enc; DWORD version,crc`) and check for negative offsets — that is a two-minute script and it is unambiguous.
 

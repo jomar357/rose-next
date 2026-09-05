@@ -83,26 +83,24 @@ pub fn pack(matches: &ArgMatches) -> Result<(), PipelineError> {
     let no_pack_globs = globs.get("nopack").unwrap_or(&empty_globset);
     let ignore_globs = globs.get("ignore").unwrap_or(&empty_globset);
 
-    // The .vfs format stores each file's offset as a SIGNED 32-BIT `long`
-    // (triggervfs FileEntry::lFileOffset). Past 2 GiB an offset wraps negative,
-    // the client seeks to garbage, and every affected file reads as binary
-    // noise. This used to happen silently -- `cur_offset as i32` truncated
-    // without complaint -- and the failure looked nothing like its cause: the
-    // files that happened to land past the boundary were the tail of the
-    // archive, which included SCRIPTS\INIT.LUA, so the client died at startup
-    // with a Lua "invalid control char" parse error and a shader assert.
+    // The .vfs format stores each file's offset in a 32-BIT field
+    // (triggervfs FileEntry::lFileOffset), which triggervfs reads as UNSIGNED --
+    // so the ceiling is 4 GiB. It was a *signed* `long` until 2026-08-29, which
+    // capped it at 2 GiB and corrupted silently past that: an offset wrapped
+    // negative, the client seeked to garbage, and every affected file read as
+    // binary noise. `cur_offset as i32` truncated without complaint, and the
+    // failure looked nothing like its cause -- the files that landed past the
+    // boundary were the tail of the archive, which included SCRIPTS\INIT.LUA, so
+    // the client died at startup with a Lua "invalid control char" parse error
+    // and a shader assert.
     //
     // Both the .idx format (VfsIndex::file_systems is a list) and the runtime
     // (CVFS_Manager::m_vecVFS, searched by OpenFile) already support several
     // archives, so the fix is to roll over to rose_2.vfs, rose_3.vfs, ... before
     // the limit rather than to grow one file past it.
     //
-    // The cap is deliberately below 2 GiB: the check runs *before* writing, and
-    // a single file can be large, so the margin absorbs the biggest asset.
-    // 4 GB minus a margin. The .vfs stores file offsets in a 32-bit field which
-    // triggervfs now reads as UNSIGNED (it was signed, which capped this at 2 GB
-    // and corrupted silently past it). The margin absorbs the largest single
-    // asset, since the check runs before the file is written.
+    // The cap sits below 4 GiB on purpose: the check runs *before* writing a
+    // file, so the margin has to absorb the largest single asset.
     const VFS_MAX_BYTES: u64 = 4_200_000_000;
 
     let vfs_name_for = |index: usize| -> String {
