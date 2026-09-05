@@ -3,7 +3,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
-use roselib::files::STB;
+use roselib::files::stl::{StringTableLanguage, StringTableRow};
+use roselib::files::{STB, STL};
 use roselib::io::RoseFile;
 
 /// Item category = which STB the item lives in.
@@ -151,6 +152,7 @@ impl Npc {
 #[derive(Debug, Clone)]
 pub struct ShopTab {
     pub row: usize, // 1-based row index in LIST_SELL.STB
+    /// Internal STB description; use shop_tab_label for the in-game name.
     pub name: String,
     pub items: Vec<i32>, // full encoded item numbers, fixed length 48
     pub dirty: bool,
@@ -171,6 +173,8 @@ pub struct DataSet {
     pub tab_ref_counts: HashMap<usize, usize>,
     pub item_db: ItemDb,
     pub zones: Vec<crate::zones::Zone>,
+    /// English in-game shop labels keyed by LIST_SELL's STL link, not row ID.
+    shop_names: HashMap<String, String>,
 
     pub any_npc_dirty: bool,
 }
@@ -199,6 +203,10 @@ impl DataSet {
             load_stb(&stb_dir, "LIST_NPC.STB").context("loading LIST_NPC.STB")?;
         let sell_stb =
             load_stb(&stb_dir, "LIST_SELL.STB").context("loading LIST_SELL.STB")?;
+        let shop_names = load_shop_names(&stb_dir).unwrap_or_else(|e| {
+            log::warn!("shop translations unavailable: {:#}", e);
+            HashMap::new()
+        });
 
         let npcs = collect_npcs(&npc_stb);
         let tab_ref_counts = count_tab_refs(&npcs);
@@ -223,6 +231,7 @@ impl DataSet {
             tab_ref_counts,
             item_db,
             zones,
+            shop_names,
             any_npc_dirty: false,
         })
     }
@@ -266,6 +275,89 @@ impl DataSet {
 
     pub fn ref_count(&self, row: usize) -> usize {
         *self.tab_ref_counts.get(&row).unwrap_or(&0)
+    }
+
+    /// Match the English client's GetStoreTabName: resolve the STL key in
+    /// game column 1 (roselib column 2). Column 0 is an internal description.
+    pub fn shop_tab_label(&self, row: usize) -> String {
+        let cells = self.sell_stb.data.get(row);
+        if let Some(name) = cells
+            .and_then(|cells| cells.get(2))
+            .and_then(|key| self.shop_names.get(key))
+        {
+            return name.clone();
+        }
+        let description = cells
+            .and_then(|cells| cells.get(1))
+            .filter(|name| !name.trim().is_empty())
+            .cloned()
+            .unwrap_or_else(|| format!("Tab {}", row));
+        format!("{} (untranslated)", description)
+    }
+
+    /// Assign a new, empty shop to an unused NPC tab. Reuse only a label and
+    /// its STL key: the client reads the translated name through column 2,
+    /// so an arbitrary inline name alone would produce a blank in-game tab.
+    pub fn create_shop_tab(
+        &mut self,
+        npc_idx: usize,
+        tab_slot: usize,
+        label_row: usize,
+    ) -> Result<usize> {
+        let assigned = self
+            .npcs
+            .get(npc_idx)
+            .and_then(|npc| npc.shop_tab_rows.get(tab_slot))
+            .context("invalid NPC or tab slot")?;
+        if *assigned != 0 {
+            return Err(anyhow!("this tab already has a shop assigned"));
+        }
+        let source = self
+            .sell_stb
+            .data
+            .get(label_row)
+            .filter(|_| label_row > 0)
+            .context("shop label not found")?;
+        let name = source
+            .get(1)
+            .filter(|s| !s.trim().is_empty())
+            .context("shop label has no name")?
+            .clone();
+        let key = source
+            .get(2)
+            .filter(|s| !s.trim().is_empty())
+            .context("shop label has no translation key")?
+            .clone();
+        if self.sell_stb.headers.len() < 3 + SHOP_TAB_SLOT_COUNT {
+            return Err(anyhow!("shop table does not have 48 item columns"));
+        }
+        let row = self.sell_stb.data.len();
+        if row == 0 || row > i16::MAX as usize {
+            return Err(anyhow!(
+                "new shop row is outside the game's supported range"
+            ));
+        }
+        let mut cells = vec![String::new(); self.sell_stb.headers.len()];
+        cells[0] = row.to_string();
+        cells[1] = name.clone();
+        cells[2] = key;
+        for cell in &mut cells[3..3 + SHOP_TAB_SLOT_COUNT] {
+            *cell = "0".to_string();
+        }
+        self.sell_stb.data.push(cells);
+        self.shop_tabs.insert(
+            row,
+            ShopTab {
+                row,
+                name,
+                items: vec![0; SHOP_TAB_SLOT_COUNT],
+                dirty: true,
+            },
+        );
+        self.npcs[npc_idx].shop_tab_rows[tab_slot] = row as i32;
+        self.tab_ref_counts.insert(row, 1);
+        self.any_npc_dirty = true;
+        Ok(row)
     }
 
     /// Place an item in an explicit slot, or the first empty slot when omitted.
@@ -371,8 +463,8 @@ impl DataSet {
             while row_cells.len() < 3 + SHOP_TAB_SLOT_COUNT {
                 row_cells.push(String::from("0"));
             }
-            // Tab name is stored inline in roselib col 1 (= C++ root col 0 via
-            // STORE_NAME). Writing it back keeps edits from being silently lost.
+            // Preserve the internal description in roselib col 1. The client
+            // resolves its displayed name through the STL key in col 2.
             if row_cells.len() > 1 {
                 row_cells[1] = tab.name.clone();
             }
@@ -451,6 +543,31 @@ pub fn resolve_icon_dir(root: &Path) -> Result<PathBuf> {
         "could not find 3DDATA/CONTROL/RES under '{}'",
         root.display()
     ))
+}
+
+fn load_shop_names(dir: &Path) -> Result<HashMap<String, String>> {
+    let path = file_ci(dir, "LIST_SELL_S.STL")?;
+    let stl = STL::from_path(&path).map_err(|e| anyhow!("reading {}: {}", path.display(), e))?;
+    let english = stl
+        .language_tables
+        .iter()
+        .find(|table| table.language == StringTableLanguage::English)
+        .context("LIST_SELL_S.STL has no English language table")?;
+    Ok(stl
+        .keys
+        .iter()
+        .zip(&english.rows)
+        .filter_map(|(key, row)| {
+            let StringTableRow::NormalRow(row) = row else {
+                return None;
+            };
+            let name = row.text.trim();
+            if name.is_empty() {
+                return None;
+            }
+            Some((key.name.clone(), name.to_string()))
+        })
+        .collect())
 }
 
 fn load_stb(dir: &Path, name: &str) -> Result<STB> {
@@ -694,6 +811,8 @@ mod tests {
         sell_stb.headers = vec![String::new(); 3 + SHOP_TAB_SLOT_COUNT];
         sell_stb.data = vec![vec!["0".to_string(); 3 + SHOP_TAB_SLOT_COUNT]; 2];
         sell_stb.data[1][0] = "1".to_string();
+        sell_stb.data[1][1] = "Weapons".to_string();
+        sell_stb.data[1][2] = "LSEL1".to_string();
         sell_stb.data[1][3] = "8001".to_string();
         sell_stb.data[1][5] = "8002".to_string();
         DataSet {
@@ -707,8 +826,110 @@ mod tests {
                 by_category: HashMap::new(),
             },
             zones: Vec::new(),
+            shop_names: HashMap::from([("LSEL1".to_string(), "Weapon".to_string())]),
             any_npc_dirty: false,
         }
+    }
+
+    #[test]
+    fn translated_shop_labels_do_not_replace_internal_descriptions() {
+        let mut data = shared_shop();
+        assert_eq!(data.shop_tab_label(1), "Weapon");
+        data.get_or_load_tab(1).unwrap().name = "Darren - Weapon".to_string();
+        assert_eq!(data.shop_tab_label(1), "Weapon");
+        assert_eq!(data.sell_stb.data[1][1], "Weapons");
+        let row = data.create_shop_tab(0, 1, 1).unwrap();
+        assert_eq!(data.shop_tab_label(row), "Weapon");
+        assert_eq!(data.sell_stb.data[row][1], "Weapons");
+        assert_eq!(data.sell_stb.data[row][2], "LSEL1");
+        data.shop_names.clear();
+        assert_eq!(data.shop_tab_label(1), "Weapons (untranslated)");
+    }
+
+    #[test]
+    #[ignore = "requires the workspace's extracted data assets"]
+    fn workspace_darren_and_ministers_use_english_class_labels() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../data");
+        let data = DataSet::load(&root).unwrap();
+        for (npc_id, expected) in [
+            (1081, vec!["Soldier", "Muse", "Hawker", "Dealer"]),
+            (1086, vec!["Hawker"]),
+            (1087, vec!["Dealer"]),
+        ] {
+            let npc = data.npcs.iter().find(|npc| npc.id == npc_id).unwrap();
+            let labels: Vec<String> = npc
+                .shop_tab_rows
+                .iter()
+                .filter(|row| **row > 0)
+                .map(|row| data.shop_tab_label(*row as usize))
+                .collect();
+            assert_eq!(labels, expected, "NPC {}", npc_id);
+            println!("NPC {}: {}", npc_id, labels.join(", "));
+        }
+    }
+
+    #[test]
+    fn creates_empty_tab_with_game_label_and_saves_items_and_npc_assignment() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut data = shared_shop();
+        data.root = temp.path().to_path_buf();
+        let stb_dir = data.root.join("3DDATA/STB");
+        fs::create_dir_all(&stb_dir).unwrap();
+        data.npc_stb
+            .write_to_path(&stb_dir.join("LIST_NPC.STB"))
+            .unwrap();
+        data.sell_stb
+            .write_to_path(&stb_dir.join("LIST_SELL.STB"))
+            .unwrap();
+        let original_rows = data.sell_stb.data.clone();
+        let original_npcs = data.npc_stb.data.clone();
+
+        // All three unused tabs can be filled independently. Browsing or
+        // choosing a label must not reuse the source's items or shared row.
+        for tab_slot in 1..4 {
+            let row = data.create_shop_tab(0, tab_slot, 1).unwrap();
+            assert_eq!(row, tab_slot + 1);
+            assert_eq!(data.ref_count(row), 1);
+            assert_eq!(data.get_or_load_tab(row).unwrap().items, vec![0; 48]);
+            assert_eq!(data.sell_stb.data[row][0], row.to_string());
+            assert_eq!(data.sell_stb.data[row][1], "Weapons");
+            assert_eq!(data.sell_stb.data[row][2], "LSEL1");
+            assert_eq!(data.shop_tab_label(row), "Weapon");
+            data.place_shop_item(0, tab_slot, Some(47), 801379).unwrap();
+        }
+        assert_eq!(&data.sell_stb.data[..2], original_rows.as_slice());
+        assert_eq!(data.npcs[1].shop_tab_rows, [1, 0, 0, 0]);
+        assert_eq!(data.ref_count(1), 2);
+        data.save().unwrap();
+
+        data.sell_stb = STB::from_path(&stb_dir.join("LIST_SELL.STB")).unwrap();
+        data.shop_tabs.clear();
+        let npcs = STB::from_path(&stb_dir.join("LIST_NPC.STB")).unwrap();
+        assert_eq!(npcs.data[1], original_npcs[1]);
+        for tab_slot in 1..4 {
+            let row = tab_slot + 1;
+            assert_eq!(npcs.data[0][22 + tab_slot], row.to_string());
+            assert_eq!(data.sell_stb.data[row][2], "LSEL1");
+            let items = &data.get_or_load_tab(row).unwrap().items;
+            assert!(items[..47].iter().all(|item| *item == 0));
+            assert_eq!(items[47], 801379);
+        }
+    }
+
+    #[test]
+    fn invalid_tab_creation_does_not_overwrite_or_append_shops() {
+        let mut data = shared_shop();
+        assert!(data.create_shop_tab(0, 0, 1).is_err()); // occupied
+        assert!(data.create_shop_tab(2, 1, 1).is_err()); // missing NPC
+        assert!(data.create_shop_tab(0, 4, 1).is_err()); // fifth tab
+        assert!(data.create_shop_tab(0, 1, 0).is_err()); // reserved row
+        assert!(data.create_shop_tab(0, 1, 2).is_err()); // missing label
+        data.sell_stb.data[1][2].clear();
+        assert!(data.create_shop_tab(0, 1, 1).is_err()); // missing in-game label
+        assert_eq!(data.sell_stb.data.len(), 2);
+        assert_eq!(data.npcs[0].shop_tab_rows, [1, 0, 0, 0]);
+        assert!(!data.any_npc_dirty);
+        assert!(data.shop_tabs.is_empty());
     }
 
     #[test]

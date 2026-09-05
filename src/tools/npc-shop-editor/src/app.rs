@@ -16,6 +16,7 @@ pub struct ShopEditorApp {
     selected_npc: Option<usize>,
     selected_tab: usize, // 0..=3
     selected_slot: Option<usize>, // None = first available slot
+    new_tab_label_row: Option<usize>,
     item_filter_category: Option<ItemCategory>,
     status: String,
     load_error: Option<String>,
@@ -34,6 +35,7 @@ impl ShopEditorApp {
             selected_npc: None,
             selected_tab: 0,
             selected_slot: None,
+            new_tab_label_row: None,
             item_filter_category: None,
             status: String::new(),
             load_error: None,
@@ -49,6 +51,7 @@ impl ShopEditorApp {
     fn load_root(&mut self, root: PathBuf) {
         self.root = Some(root.clone());
         self.selected_slot = None;
+        self.new_tab_label_row = None;
         self.icon_warning = None;
         match DataSet::load(&root) {
             Ok(ds) => {
@@ -259,6 +262,7 @@ fn sidebar_ui(app: &mut ShopEditorApp, ui: &mut egui::Ui) {
         let npc = &app.data.as_ref().unwrap().npcs[idx];
         app.selected_tab = first_valid_tab(npc);
         app.selected_slot = None;
+        app.new_tab_label_row = None;
         app.cow_notice_for_tab = None;
     }
 }
@@ -290,27 +294,16 @@ fn center_ui(app: &mut ShopEditorApp, ctx: &egui::Context, ui: &mut egui::Ui) {
         for (i, row) in npc.shop_tab_rows.iter().enumerate() {
             let enabled = *row > 0;
             let label = if enabled {
-                let data = app.data.as_mut().unwrap();
-                let tab = data.get_or_load_tab(*row as usize);
-                tab.map(|t| {
-                    if t.name.is_empty() {
-                        format!("Tab {} (row {})", i + 1, row)
-                    } else {
-                        format!("{}", t.name)
-                    }
-                })
-                .unwrap_or_else(|| format!("Tab {}", i + 1))
+                app.data.as_ref().unwrap().shop_tab_label(*row as usize)
             } else {
-                format!("(empty)")
+                format!("Tab {} (empty)", i + 1)
             };
             let selected = app.selected_tab == i;
-            let resp = ui.add_enabled(
-                enabled,
-                egui::SelectableLabel::new(selected, label),
-            );
-            if resp.clicked() && enabled {
+            let resp = ui.selectable_label(selected, label);
+            if resp.clicked() {
                 app.selected_tab = i;
                 app.selected_slot = None;
+                app.new_tab_label_row = None;
                 app.cow_notice_for_tab = None;
             }
         }
@@ -320,7 +313,7 @@ fn center_ui(app: &mut ShopEditorApp, ctx: &egui::Context, ui: &mut egui::Ui) {
     // Current tab details
     let current_row = npc.shop_tab_rows[app.selected_tab];
     if current_row <= 0 {
-        ui.label("This tab slot has no shop assigned.");
+        empty_tab_ui(app, npc_idx, ui);
         return;
     }
     let current_row_usize = current_row as usize;
@@ -342,12 +335,16 @@ fn center_ui(app: &mut ShopEditorApp, ctx: &egui::Context, ui: &mut egui::Ui) {
         }
     });
 
-    // Tab name editor
+    // Keep the internal description separate from the translated game label.
     {
         let data = app.data.as_mut().unwrap();
+        ui.label(format!(
+            "Tab name: {}",
+            data.shop_tab_label(current_row_usize)
+        ));
         if let Some(tab) = data.get_or_load_tab(current_row_usize) {
-            ui.horizontal(|ui| {
-                ui.label("Tab name:");
+            ui.collapsing("Internal description", |ui| {
+                ui.label("Used by data tools; this does not change the in-game tab name.");
                 if ui.text_edit_singleline(&mut tab.name).changed() {
                     tab.dirty = true;
                 }
@@ -449,6 +446,72 @@ fn center_ui(app: &mut ShopEditorApp, ctx: &egui::Context, ui: &mut egui::Ui) {
     }
 }
 
+fn empty_tab_ui(app: &mut ShopEditorApp, npc_idx: usize, ui: &mut egui::Ui) {
+    ui.heading(format!("Create tab {}", app.selected_tab + 1));
+    ui.label("Choose a shop label. The new tab will have 48 empty item slots.");
+    let data = app.data.as_ref().unwrap();
+    let labels: Vec<(usize, String)> = data
+        .sell_stb
+        .data
+        .iter()
+        .enumerate()
+        .skip(1)
+        .filter_map(|(row, cells)| {
+            cells.get(1).filter(|s| !s.trim().is_empty())?;
+            cells.get(2).filter(|s| !s.trim().is_empty())?;
+            Some((row, data.shop_tab_label(row)))
+        })
+        .collect();
+    if labels.is_empty() {
+        ui.label("No existing shop labels are available in this data.");
+        return;
+    }
+    if app.new_tab_label_row.is_none() {
+        app.new_tab_label_row = data.npcs[npc_idx]
+            .shop_tab_rows
+            .iter()
+            .filter_map(|row| labels.iter().find(|(r, _)| *r as i32 == *row))
+            .next()
+            .map(|(row, _)| *row)
+            .or(Some(labels[0].0));
+    }
+    ui.horizontal(|ui| {
+        ui.label("Tab label:");
+        egui::ComboBox::from_id_source("new_tab_label")
+            .selected_text(
+                labels
+                    .iter()
+                    .find(|(row, _)| Some(*row) == app.new_tab_label_row)
+                    .map(|(_, name)| name.as_str())
+                    .unwrap_or("Select label"),
+            )
+            .show_ui(ui, |ui| {
+                for (row, name) in &labels {
+                    ui.selectable_value(&mut app.new_tab_label_row, Some(*row), name);
+                }
+            });
+    });
+    if ui.button("Create empty tab").clicked() {
+        if let Some(label_row) = app.new_tab_label_row {
+            match app
+                .data
+                .as_mut()
+                .unwrap()
+                .create_shop_tab(npc_idx, app.selected_tab, label_row)
+            {
+                Ok(_) => {
+                    app.selected_slot = None;
+                    app.status = format!(
+                        "Created tab {}. Save to keep changes.",
+                        app.selected_tab + 1
+                    );
+                }
+                Err(e) => app.status = format!("Create tab failed: {}", e),
+            }
+        }
+    }
+}
+
 fn item_browser_ui(app: &mut ShopEditorApp, ctx: &egui::Context, ui: &mut egui::Ui) {
     ui.label(RichText::new("Item Browser").strong());
     ui.horizontal(|ui| {
@@ -483,7 +546,7 @@ fn item_browser_ui(app: &mut ShopEditorApp, ctx: &egui::Context, ui: &mut egui::
         .map(|d| d.npcs[npc_idx].shop_tab_rows[selected_tab] > 0)
         .unwrap_or(false);
     if !npc_has_tab {
-        ui.label("Selected tab slot is empty — no target to add into.");
+        ui.label("Create this empty tab in the center panel to start adding items.");
         return;
     }
 
