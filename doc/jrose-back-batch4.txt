@@ -1,0 +1,43 @@
+# Jrose back-item import, batch 4 -- our IDs 1017-1027, imported 2026-09-05.
+#
+# Every genuinely NEW wing MODEL Jrose has that we did not already hold: 11 of
+# them. Deliberately no recolours -- Jrose ships 142 unimported wing *variants*,
+# but 124 of those are texture swaps on meshes we already have, and 7 more are
+# extra colours of the 11 below.
+#
+#   distinct wing meshes            52   (11 were missing -> this batch)
+#   distinct mesh+texture variants 198   (142 were missing, 131 still are)
+#
+# Counting variants rather than meshes is the distinction that matters when
+# sizing this work: grouping by mesh alone collapses recolours that are separate
+# items to a player, and grouping by variant overstates how many new *shapes*
+# exist. Batches 1-3 used the mesh grouping, so their "models remaining" figures
+# were measuring the wrong unit.
+#
+# Fields, pipe-separated:
+#
+#   jrose_row | our_template_row | name | description | DEF | RES | required_level
+#
+# 1017/1019/1021/1022 complete the "Skyborn" set begun by id 996 (Jrose npc01);
+# these are npc05/npc04/npc03/npc02 of the same winged-tribe family.
+#
+# Replay (from the repo root; --dry-run first):
+#
+#   grep -v '^#' doc/jrose-back-batch4.txt | while IFS='|' read -r row tmpl name desc def res lv; do
+#     python scripts/import-item.py --type back #       --source "C:/Users/Thomas/Desktop/Testclients/Jrose" #       --source-row "$row" --art-only --template-row "$tmpl" #       --name "$name" --desc "$desc" --def "$def" --res "$res" --req-level "$lv" #       --copy-icon --copy-effects
+#   done
+#
+# Then: scripts/add-dds-mipmaps.py, delete any .bak under data/, bake, deploy.
+# Roll the whole batch back with:
+#   python scripts/remove-trailing-items.py --type back --from-id 1017 --dry-run
+1453|233|Skyborn Preceptor|The broadest span the winged tribe grants, and the last one earned.|30|26|150
+1548|233|Dragonic Wings|Ribbed red membrane on a frame that creaks when it opens.|27|23|145
+1452|233|Skyborn Pathfinder|Long primaries cut for distance rather than display.|25|22|138
+1331|233|Wings of Black Heaven|Feathered in a black that gives nothing back to the light.|26|24|142
+1455|233|Skyborn Adjutant|Trim, disciplined wings. Rank is in the shape, not the size.|21|20|126
+1454|227|Skyborn Quartermaster|Working wings, patched twice and still flying.|19|18|118
+1334|233|Wings of the Awakened|They opened once, on their own, and have not closed since.|23|21|132
+1582|227|Battle Insect Wings|Armoured elytra in a hard green lacquer.|15|12|88
+930|221|Pixie Wings|A quick blur of a wing, more suggestion than span.|8|11|42
+1358|221|Insect Wings (Flame)|Twin chitin wings lit through with orange.|10|8|55
+901|221|Imp Wings (Mint)|Small devil wings in a colour no devil would pick.|7|9|30

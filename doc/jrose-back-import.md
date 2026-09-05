@@ -1,8 +1,8 @@
 # Importing Back Items From Jrose
 
-**Status:** **60 back items imported** — IDs **957–986** (batches 1–2, confirmed in game,
-including icons) and **987–1016** (batch 3, awaiting an in-game look). Model-carried
-effects (wing trails) implemented and confirmed.
+**Status:** **71 back items imported** — IDs **957–1016** (batches 1–3, confirmed in game)
+and **1017–1027** (batch 4: every remaining new wing *model*, awaiting an in-game look).
+Model-carried effects (wing trails) implemented and confirmed.
 **Date:** 2026-09-04, batch 3 2026-09-05.
 **Source:** `C:\Users\Thomas\Desktop\Testclients\Jrose` (loose `3Ddata\`).
 **Prerequisite reading:** [doc/jrose-survey.md](jrose-survey.md) for the dump as a whole.
@@ -493,8 +493,33 @@ Worth noting for future batches: the candidate scan excludes already-imported mo
 **by mesh signature**, not by row, so it cannot re-offer something a previous batch took
 even under a different Jrose row.
 
-That leaves **133 models**. Same command with different numbers; §4.4's sex-split list and
-the disabled-row levels are the only per-item traps, and `--copy-effects` is free to pass
+**Batch 4 (2026-09-05): every remaining new wing *model*, 11 of them, as IDs 1017–1027**,
+manifest in [doc/jrose-back-batch4.txt](jrose-back-batch4.txt). Four of them
+(1017/1019/1021/1022) complete the "Skyborn" set begun by id 996.
+
+### Count models, not variants — or rather, know which you are counting
+
+Sizing "how many wings are left" exposed a measurement error running through batches 1–3.
+The candidate scans grouped by **mesh signature**, which collapses recolours: Jrose ships
+many wings that share a mesh and differ only in texture, and those are separate items to a
+player. Grouped the other way, by **mesh+texture**, the picture is:
+
+| | Total | Was missing |
+|---|---|---|
+| Distinct wing **meshes** | 52 | **11** |
+| Distinct wing **mesh+texture variants** | 198 | **142** |
+
+Of those 142, **124 were recolours of meshes we already held** and 7 more were extra colours
+of the 11 new meshes — leaving 11 genuinely new shapes, which is this batch. A recolour is
+cheap by construction: verified on Jrose row 795, importing one copies **only the `.dds`**,
+because `zsc_build_append` dedupes the mesh by path.
+
+So quote both numbers, and say which is which. "Models remaining" in the batch 1–3 notes
+means *meshes*, and understates the available variety by roughly 4x.
+
+That leaves **131 wing variants** (recolours, plus colours of the 11 just taken) and the
+non-wing models. Same command with different numbers; §4.4's sex-split list and the
+disabled-row levels are the only per-item traps, and `--copy-effects` is free to pass
 always (it is a no-op for the models with no dummy point — only 2 of Jrose's 5,001 back
 objects have one, and both are already in).
 
