@@ -15,6 +15,7 @@ pub struct ShopEditorApp {
     item_search: String,
     selected_npc: Option<usize>,
     selected_tab: usize, // 0..=3
+    selected_slot: Option<usize>, // None = first available slot
     item_filter_category: Option<ItemCategory>,
     status: String,
     load_error: Option<String>,
@@ -32,6 +33,7 @@ impl ShopEditorApp {
             item_search: String::new(),
             selected_npc: None,
             selected_tab: 0,
+            selected_slot: None,
             item_filter_category: None,
             status: String::new(),
             load_error: None,
@@ -46,6 +48,7 @@ impl ShopEditorApp {
 
     fn load_root(&mut self, root: PathBuf) {
         self.root = Some(root.clone());
+        self.selected_slot = None;
         self.icon_warning = None;
         match DataSet::load(&root) {
             Ok(ds) => {
@@ -255,6 +258,7 @@ fn sidebar_ui(app: &mut ShopEditorApp, ui: &mut egui::Ui) {
         app.selected_npc = Some(idx);
         let npc = &app.data.as_ref().unwrap().npcs[idx];
         app.selected_tab = first_valid_tab(npc);
+        app.selected_slot = None;
         app.cow_notice_for_tab = None;
     }
 }
@@ -306,6 +310,7 @@ fn center_ui(app: &mut ShopEditorApp, ctx: &egui::Context, ui: &mut egui::Ui) {
             );
             if resp.clicked() && enabled {
                 app.selected_tab = i;
+                app.selected_slot = None;
                 app.cow_notice_for_tab = None;
             }
         }
@@ -351,6 +356,8 @@ fn center_ui(app: &mut ShopEditorApp, ctx: &egui::Context, ui: &mut egui::Ui) {
     }
     ui.separator();
 
+    ui.label(RichText::new("Click a slot number to choose where to add an item.").weak());
+
     // Items table
     let remove_at: Option<usize>;
     {
@@ -384,7 +391,18 @@ fn center_ui(app: &mut ShopEditorApp, ctx: &egui::Context, ui: &mut egui::Ui) {
                         ui.end_row();
 
                         for (slot, full) in &items {
-                            ui.label(format!("{}", slot + 1));
+                            if ui
+                                .selectable_label(
+                                    app.selected_slot == Some(*slot),
+                                    format!("{}", slot + 1),
+                                )
+                                .on_hover_text(
+                                    "Use this slot for the next item from the Item Browser",
+                                )
+                                .clicked()
+                            {
+                                app.selected_slot = Some(*slot);
+                            }
                             if *full == 0 {
                                 ui.label("—");
                                 ui.label(RichText::new("(empty)").weak());
@@ -469,6 +487,49 @@ fn item_browser_ui(app: &mut ShopEditorApp, ctx: &egui::Context, ui: &mut egui::
         return;
     }
 
+    let items = {
+        let data = app.data.as_mut().unwrap();
+        let row = data.npcs[npc_idx].shop_tab_rows[selected_tab] as usize;
+        match data.get_or_load_tab(row) {
+            Some(tab) => tab.items.clone(),
+            None => {
+                ui.label("Selected shop tab could not be loaded.");
+                return;
+            }
+        }
+    };
+    ui.label("Destination slot:");
+    egui::ComboBox::from_id_source("destination_slot")
+        .selected_text(
+            app.selected_slot
+                .map(|slot| format!("Slot {}", slot + 1))
+                .unwrap_or_else(|| "First available".to_string()),
+        )
+        .show_ui(ui, |ui| {
+            ui.selectable_value(&mut app.selected_slot, None, "First available");
+            let data = app.data.as_ref().unwrap();
+            for (slot, full) in items.iter().enumerate() {
+                let label = format!("Slot {} — {}", slot + 1, shop_item_name(data, *full));
+                ui.selectable_value(&mut app.selected_slot, Some(slot), label);
+            }
+        });
+    let destination = app
+        .selected_slot
+        .or_else(|| items.iter().position(|value| *value == 0));
+    let existing = destination.and_then(|slot| items.get(slot)).copied();
+    let replacing = existing.map(|value| value != 0).unwrap_or(false);
+    if replacing {
+        ui.label(format!(
+            "Replaces: {}",
+            shop_item_name(app.data.as_ref().unwrap(), existing.unwrap())
+        ));
+    } else if let Some(slot) = destination {
+        ui.label(format!("Adds to slot {}", slot + 1));
+    } else {
+        ui.label("Shop is full. Choose a slot to replace an item.");
+    }
+    ui.separator();
+
     let filter = app.item_search.to_lowercase();
     let cat_filter = app.item_filter_category;
 
@@ -514,7 +575,13 @@ fn item_browser_ui(app: &mut ShopEditorApp, ctx: &egui::Context, ui: &mut egui::
                                 .small(),
                         );
                     });
-                    if ui.small_button("Add").clicked() {
+                    if ui
+                        .add_enabled(
+                            existing.is_some(),
+                            egui::Button::new(if replacing { "Replace" } else { "Add" }).small(),
+                        )
+                        .clicked()
+                    {
                         add_target = Some((*cat, *id));
                     }
                 });
@@ -524,12 +591,32 @@ fn item_browser_ui(app: &mut ShopEditorApp, ctx: &egui::Context, ui: &mut egui::
 
     if let Some((cat, id)) = add_target {
         let full = encode_item_no(cat, id);
-        apply_tab_mutation(app, npc_idx, selected_tab, |items| {
-            if let Some(empty) = items.iter().position(|v| *v == 0) {
-                items[empty] = full;
+        match app.data.as_mut().unwrap().place_shop_item(
+            npc_idx,
+            selected_tab,
+            app.selected_slot,
+            full,
+        ) {
+            Ok(slot) => {
+                app.status = format!(
+                    "{} item in slot {}. Save to keep changes.",
+                    if replacing { "Replaced" } else { "Added" },
+                    slot + 1
+                );
             }
-        });
+            Err(e) => app.status = format!("Edit failed: {}", e),
+        }
     }
+}
+
+fn shop_item_name(data: &DataSet, full: i32) -> String {
+    if full == 0 {
+        return "(empty)".to_string();
+    }
+    decode_item_no(full)
+        .and_then(|(cat, id)| data.item_db.lookup(cat, id))
+        .map(|item| item.name.clone())
+        .unwrap_or_else(|| format!("Item #{}", full))
 }
 
 fn apply_tab_mutation(

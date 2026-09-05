@@ -248,6 +248,40 @@ impl DataSet {
         *self.tab_ref_counts.get(&row).unwrap_or(&0)
     }
 
+    /// Place an item in an explicit slot, or the first empty slot when omitted.
+    /// Resolve the destination before copy-on-write so a full/invalid target
+    /// cannot duplicate a shared shop or mark it modified without an edit.
+    pub fn place_shop_item(
+        &mut self,
+        npc_idx: usize,
+        tab_slot: usize,
+        destination: Option<usize>,
+        item: i32,
+    ) -> Result<usize> {
+        let row = self
+            .npcs
+            .get(npc_idx)
+            .and_then(|npc| npc.shop_tab_rows.get(tab_slot))
+            .copied()
+            .filter(|row| *row > 0)
+            .context("no shop tab selected")? as usize;
+        let tab = self.get_or_load_tab(row).context("shop tab not found")?;
+        let slot = match destination {
+            Some(slot) if slot < tab.items.len() => slot,
+            Some(_) => return Err(anyhow!("shop slot is out of range")),
+            None => tab
+                .items
+                .iter()
+                .position(|value| *value == 0)
+                .context("shop is full; select a slot to replace an item")?,
+        };
+        let row = self.begin_tab_edit(npc_idx, tab_slot)?;
+        let tab = self.get_or_load_tab(row).context("shop tab not found")?;
+        tab.items[slot] = item;
+        tab.dirty = true;
+        Ok(slot)
+    }
+
     /// Begin a mutation on `(npc_idx, slot)`. If the referenced tab is shared
     /// with other NPCs, create a copy (append new row to LIST_SELL.STB) and
     /// retarget this NPC to the new row.
@@ -532,4 +566,114 @@ fn backup_once(path: &Path) -> Result<()> {
             .with_context(|| format!("backing up {} -> {}", path.display(), bak.display()))?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn shared_shop() -> DataSet {
+        let mut npc_stb = STB::new();
+        npc_stb.headers = vec![String::new(); 26];
+        npc_stb.data = vec![vec!["0".to_string(); 26]; 2];
+        let npcs = (0..2)
+            .map(|i| {
+                npc_stb.data[i][0] = i.to_string();
+                npc_stb.data[i][22] = "1".to_string();
+                Npc {
+                    id: i as i32,
+                    name: format!("NPC {}", i),
+                    roselib_row: i,
+                    shop_tab_rows: [1, 0, 0, 0],
+                }
+            })
+            .collect();
+        let mut sell_stb = STB::new();
+        sell_stb.headers = vec![String::new(); 3 + SHOP_TAB_SLOT_COUNT];
+        sell_stb.data = vec![vec!["0".to_string(); 3 + SHOP_TAB_SLOT_COUNT]; 2];
+        sell_stb.data[1][0] = "1".to_string();
+        sell_stb.data[1][3] = "8001".to_string();
+        sell_stb.data[1][5] = "8002".to_string();
+        DataSet {
+            root: PathBuf::new(),
+            npc_stb,
+            sell_stb,
+            npcs,
+            shop_tabs: HashMap::new(),
+            tab_ref_counts: HashMap::from([(1, 2)]),
+            item_db: ItemDb {
+                by_category: HashMap::new(),
+            },
+            zones: Vec::new(),
+            any_npc_dirty: false,
+        }
+    }
+
+    #[test]
+    fn chosen_slot_survives_save_without_changing_other_slots_or_shared_npc() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut data = shared_shop();
+        data.root = temp.path().to_path_buf();
+        let stb_dir = data.root.join("3DDATA/STB");
+        fs::create_dir_all(&stb_dir).unwrap();
+        data.npc_stb
+            .write_to_path(&stb_dir.join("LIST_NPC.STB"))
+            .unwrap();
+        data.sell_stb
+            .write_to_path(&stb_dir.join("LIST_SELL.STB"))
+            .unwrap();
+        let original = data.get_or_load_tab(1).unwrap().items.clone();
+
+        // Choose the very last slot despite earlier holes, then replace an
+        // occupied slot. Neither operation may shift neighbours or compact gaps.
+        assert_eq!(data.place_shop_item(0, 0, Some(47), 8003).unwrap(), 47);
+        assert_eq!(data.place_shop_item(0, 0, Some(0), 8004).unwrap(), 0);
+        let copied_row = data.npcs[0].shop_tab_rows[0] as usize;
+        assert_ne!(copied_row, 1);
+        assert_eq!(data.npcs[1].shop_tab_rows[0], 1);
+        assert_eq!(data.sell_stb.data.len(), 3); // only one copy
+        assert_eq!(data.get_or_load_tab(1).unwrap().items, original);
+
+        data.save().unwrap();
+        let sell = STB::from_path(&stb_dir.join("LIST_SELL.STB")).unwrap();
+        let npcs = STB::from_path(&stb_dir.join("LIST_NPC.STB")).unwrap();
+        assert_eq!(npcs.data[0][22], copied_row.to_string());
+        assert_eq!(npcs.data[1][22], "1");
+        for (slot, old) in original.iter().enumerate() {
+            let expected = match slot {
+                0 => 8004,
+                47 => 8003,
+                _ => *old,
+            };
+            assert_eq!(sell.data[copied_row][3 + slot], expected.to_string());
+            assert_eq!(sell.data[1][3 + slot], old.to_string());
+        }
+    }
+
+    #[test]
+    fn automatic_destination_still_uses_first_empty_slot() {
+        let mut data = shared_shop();
+        assert_eq!(data.place_shop_item(0, 0, None, 8003).unwrap(), 1);
+        let row = data.npcs[0].shop_tab_rows[0] as usize;
+        assert_eq!(
+            &data.get_or_load_tab(row).unwrap().items[..4],
+            &[8001, 8003, 8002, 0]
+        );
+    }
+
+    #[test]
+    fn full_shop_can_replace_but_failed_add_does_not_copy_shared_tab() {
+        let mut data = shared_shop();
+        for cell in &mut data.sell_stb.data[1][3..] {
+            *cell = "8001".to_string();
+        }
+        assert!(data.place_shop_item(0, 0, None, 8003).is_err());
+        assert!(data.place_shop_item(0, 0, Some(48), 8003).is_err());
+        assert!(data.place_shop_item(0, 4, Some(0), 8003).is_err());
+        assert_eq!(data.sell_stb.data.len(), 2);
+        assert_eq!(data.npcs[0].shop_tab_rows[0], 1);
+        assert!(!data.any_npc_dirty);
+        assert!(!data.get_or_load_tab(1).unwrap().dirty);
+        assert_eq!(data.place_shop_item(0, 0, Some(47), 8003).unwrap(), 47);
+    }
 }
