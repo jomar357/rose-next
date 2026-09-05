@@ -383,10 +383,11 @@ pub fn resolve_stb_dir(root: &Path) -> Result<PathBuf> {
 }
 
 pub fn resolve_icon_dir(root: &Path) -> Result<PathBuf> {
-    let candidates = [
-        root.join("3DDATA").join("CONTROL").join("RES"),
-        root.join("3ddata").join("control").join("res"),
-    ];
+    // Resolve the same STB directory as DataSet, so selecting the data root,
+    // 3DDATA, or STB itself all finds the sibling CONTROL/RES directory.
+    let stb_dir = resolve_stb_dir(root)?;
+    let data_dir = stb_dir.parent().context("STB directory has no parent")?;
+    let candidates = [data_dir.join("CONTROL/RES"), data_dir.join("control/res")];
     for c in candidates.iter() {
         if c.exists() {
             return Ok(c.clone());

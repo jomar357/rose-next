@@ -18,6 +18,7 @@ pub struct ShopEditorApp {
     item_filter_category: Option<ItemCategory>,
     status: String,
     load_error: Option<String>,
+    icon_warning: Option<String>,
     cow_notice_for_tab: Option<usize>, // tab row we warned about
 }
 
@@ -34,6 +35,7 @@ impl ShopEditorApp {
             item_filter_category: None,
             status: String::new(),
             load_error: None,
+            icon_warning: None,
             cow_notice_for_tab: None,
         };
         if let Some(r) = root {
@@ -44,12 +46,13 @@ impl ShopEditorApp {
 
     fn load_root(&mut self, root: PathBuf) {
         self.root = Some(root.clone());
+        self.icon_warning = None;
         match DataSet::load(&root) {
             Ok(ds) => {
                 self.data = Some(ds);
                 self.icons = IconStore::load(&root).unwrap_or_else(|e| {
                     log::warn!("icon load failed: {}", e);
-                    self.status = format!("Icons unavailable: {}", e);
+                    self.icon_warning = Some(format!("Icons unavailable: {:#}", e));
                     IconStore::empty(&root)
                 });
                 self.status = format!("Loaded {}", root.display());
@@ -133,6 +136,9 @@ fn top_bar(app: &mut ShopEditorApp, ctx: &egui::Context) {
                 }
             });
         });
+        if let Some(warning) = &app.icon_warning {
+            ui.colored_label(Color32::DARK_RED, warning);
+        }
     });
 }
 
