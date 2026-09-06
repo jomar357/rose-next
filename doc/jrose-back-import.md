@@ -1,9 +1,9 @@
 # Importing Back Items From Jrose
 
-**Status:** **71 back items imported** — IDs **957–1016** (batches 1–3, confirmed in game)
-and **1017–1027** (batch 4: every remaining new wing *model*, awaiting an in-game look).
-Model-carried effects (wing trails) implemented and confirmed.
-**Date:** 2026-09-04, batches 3-4 2026-09-05.
+**Status:** **105 back items imported** — IDs **957–1027** (batches 1–4, confirmed in game)
+and **1028–1061** (batch 5, awaiting an in-game look). Every new wing *model* Jrose had is
+in. Model-carried effects (wing trails) implemented and confirmed.
+**Date:** 2026-09-04, batches 3-4 2026-09-05, batch 5 2026-09-06.
 **Source:** `C:\Users\Thomas\Desktop\Testclients\Jrose` (loose `3Ddata\`).
 **Prerequisite reading:** [doc/jrose-survey.md](jrose-survey.md) for the dump as a whole.
 
@@ -517,8 +517,19 @@ because `zsc_build_append` dedupes the mesh by path.
 So quote both numbers, and say which is which. "Models remaining" in the batch 1–3 notes
 means *meshes*, and understates the available variety by roughly 4x.
 
-That leaves **131 wing variants** (recolours, plus colours of the 11 just taken) and the
-non-wing models. Same command with different numbers; §4.4's sex-split list and the
+**Batch 5 (2026-09-06): 34 more as IDs 1028–1061**, manifest in
+[doc/jrose-back-batch5.txt](jrose-back-batch5.txt) — the 5 remaining shield-ish models, the
+15 best of the rest, the 11-flag sashimono banner set, and 3 novelty pieces.
+
+The banner set is the cheapest variety in the dump and worth knowing about as a pattern:
+**one 400-vertex mesh with 11 different textures**, eight Sengoku army crests plus three
+motto flags. Verified before importing that these are distinct *designs* rather than
+recolours — ten of the eleven cost only a `.dds`. When hunting value, a high variant count
+on one mesh is worth inspecting rather than dismissing as a reskin.
+
+That leaves **131 wing variants** (recolours, plus colours of the 11 taken in batch 4) and
+roughly **73 non-wing models**, most of them animal packs, Japanese seasonal pieces and
+food props. Same command with different numbers; §4.4's sex-split list and the
 disabled-row levels are the only per-item traps, and `--copy-effects` is free to pass
 always (it is a no-op for the models with no dummy point — only 2 of Jrose's 5,001 back
 objects have one, and both are already in).
