@@ -90,7 +90,11 @@ impl ItemCategory {
 // src/common/include/rose/common/store_item_code.h (client and server).
 const STORE_WIDE_BASE: i32 = 100_000;
 const STORE_LEGACY_MAX_ITEM_NO: i32 = 999;
-const STORE_MAX_ITEM_NO: i32 = 2047;
+/// `tagBaseITEM::m_nItemNo` is 11 bits, so no shop slot can name an item above
+/// this however it is packed. Item tables are free to grow past it -- the row
+/// just cannot be sold, so the browser has to say so rather than write a code
+/// the game will refuse to decode.
+pub const STORE_MAX_ITEM_NO: i32 = 2047;
 
 /// Decode either a legacy or wide LIST_SELL.STB slot into (type, id).
 pub fn decode_item_no(full: i32) -> Option<(ItemCategory, i32)> {
@@ -295,6 +299,67 @@ impl DataSet {
         format!("{} (untranslated)", description)
     }
 
+    /// Whether the client can actually draw a caption for this tab. It resolves
+    /// the name through the STL key in game column 1 and never from the STB
+    /// name column, so a row with an empty or unknown key is nameless in game
+    /// however well-filled its description column looks here.
+    pub fn has_ingame_label(&self, row: usize) -> bool {
+        self.sell_stb
+            .data
+            .get(row)
+            .and_then(|cells| cells.get(2))
+            .map(|key| !key.trim().is_empty() && self.shop_names.contains_key(key))
+            .unwrap_or(false)
+    }
+
+    /// The (description, STL key) pair of a row usable as a label source.
+    fn read_label(&self, label_row: usize) -> Result<(String, String)> {
+        let source = self
+            .sell_stb
+            .data
+            .get(label_row)
+            .filter(|_| label_row > 0)
+            .context("shop label not found")?;
+        let name = source
+            .get(1)
+            .filter(|s| !s.trim().is_empty())
+            .context("shop label has no name")?
+            .clone();
+        let key = source
+            .get(2)
+            .filter(|s| !s.trim().is_empty())
+            .context("shop label has no translation key")?
+            .clone();
+        Ok((name, key))
+    }
+
+    /// Give a tab that already exists an in-game name, by adopting another
+    /// row's label and STL key. `create_shop_tab` can only do this at creation,
+    /// which left every shop whose LIST_SELL row shipped with an empty key
+    /// column permanently nameless -- and nine of ours did.
+    pub fn set_tab_label(
+        &mut self,
+        npc_idx: usize,
+        tab_slot: usize,
+        label_row: usize,
+    ) -> Result<usize> {
+        let (name, key) = self.read_label(label_row)?;
+        let row = self.begin_tab_edit(npc_idx, tab_slot)?;
+        let width = self.sell_stb.headers.len().max(3 + SHOP_TAB_SLOT_COUNT);
+        let cells = self
+            .sell_stb
+            .data
+            .get_mut(row)
+            .context("shop tab not found")?;
+        cells.resize(width, String::new());
+        // save() writes the description from the cached tab, but never the key.
+        cells[2] = key;
+        let tab = self.get_or_load_tab(row).context("shop tab not found")?;
+        tab.name = name;
+        tab.dirty = true;
+        Ok(row)
+    }
+
     /// Assign a new, empty shop to an unused NPC tab. Reuse only a label and
     /// its STL key: the client reads the translated name through column 2,
     /// so an arbitrary inline name alone would produce a blank in-game tab.
@@ -312,22 +377,7 @@ impl DataSet {
         if *assigned != 0 {
             return Err(anyhow!("this tab already has a shop assigned"));
         }
-        let source = self
-            .sell_stb
-            .data
-            .get(label_row)
-            .filter(|_| label_row > 0)
-            .context("shop label not found")?;
-        let name = source
-            .get(1)
-            .filter(|s| !s.trim().is_empty())
-            .context("shop label has no name")?
-            .clone();
-        let key = source
-            .get(2)
-            .filter(|s| !s.trim().is_empty())
-            .context("shop label has no translation key")?
-            .clone();
+        let (name, key) = self.read_label(label_row)?;
         if self.sell_stb.headers.len() < 3 + SHOP_TAB_SLOT_COUNT {
             return Err(anyhow!("shop table does not have 48 item columns"));
         }
@@ -370,6 +420,17 @@ impl DataSet {
         destination: Option<usize>,
         item: i32,
     ) -> Result<usize> {
+        // The last line of defence for the 11-bit item number: an item table
+        // may grow past 2047, and encode_item_no would happily pack such an id
+        // into a code that decode_store_item then refuses on both sides, so the
+        // slot would read as empty in the shop and sell nothing.
+        if decode_item_no(item).is_none() {
+            return Err(anyhow!(
+                "{} is not a shop code the game can decode; a shop slot can only                  name item ids 1..={}",
+                item,
+                STORE_MAX_ITEM_NO
+            ));
+        }
         let row = self
             .npcs
             .get(npc_idx)
@@ -392,6 +453,26 @@ impl DataSet {
         tab.items[slot] = item;
         tab.dirty = true;
         Ok(slot)
+    }
+
+    /// Rename a tab's internal description through the same copy-on-write path
+    /// as every other edit. Writing `ShopTab::name` directly would rename the
+    /// shared LIST_SELL row for every NPC pointing at it, and would then be
+    /// silently relocated onto the copy by the next `begin_tab_edit` -- so the
+    /// same keystroke landed in a different row depending on what you did next.
+    pub fn set_tab_description(
+        &mut self,
+        npc_idx: usize,
+        tab_slot: usize,
+        name: String,
+    ) -> Result<usize> {
+        let row = self.begin_tab_edit(npc_idx, tab_slot)?;
+        let tab = self.get_or_load_tab(row).context("shop tab not found")?;
+        if tab.name != name {
+            tab.name = name;
+            tab.dirty = true;
+        }
+        Ok(row)
     }
 
     /// Begin a mutation on `(npc_idx, slot)`. If the referenced tab is shared
@@ -448,26 +529,43 @@ impl DataSet {
         let sell_path = stb_dir.join("LIST_SELL.STB");
         let npc_path = stb_dir.join("LIST_NPC.STB");
 
-        // Apply tab edits back into the STB cells.
+        // Every row must be exactly as wide as the header, because roselib
+        // writes `col_count = headers.len()` but emits `row.iter().skip(1)`
+        // cells. A short row makes the declared width a lie, and both readers
+        // are sequential -- one short row misreads every row after it, not just
+        // itself. Normalise the whole table rather than only the edited rows:
+        // the cost is one pass and the failure it prevents is total.
+        normalize_width(
+            &mut self.sell_stb,
+            3 + SHOP_TAB_SLOT_COUNT,
+        );
+        let width = self.sell_stb.headers.len();
+
+        // Apply tab edits back into the STB cells. Nothing is written to disk
+        // until this loop has succeeded, so an error here leaves both files
+        // untouched.
         for tab in self.shop_tabs.values() {
             if !tab.dirty {
                 continue;
             }
             let data_row = tab.row;
-            while self.sell_stb.data.len() <= data_row {
-                // Shouldn't happen, but keep bounds safe.
-                self.sell_stb.data.push(Vec::new());
+            if data_row >= self.sell_stb.data.len() {
+                // create_shop_tab and begin_tab_edit both push the row before
+                // caching it, so this can only mean the cache and the table
+                // have diverged. Fabricating a row here would write a shop the
+                // game cannot read; refuse the whole save instead.
+                return Err(anyhow!(
+                    "shop tab {} is not in LIST_SELL.STB ({} rows) -- refusing to save",
+                    data_row,
+                    self.sell_stb.data.len()
+                ));
             }
             let row_cells = &mut self.sell_stb.data[data_row];
             // +1 offset everywhere: roselib includes the root column, C++ skips it.
-            while row_cells.len() < 3 + SHOP_TAB_SLOT_COUNT {
-                row_cells.push(String::from("0"));
-            }
+            row_cells.resize(width, String::new());
             // Preserve the internal description in roselib col 1. The client
             // resolves its displayed name through the STL key in col 2.
-            if row_cells.len() > 1 {
-                row_cells[1] = tab.name.clone();
-            }
+            row_cells[1] = tab.name.clone();
             for (slot, v) in tab.items.iter().enumerate() {
                 row_cells[3 + slot] = v.to_string();
             }
@@ -475,6 +573,7 @@ impl DataSet {
 
         // Apply NPC shop-tab-row edits back into LIST_NPC.STB.
         if self.any_npc_dirty {
+            normalize_width(&mut self.npc_stb, NPC_SHOP_TAB_COLS[3] + 1);
             for npc in &self.npcs {
                 let data_row = npc.roselib_row;
                 if data_row >= self.npc_stb.data.len() {
@@ -482,10 +581,8 @@ impl DataSet {
                 }
                 let cells = &mut self.npc_stb.data[data_row];
                 // C++ cols 21..24 → roselib cols 22..25 (root column offset).
-                for (i, col) in [22, 23, 24, 25].iter().enumerate() {
-                    if cells.len() > *col {
-                        cells[*col] = npc.shop_tab_rows[i].to_string();
-                    }
+                for (i, col) in NPC_SHOP_TAB_COLS.iter().enumerate() {
+                    cells[*col] = npc.shop_tab_rows[i].to_string();
                 }
             }
         }
@@ -506,6 +603,24 @@ impl DataSet {
         }
         self.any_npc_dirty = false;
         Ok(())
+    }
+}
+
+/// LIST_NPC's four shop-tab columns, in roselib indexing (C++ cols 21..24).
+const NPC_SHOP_TAB_COLS: [usize; 4] = [22, 23, 24, 25];
+
+/// Make every row exactly `headers.len()` cells wide, growing the header itself
+/// if the table is narrower than the columns we are about to write. roselib
+/// declares `col_count` from the header but writes cells from the rows, so the
+/// two disagreeing produces a file that reads as garbage from the first short
+/// row onwards.
+fn normalize_width(stb: &mut STB, min_cols: usize) {
+    if stb.headers.len() < min_cols {
+        stb.headers.resize(min_cols, String::new());
+    }
+    let width = stb.headers.len();
+    for row in &mut stb.data {
+        row.resize(width, String::new());
     }
 }
 
@@ -835,8 +950,10 @@ mod tests {
     fn translated_shop_labels_do_not_replace_internal_descriptions() {
         let mut data = shared_shop();
         assert_eq!(data.shop_tab_label(1), "Weapon");
-        data.get_or_load_tab(1).unwrap().name = "Darren - Weapon".to_string();
-        assert_eq!(data.shop_tab_label(1), "Weapon");
+        let renamed = data
+            .set_tab_description(0, 0, "Darren - Weapon".to_string())
+            .unwrap();
+        assert_eq!(data.shop_tab_label(renamed), "Weapon");
         assert_eq!(data.sell_stb.data[1][1], "Weapons");
         let row = data.create_shop_tab(0, 1, 1).unwrap();
         assert_eq!(data.shop_tab_label(row), "Weapon");
@@ -973,6 +1090,354 @@ mod tests {
             assert_eq!(sell.data[copied_row][3 + slot], expected.to_string());
             assert_eq!(sell.data[1][3 + slot], old.to_string());
         }
+    }
+
+    #[test]
+    fn renaming_a_shared_tab_copies_it_instead_of_renaming_every_owner() {
+        let mut data = shared_shop();
+        assert_eq!(data.ref_count(1), 2);
+        let copy = data
+            .set_tab_description(0, 0, "Darren - Weapons".to_string())
+            .unwrap();
+        assert_ne!(copy, 1, "a shared tab must be copied before it is renamed");
+        assert_eq!(data.npcs[0].shop_tab_rows[0], copy as i32);
+        assert_eq!(data.npcs[1].shop_tab_rows[0], 1, "the other owner keeps its row");
+        assert_eq!(data.get_or_load_tab(copy).unwrap().name, "Darren - Weapons");
+        assert_eq!(data.get_or_load_tab(1).unwrap().name, "Weapons");
+        // The copy keeps the STL key, so the renamed tab still has an in-game name.
+        assert_eq!(data.sell_stb.data[copy][2], "LSEL1");
+        assert_eq!(data.shop_tab_label(copy), "Weapon");
+        // Now exclusive: a second rename must reuse the copy, not make another.
+        assert_eq!(
+            data.set_tab_description(0, 0, "Renamed".to_string()).unwrap(),
+            copy
+        );
+        assert_eq!(data.sell_stb.data.len(), 3);
+    }
+
+    #[test]
+    fn renamed_description_reaches_the_copy_and_not_the_shared_row_on_disk() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut data = shared_shop();
+        data.root = temp.path().to_path_buf();
+        let stb_dir = data.root.join("3DDATA/STB");
+        fs::create_dir_all(&stb_dir).unwrap();
+        data.npc_stb
+            .write_to_path(&stb_dir.join("LIST_NPC.STB"))
+            .unwrap();
+        data.sell_stb
+            .write_to_path(&stb_dir.join("LIST_SELL.STB"))
+            .unwrap();
+        let copy = data.set_tab_description(0, 0, "Mine".to_string()).unwrap();
+        data.save().unwrap();
+
+        let sell = STB::from_path(&stb_dir.join("LIST_SELL.STB")).unwrap();
+        assert_eq!(sell.data[copy][1], "Mine");
+        assert_eq!(sell.data[1][1], "Weapons");
+        // Items came along with the copy untouched.
+        assert_eq!(sell.data[copy][3], "8001");
+        assert_eq!(sell.data[copy][5], "8002");
+    }
+
+    #[test]
+    fn item_ids_above_the_wire_limit_are_refused_before_they_reach_a_slot() {
+        let mut data = shared_shop();
+        // 2047 is the largest tagBaseITEM::m_nItemNo, so 2048 has no shop code.
+        let over = encode_item_no(ItemCategory::Weapon, STORE_MAX_ITEM_NO + 1);
+        assert_eq!(decode_item_no(over), None);
+        assert!(data.place_shop_item(0, 0, Some(1), over).is_err());
+        // A rejected item must not copy the shared tab or dirty anything.
+        assert_eq!(data.sell_stb.data.len(), 2);
+        assert_eq!(data.npcs[0].shop_tab_rows[0], 1);
+        assert!(!data.any_npc_dirty);
+        assert!(data.shop_tabs.is_empty());
+        // The largest legal id still goes through.
+        let ok = encode_item_no(ItemCategory::Weapon, STORE_MAX_ITEM_NO);
+        assert_eq!(data.place_shop_item(0, 0, Some(1), ok).unwrap(), 1);
+    }
+
+    #[test]
+    fn save_refuses_a_cached_tab_that_is_not_in_the_table() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut data = shared_shop();
+        data.root = temp.path().to_path_buf();
+        let stb_dir = data.root.join("3DDATA/STB");
+        fs::create_dir_all(&stb_dir).unwrap();
+        data.npc_stb
+            .write_to_path(&stb_dir.join("LIST_NPC.STB"))
+            .unwrap();
+        data.sell_stb
+            .write_to_path(&stb_dir.join("LIST_SELL.STB"))
+            .unwrap();
+        let before = fs::read(stb_dir.join("LIST_SELL.STB")).unwrap();
+        data.shop_tabs.insert(
+            99,
+            ShopTab {
+                row: 99,
+                name: "Ghost".to_string(),
+                items: vec![0; SHOP_TAB_SLOT_COUNT],
+                dirty: true,
+            },
+        );
+        assert!(data.save().is_err());
+        // The refusal happens before anything is written or backed up.
+        assert_eq!(fs::read(stb_dir.join("LIST_SELL.STB")).unwrap(), before);
+        assert!(!stb_dir.join("LIST_SELL.STB.bak").exists());
+    }
+
+    #[test]
+    fn save_squares_off_rows_against_the_declared_header_width() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut data = shared_shop();
+        data.root = temp.path().to_path_buf();
+        let stb_dir = data.root.join("3DDATA/STB");
+        fs::create_dir_all(&stb_dir).unwrap();
+        // A table with a column past the 48 shop slots, and a row short of it.
+        data.sell_stb.headers.push("EXTRA".to_string());
+        for row in &mut data.sell_stb.data {
+            row.push("x".to_string());
+        }
+        data.sell_stb.data[0].truncate(4);
+        data.npc_stb
+            .write_to_path(&stb_dir.join("LIST_NPC.STB"))
+            .unwrap();
+        data.sell_stb
+            .write_to_path(&stb_dir.join("LIST_SELL.STB"))
+            .unwrap();
+
+        data.place_shop_item(0, 0, Some(2), 8003).unwrap();
+        data.save().unwrap();
+
+        let width = data.sell_stb.headers.len();
+        assert_eq!(width, 4 + SHOP_TAB_SLOT_COUNT);
+        for (row, cells) in data.sell_stb.data.iter().enumerate() {
+            assert_eq!(cells.len(), width, "row {} is not header width", row);
+        }
+        // roselib declares col_count from the header, so a re-read proves the
+        // written file agrees with itself rather than desyncing.
+        let sell = STB::from_path(&stb_dir.join("LIST_SELL.STB")).unwrap();
+        assert_eq!(sell.headers.len(), width);
+        assert_eq!(sell.data.len(), data.sell_stb.data.len());
+        assert_eq!(sell.data[1][width - 1], "x");
+        assert_eq!(sell.data[0][width - 1], "");
+    }
+
+    /// Append a shop row with items but no description and no STL key -- the
+    /// shape nine of our live shop tabs actually have on disk.
+    fn push_keyless_row(data: &mut DataSet) -> usize {
+        let row = data.sell_stb.data.len();
+        let mut cells = vec![String::new(); data.sell_stb.headers.len()];
+        cells[0] = row.to_string();
+        for cell in &mut cells[3..] {
+            *cell = "0".to_string();
+        }
+        cells[3] = "8005".to_string();
+        data.sell_stb.data.push(cells);
+        data.tab_ref_counts.insert(row, 1);
+        row
+    }
+
+    #[test]
+    fn a_tab_with_no_stl_key_can_adopt_one_and_stops_being_nameless() {
+        let mut data = shared_shop();
+        let keyless = push_keyless_row(&mut data);
+        data.npcs[1].shop_tab_rows[0] = keyless as i32;
+        *data.tab_ref_counts.get_mut(&1).unwrap() = 1;
+
+        assert!(data.has_ingame_label(1), "LSEL1 resolves");
+        assert!(!data.has_ingame_label(keyless), "no key at all");
+
+        let row = data.set_tab_label(1, 0, 1).unwrap();
+        assert_eq!(row, keyless, "an exclusive tab is named in place");
+        assert!(data.has_ingame_label(keyless));
+        assert_eq!(data.shop_tab_label(keyless), "Weapon");
+        assert_eq!(data.sell_stb.data[keyless][2], "LSEL1");
+        assert_eq!(data.get_or_load_tab(keyless).unwrap().name, "Weapons");
+        // Adopting a label must not disturb the stock.
+        assert_eq!(data.get_or_load_tab(keyless).unwrap().items[0], 8005);
+    }
+
+    #[test]
+    fn naming_a_shared_tab_copies_it_like_every_other_edit() {
+        let mut data = shared_shop();
+        // A second label source, so the adopted key is distinguishable.
+        let other = data.sell_stb.data.len();
+        let mut cells = vec![String::new(); data.sell_stb.headers.len()];
+        cells[0] = other.to_string();
+        cells[1] = "Armors".to_string();
+        cells[2] = "LSEL2".to_string();
+        for cell in &mut cells[3..] {
+            *cell = "0".to_string();
+        }
+        data.sell_stb.data.push(cells);
+        data.shop_names.insert("LSEL2".to_string(), "Armor".to_string());
+
+        let copy = data.set_tab_label(0, 0, other).unwrap();
+        assert_ne!(copy, 1, "a shared tab must be copied before it is renamed");
+        assert_eq!(data.shop_tab_label(copy), "Armor");
+        assert_eq!(data.shop_tab_label(1), "Weapon", "the other owner is untouched");
+        assert_eq!(data.sell_stb.data[1][2], "LSEL1");
+        assert_eq!(data.npcs[1].shop_tab_rows[0], 1);
+    }
+
+    #[test]
+    fn adopting_a_label_from_an_unusable_row_changes_nothing() {
+        let mut data = shared_shop();
+        let keyless = push_keyless_row(&mut data);
+        data.npcs[1].shop_tab_rows[0] = keyless as i32;
+        // Row 0 is reserved (0 means "no shop"), row 2 has no label at all.
+        assert!(data.set_tab_label(1, 0, 0).is_err());
+        assert!(data.set_tab_label(1, 0, keyless).is_err());
+        assert!(!data.has_ingame_label(keyless));
+        assert!(data.shop_tabs.is_empty());
+        assert!(!data.any_npc_dirty);
+    }
+
+    /// Read an STB the way the *game* does, not the way roselib does: see
+    /// src/common/src/io/stb.cpp. It takes row/col counts minus one, seeks to
+    /// the data offset and reads every cell sequentially, so a row that is not
+    /// exactly `col_count` wide desyncs everything after it. roselib reading
+    /// its own output back proves nothing about that -- both sides would share
+    /// the bug -- which is why this is a byte-level reader.
+    fn game_read(path: &Path) -> (usize, usize, Vec<Vec<String>>) {
+        let b = fs::read(path).unwrap();
+        assert_eq!(&b[..4], b"STB1");
+        let u32_at = |o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap()) as usize;
+        let offset = u32_at(4);
+        let rows = u32_at(8) - 1;
+        let cols = u32_at(12) - 1;
+        let mut p = offset;
+        let mut data = Vec::with_capacity(rows);
+        for _ in 0..rows {
+            let mut row = Vec::with_capacity(cols);
+            for _ in 0..cols {
+                let n = u16::from_le_bytes(b[p..p + 2].try_into().unwrap()) as usize;
+                p += 2;
+                row.push(String::from_utf8_lossy(&b[p..p + n]).into_owned());
+                p += n;
+            }
+            data.push(row);
+        }
+        assert_eq!(
+            p,
+            b.len(),
+            "declared row/col count does not match the cell data in {}",
+            path.display()
+        );
+        (rows, cols, data)
+    }
+
+    /// Copy the workspace STBs somewhere writable so a test can save over them.
+    fn stage_workspace_stbs() -> (tempfile::TempDir, PathBuf) {
+        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../data/3DDATA/STB");
+        let temp = tempfile::tempdir().unwrap();
+        let dst = temp.path().join("3DDATA/STB");
+        fs::create_dir_all(&dst).unwrap();
+        for entry in fs::read_dir(&src).unwrap() {
+            let entry = entry.unwrap();
+            if entry.path().is_file() {
+                fs::copy(entry.path(), dst.join(entry.file_name())).unwrap();
+            }
+        }
+        let root = temp.path().to_path_buf();
+        (temp, root)
+    }
+
+    #[test]
+    #[ignore = "requires the workspace's extracted data assets"]
+    fn a_save_with_no_edits_preserves_every_cell_the_game_can_see() {
+        let (_temp, root) = stage_workspace_stbs();
+        let stb = root.join("3DDATA/STB");
+        let before_sell = game_read(&stb.join("LIST_SELL.STB"));
+        let before_npc = game_read(&stb.join("LIST_NPC.STB"));
+
+        let mut data = DataSet::load(&root).unwrap();
+        data.any_npc_dirty = true; // force LIST_NPC to be rewritten too
+        data.save().unwrap();
+
+        let after_sell = game_read(&stb.join("LIST_SELL.STB"));
+        let after_npc = game_read(&stb.join("LIST_NPC.STB"));
+        assert_eq!((before_sell.0, before_sell.1), (after_sell.0, after_sell.1));
+        assert_eq!(before_sell.2, after_sell.2, "LIST_SELL cells changed");
+        assert_eq!((before_npc.0, before_npc.1), (after_npc.0, after_npc.1));
+
+        // The one legitimate difference: an unused tab column stored as "" is
+        // rewritten as "0". Identical to the game, whose get_int32 returns 0 for
+        // an empty cell (src/common/src/io/stb.cpp). Anything else is a bug.
+        let mut rewrites = 0;
+        for (row, (before, after)) in before_npc.2.iter().zip(&after_npc.2).enumerate() {
+            for (col, (b, a)) in before.iter().zip(after).enumerate() {
+                if b == a {
+                    continue;
+                }
+                assert!(
+                    NPC_SHOP_TAB_COLS.contains(&(col + 1)) && b.is_empty() && a == "0",
+                    "LIST_NPC row {} col {} changed {:?} -> {:?}",
+                    row,
+                    col,
+                    b,
+                    a
+                );
+                rewrites += 1;
+            }
+        }
+        println!(
+            "no-op save preserved {}x{} sell cells and {}x{} npc cells ({} empty \
+             tab columns normalised to \"0\")",
+            after_sell.0, after_sell.1, after_npc.0, after_npc.1, rewrites
+        );
+    }
+
+    #[test]
+    #[ignore = "requires the workspace's extracted data assets"]
+    fn a_created_tab_reads_back_under_the_games_own_stb_semantics() {
+        let (_temp, root) = stage_workspace_stbs();
+        let stb = root.join("3DDATA/STB");
+        let mut data = DataSet::load(&root).unwrap();
+
+        let (npc_idx, tab_slot) = data
+            .npcs
+            .iter()
+            .enumerate()
+            .find_map(|(i, npc)| {
+                if !npc.has_shop() {
+                    return None;
+                }
+                npc.shop_tab_rows
+                    .iter()
+                    .position(|row| *row == 0)
+                    .map(|slot| (i, slot))
+            })
+            .expect("a shopkeeper with a free tab slot");
+        let npc_row = data.npcs[npc_idx].roselib_row;
+        let label_row = data.npcs[npc_idx].shop_tab_rows[0] as usize;
+        let old_rows = data.sell_stb.data.len();
+
+        let new_row = data.create_shop_tab(npc_idx, tab_slot, label_row).unwrap();
+        let wide = encode_item_no(ItemCategory::Weapon, 1379);
+        data.place_shop_item(npc_idx, tab_slot, Some(0), wide).unwrap();
+        data.place_shop_item(npc_idx, tab_slot, Some(47), 8001).unwrap();
+        data.save().unwrap();
+
+        let (rows, cols, sell) = game_read(&stb.join("LIST_SELL.STB"));
+        assert_eq!(rows, old_rows + 1, "one row appended");
+        assert_eq!(cols, 2 + SHOP_TAB_SLOT_COUNT, "LIST_SELL is 2 + 48 columns");
+        // The game reads the caption key from column 1 and the slots from 2..49.
+        assert_eq!(sell[new_row][1], data.sell_stb.data[label_row][2]);
+        assert_eq!(sell[new_row][2], wide.to_string());
+        assert_eq!(sell[new_row][2 + 47], "8001");
+        for slot in 1..47 {
+            assert_eq!(sell[new_row][2 + slot], "0", "slot {} should be empty", slot);
+        }
+        // The new row must be addressable: Get_SellITEM rejects >= row_count.
+        assert!(new_row < rows, "new row is past the game's row count");
+
+        let (_, _, npc) = game_read(&stb.join("LIST_NPC.STB"));
+        assert_eq!(npc[npc_row][21 + tab_slot], new_row.to_string());
+        println!(
+            "created LIST_SELL row {} of {}; npc row {} tab {} points at it",
+            new_row, rows, npc_row, tab_slot
+        );
     }
 
     #[test]

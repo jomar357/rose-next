@@ -2,7 +2,9 @@ use std::path::PathBuf;
 
 use egui::{Color32, RichText, ScrollArea, Vec2};
 
-use crate::data::{decode_item_no, encode_item_no, DataSet, ItemCategory, Npc};
+use crate::data::{
+    decode_item_no, encode_item_no, DataSet, ItemCategory, Npc, STORE_MAX_ITEM_NO,
+};
 use crate::icons::IconStore;
 
 pub struct ShopEditorApp {
@@ -21,7 +23,16 @@ pub struct ShopEditorApp {
     status: String,
     load_error: Option<String>,
     icon_warning: Option<String>,
-    cow_notice_for_tab: Option<usize>, // tab row we warned about
+    /// Live text for the internal-description field. Keyed by (npc, tab slot)
+    /// rather than by LIST_SELL row so the first keystroke's copy-on-write
+    /// doesn't reseed the box out from under the cursor.
+    description_edit: Option<DescriptionEdit>,
+}
+
+struct DescriptionEdit {
+    npc_idx: usize,
+    tab_slot: usize,
+    text: String,
 }
 
 impl ShopEditorApp {
@@ -40,7 +51,7 @@ impl ShopEditorApp {
             status: String::new(),
             load_error: None,
             icon_warning: None,
-            cow_notice_for_tab: None,
+            description_edit: None,
         };
         if let Some(r) = root {
             app.load_root(r);
@@ -53,6 +64,7 @@ impl ShopEditorApp {
         self.selected_slot = None;
         self.new_tab_label_row = None;
         self.icon_warning = None;
+        self.description_edit = None;
         match DataSet::load(&root) {
             Ok(ds) => {
                 self.data = Some(ds);
@@ -263,7 +275,7 @@ fn sidebar_ui(app: &mut ShopEditorApp, ui: &mut egui::Ui) {
         app.selected_tab = first_valid_tab(npc);
         app.selected_slot = None;
         app.new_tab_label_row = None;
-        app.cow_notice_for_tab = None;
+        app.description_edit = None;
     }
 }
 
@@ -304,7 +316,7 @@ fn center_ui(app: &mut ShopEditorApp, ctx: &egui::Context, ui: &mut egui::Ui) {
                 app.selected_tab = i;
                 app.selected_slot = None;
                 app.new_tab_label_row = None;
-                app.cow_notice_for_tab = None;
+                app.description_edit = None;
             }
         }
     });
@@ -335,22 +347,19 @@ fn center_ui(app: &mut ShopEditorApp, ctx: &egui::Context, ui: &mut egui::Ui) {
         }
     });
 
+    if app.selected_tab == SPECIAL_TAB_SLOT {
+        ui.colored_label(Color32::YELLOW, SPECIAL_TAB_WARNING);
+    }
+
     // Keep the internal description separate from the translated game label.
     {
-        let data = app.data.as_mut().unwrap();
-        ui.label(format!(
-            "Tab name: {}",
-            data.shop_tab_label(current_row_usize)
-        ));
-        if let Some(tab) = data.get_or_load_tab(current_row_usize) {
-            ui.collapsing("Internal description", |ui| {
-                ui.label("Used by data tools; this does not change the in-game tab name.");
-                if ui.text_edit_singleline(&mut tab.name).changed() {
-                    tab.dirty = true;
-                }
-            });
-        }
+        let label = app.data.as_ref().unwrap().shop_tab_label(current_row_usize);
+        ui.label(format!("Tab name: {}", label));
     }
+    if !app.data.as_ref().unwrap().has_ingame_label(current_row_usize) {
+        missing_label_ui(app, npc_idx, ui);
+    }
+    description_ui(app, npc_idx, current_row_usize, ui);
     ui.separator();
 
     ui.label(RichText::new("Click a slot number to choose where to add an item.").weak());
@@ -446,12 +455,10 @@ fn center_ui(app: &mut ShopEditorApp, ctx: &egui::Context, ui: &mut egui::Ui) {
     }
 }
 
-fn empty_tab_ui(app: &mut ShopEditorApp, npc_idx: usize, ui: &mut egui::Ui) {
-    ui.heading(format!("Create tab {}", app.selected_tab + 1));
-    ui.label("Choose a shop label. The new tab will have 48 empty item slots.");
-    let data = app.data.as_ref().unwrap();
-    let labels: Vec<(usize, String)> = data
-        .sell_stb
+/// Every LIST_SELL row usable as a label source: it needs both a description
+/// and an STL key, because the client draws the caption from the key alone.
+fn label_choices(data: &DataSet) -> Vec<(usize, String)> {
+    data.sell_stb
         .data
         .iter()
         .enumerate()
@@ -461,23 +468,27 @@ fn empty_tab_ui(app: &mut ShopEditorApp, npc_idx: usize, ui: &mut egui::Ui) {
             cells.get(2).filter(|s| !s.trim().is_empty())?;
             Some((row, data.shop_tab_label(row)))
         })
-        .collect();
-    if labels.is_empty() {
-        ui.label("No existing shop labels are available in this data.");
-        return;
-    }
+        .collect()
+}
+
+fn label_picker(
+    app: &mut ShopEditorApp,
+    npc_idx: usize,
+    labels: &[(usize, String)],
+    id: &str,
+    ui: &mut egui::Ui,
+) {
     if app.new_tab_label_row.is_none() {
-        app.new_tab_label_row = data.npcs[npc_idx]
+        app.new_tab_label_row = app.data.as_ref().unwrap().npcs[npc_idx]
             .shop_tab_rows
             .iter()
-            .filter_map(|row| labels.iter().find(|(r, _)| *r as i32 == *row))
-            .next()
+            .find_map(|row| labels.iter().find(|(r, _)| *r as i32 == *row))
             .map(|(row, _)| *row)
-            .or(Some(labels[0].0));
+            .or_else(|| labels.first().map(|(row, _)| *row));
     }
     ui.horizontal(|ui| {
         ui.label("Tab label:");
-        egui::ComboBox::from_id_source("new_tab_label")
+        egui::ComboBox::from_id_source(id)
             .selected_text(
                 labels
                     .iter()
@@ -486,11 +497,117 @@ fn empty_tab_ui(app: &mut ShopEditorApp, npc_idx: usize, ui: &mut egui::Ui) {
                     .unwrap_or("Select label"),
             )
             .show_ui(ui, |ui| {
-                for (row, name) in &labels {
+                for (row, name) in labels {
                     ui.selectable_value(&mut app.new_tab_label_row, Some(*row), name);
                 }
             });
     });
+}
+
+/// A shop whose LIST_SELL row has no usable STL key opens with a blank caption
+/// in game -- nine of ours do. Nothing else in the editor can repair that,
+/// because a label can otherwise only be chosen when a tab is created.
+fn missing_label_ui(app: &mut ShopEditorApp, npc_idx: usize, ui: &mut egui::Ui) {
+    ui.colored_label(
+        Color32::YELLOW,
+        "This tab has no in-game name: its LIST_SELL row has no STL key, so the \
+         client draws a blank caption. Adopt another shop's label to fix it.",
+    );
+    let labels = label_choices(app.data.as_ref().unwrap());
+    if labels.is_empty() {
+        ui.label("No existing shop labels are available in this data.");
+        return;
+    }
+    label_picker(app, npc_idx, &labels, "assign_tab_label", ui);
+    if ui.button("Give this tab that name").clicked() {
+        if let Some(label_row) = app.new_tab_label_row {
+            match app
+                .data
+                .as_mut()
+                .unwrap()
+                .set_tab_label(npc_idx, app.selected_tab, label_row)
+            {
+                Ok(_) => app.status = "Named the tab. Save to keep changes.".to_string(),
+                Err(e) => app.status = format!("Naming failed: {}", e),
+            }
+        }
+    }
+}
+
+/// Tab 4. `CStore::ChangeStore` only reads `NPC_SELL_TAB3` when its `bSpecialTab`
+/// argument is set, and that comes from the NPC's own .CON calling
+/// `openStore(npc, 1)`. The server has no such gate, so a shop parked here is
+/// buyable but may never be drawn.
+const SPECIAL_TAB_SLOT: usize = 3;
+const SPECIAL_TAB_WARNING: &str = concat!(
+    "WARNING: tab 4 is the special tab. The client only draws it when this NPC's ",
+    ".CON calls openStore(npc, 1); the server sells from it either way."
+);
+
+/// The internal description is roselib column 1 (game column 0). Nothing in the
+/// game reads it -- the client resolves the displayed name through the STL key
+/// in the next column -- but it is still shared data, so it goes through the
+/// same copy-on-write path as an item edit.
+fn description_ui(
+    app: &mut ShopEditorApp,
+    npc_idx: usize,
+    current_row: usize,
+    ui: &mut egui::Ui,
+) {
+    let tab_slot = app.selected_tab;
+    let stale = !app
+        .description_edit
+        .as_ref()
+        .is_some_and(|e| e.npc_idx == npc_idx && e.tab_slot == tab_slot);
+    if stale {
+        let text = app
+            .data
+            .as_mut()
+            .unwrap()
+            .get_or_load_tab(current_row)
+            .map(|tab| tab.name.clone())
+            .unwrap_or_default();
+        app.description_edit = Some(DescriptionEdit {
+            npc_idx,
+            tab_slot,
+            text,
+        });
+    }
+
+    let mut edited = None;
+    ui.collapsing("Internal description", |ui| {
+        ui.label("Used by data tools; this does not change the in-game tab name.");
+        if let Some(edit) = app.description_edit.as_mut() {
+            if ui.text_edit_singleline(&mut edit.text).changed() {
+                edited = Some(edit.text.clone());
+            }
+        }
+    });
+    if let Some(text) = edited {
+        match app
+            .data
+            .as_mut()
+            .unwrap()
+            .set_tab_description(npc_idx, tab_slot, text)
+        {
+            Ok(_) => app.status = "Modified. Save to keep changes.".to_string(),
+            Err(e) => app.status = format!("Rename failed: {}", e),
+        }
+    }
+}
+
+fn empty_tab_ui(app: &mut ShopEditorApp, npc_idx: usize, ui: &mut egui::Ui) {
+    ui.heading(format!("Create tab {}", app.selected_tab + 1));
+    ui.label("Choose a shop label. The new tab will have 48 empty item slots.");
+    if app.selected_tab == SPECIAL_TAB_SLOT {
+        ui.colored_label(Color32::YELLOW, SPECIAL_TAB_WARNING);
+    }
+    let labels = label_choices(app.data.as_ref().unwrap());
+    if labels.is_empty() {
+        ui.label("No existing shop labels are available in this data.");
+        return;
+    }
+    label_picker(app, npc_idx, &labels, "new_tab_label", ui);
     if ui.button("Create empty tab").clicked() {
         if let Some(label_row) = app.new_tab_label_row {
             match app
@@ -597,9 +714,9 @@ fn item_browser_ui(app: &mut ShopEditorApp, ctx: &egui::Context, ui: &mut egui::
     let cat_filter = app.item_filter_category;
 
     // Collect matches into a buffer so we don't borrow `data` across the add action.
-    let matches: Vec<(ItemCategory, i32, String, i32)> = {
+    let (matches, unsellable) = {
         let data = app.data.as_ref().unwrap();
-        let mut v: Vec<(ItemCategory, i32, String, i32)> = data
+        let hits = data
             .item_db
             .all()
             .filter(|it| cat_filter.map(|c| c == it.category).unwrap_or(true))
@@ -607,13 +724,23 @@ fn item_browser_ui(app: &mut ShopEditorApp, ctx: &egui::Context, ui: &mut egui::
                 filter.is_empty()
                     || it.name.to_lowercase().contains(&filter)
                     || it.id.to_string().contains(&filter)
-            })
-            .map(|it| (it.category, it.id, it.name.clone(), it.icon_no))
-            .collect();
+            });
+        // An item table may grow past the 11-bit item number a shop slot can
+        // address. Such a row is not a shop item at any encoding, so drop it
+        // here rather than let the browser offer a code the game refuses.
+        let mut v: Vec<(ItemCategory, i32, String, i32)> = Vec::new();
+        let mut skipped = 0usize;
+        for it in hits {
+            if it.id > STORE_MAX_ITEM_NO {
+                skipped += 1;
+                continue;
+            }
+            v.push((it.category, it.id, it.name.clone(), it.icon_no));
+        }
         // HashMap iteration is unordered; sort by (category, id) so the list
         // is stable across runs and easy to scan.
-        v.sort_by(|a, b| (a.0 as i32, a.1).cmp(&(b.0 as i32, b.1)));
-        v
+        v.sort_by_key(|it| (it.0 as i32, it.1));
+        (v, skipped)
     };
 
     ui.label(
@@ -621,6 +748,15 @@ fn item_browser_ui(app: &mut ShopEditorApp, ctx: &egui::Context, ui: &mut egui::
             .weak()
             .small(),
     );
+    if unsellable > 0 {
+        ui.colored_label(
+            Color32::YELLOW,
+            format!(
+                "{} hidden: item id above {}, which no shop slot can address.",
+                unsellable, STORE_MAX_ITEM_NO
+            ),
+        );
+    }
 
     let mut add_target: Option<(ItemCategory, i32)> = None;
     ScrollArea::vertical()
