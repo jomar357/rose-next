@@ -1,0 +1,92 @@
+# Jrose WEAPON import, batch 1 -- our IDs 1381-1419, imported 2026-09-06.
+#
+# Three complete cross-class sets, 13 weapon types each. Jrose has 555 new weapon
+# models but roughly half are novelty (a pizza-paddle staff, an ukulele wand, a
+# takoyaki-plate crossbow). Underneath that are five sets designed together, one
+# model per weapon type; these are the three that cover all 13:
+#
+#   Mirere    mesh 215_*        the level-215 tier set
+#   Rose      mesh rose_*       named for rose cultivars: Rosengarten, La Bella,
+#                               Amorosa, Ducat, Elfe, Angela, Georgette, Escada...
+#   t_unique  mesh t_unique_*   mythic names: Bahamut, Phoenix, Griffon, Unicorn,
+#                               Mermaid, Spriggan, Quetzalcoatl, Catoblepas...
+#
+# (The other two, tochu/insect and toshin/giant, cover 11 and 10 types and are
+# still available -- see doc/jrose-back-import.md's sibling notes.)
+#
+# STATS ARE OURS, AND THE THREE SETS ARE DELIBERATELY NOT THE SAME. Each is
+# anchored to OUR lv230 flagship for that weapon type, so every entry sits on our
+# scale and keeps the type's character -- a katar stays fast, an axe stays slow:
+#
+#   Mirere    lv215  ATK x0.90  speed = type baseline       no bonus
+#   Rose      lv225  ATK x0.96  speed = baseline - 1 (fast) +25 HIT
+#   t_unique  lv240  ATK x1.12  speed = baseline + 1 (slow) +18 CRITICAL
+#
+# Attack speed is inverted in the data: LOWER is faster (attack_speed =
+# 1500/(value+5)). HIT is AT_HIT=20 and CRITICAL is AT_CRITICAL=26; both are flat
+# values, and CRITICAL is a real damage term in type-0 skill damage.
+#
+# The requirement stat uses whatever ability that weapon type already requires,
+# read off the template rather than assumed -- STR for swords, DEX for bows and
+# katars, CON for guns, INT for casters -- scaled x0.88 / x0.94 / x1.05 by tier.
+#
+# THE TEMPLATE MUST BE THE SAME WEAPON TYPE. --art-only clones every other column
+# from it, including type, range and the requirement ability id, so templating a
+# bow on a sword would produce a bow with sword range and a STR gate. Each row
+# below templates on our own flagship of its own type (rows 1355-1367), and the
+# verification checks that every imported row kept its type.
+#
+# Fields, pipe-separated:
+#
+#   jrose_row | our_template_row | name | description | ATK | atk_speed | req_level | req_stat(id:val) | bonus(id:val, may be empty)
+#
+# Replay (from the repo root; --dry-run first):
+#
+#   grep -v '^#' doc/jrose-weapon-batch1.txt | while IFS='|' read -r row tmpl name desc atk spd lv req bonus; do
+#     b=""; [ -n "$bonus" ] && b="--bonus $bonus"
+#     python scripts/import-item.py --type weapon #       --source "C:/Users/Thomas/Desktop/Testclients/Jrose" #       --source-row "$row" --art-only --template-row "$tmpl" #       --name "$name" --desc "$desc" --atk "$atk" --atk-speed "$spd" #       --req-level "$lv" --req-stat "$req" $b --copy-icon
+#   done
+#
+# Then: scripts/add-dds-mipmaps.py, delete any .bak under data/, bake, deploy.
+# NOTE: this batch opened **icon53.dds** -- a new file in 3DDATA/CONTROL/RES/.
+# Roll the whole batch back with:
+#   python scripts/remove-trailing-items.py --type weapon --from-id 1381 --dry-run
+25|1355|Mirere Sword|Standard issue of the Mirere pattern. Nothing surprising, nothing wasted.|366|11|215|10:308|
+1887|1355|Rosengarten Sabre|One of the rose-named blades. Quick in the hand, and lighter than it looks.|391|10|225|10:329|20:25
+904|1355|Aerie|Named for something that was said to be unkillable. It was not.|456|12|240|10:368|26:18
+54|1356|Mirere Hammer|Standard issue of the Mirere pattern. Nothing surprising, nothing wasted.|392|12|215|10:321|
+1888|1356|Sommermorgen Maul|One of the rose-named blades. Quick in the hand, and lighter than it looks.|418|11|225|10:343|20:25
+911|1356|Catoblepas|Named for something that was said to be unkillable. It was not.|487|13|240|10:383|26:18
+123|1357|Mirere Greatsword|Standard issue of the Mirere pattern. Nothing surprising, nothing wasted.|405|10|215|10:295|
+1890|1357|La Bella Greatsword|One of the rose-named blades. Quick in the hand, and lighter than it looks.|432|9|225|10:315|20:25
+922|1357|Bahamut|Named for something that was said to be unkillable. It was not.|504|11|240|10:352|26:18
+186|1358|Mirere Spear|Standard issue of the Mirere pattern. Nothing surprising, nothing wasted.|388|10|215|10:277|
+1892|1358|Amorosa Glaive|One of the rose-named blades. Quick in the hand, and lighter than it looks.|414|9|225|10:296|20:25
+935|1358|Oberon|Named for something that was said to be unkillable. It was not.|483|11|240|10:331|26:18
+154|1359|Mirere Axe|Standard issue of the Mirere pattern. Nothing surprising, nothing wasted.|421|12|215|10:296|
+1891|1359|Ducat Axe|One of the rose-named blades. Quick in the hand, and lighter than it looks.|449|11|225|10:316|20:25
+929|1359|Albion|Named for something that was said to be unkillable. It was not.|524|13|240|10:353|26:18
+224|1360|Mirere Bow|Standard issue of the Mirere pattern. Nothing surprising, nothing wasted.|398|10|215|11:295|
+1893|1360|Whimy Longbow|One of the rose-named blades. Quick in the hand, and lighter than it looks.|424|9|225|11:315|20:25
+943|1360|Phoenix|Named for something that was said to be unkillable. It was not.|495|11|240|11:352|26:18
+253|1361|Mirere Gun|Standard issue of the Mirere pattern. Nothing surprising, nothing wasted.|410|11|215|13:248|
+1894|1361|Confetti Pistol|One of the rose-named blades. Quick in the hand, and lighter than it looks.|437|10|225|13:265|20:25
+955|1361|Hellhound|Named for something that was said to be unkillable. It was not.|510|12|240|13:296|26:18
+281|1362|Mirere Launcher|Standard issue of the Mirere pattern. Nothing surprising, nothing wasted.|445|12|215|10:157|
+1895|1362|Rubra Cannon|One of the rose-named blades. Quick in the hand, and lighter than it looks.|474|11|225|10:167|20:25
+962|1362|Griffon|Named for something that was said to be unkillable. It was not.|553|13|240|10:187|26:18
+324|1363|Mirere Staff|Standard issue of the Mirere pattern. Nothing surprising, nothing wasted.|361|10|215|12:282|
+1896|1363|Elfe Staff|One of the rose-named blades. Quick in the hand, and lighter than it looks.|385|9|225|12:301|20:25
+970|1363|Unicorn|Named for something that was said to be unkillable. It was not.|449|11|240|12:336|26:18
+352|1364|Mirere Wand|Standard issue of the Mirere pattern. Nothing surprising, nothing wasted.|320|12|215|12:290|
+1897|1364|Angela Wand|One of the rose-named blades. Quick in the hand, and lighter than it looks.|342|11|225|12:310|20:25
+978|1364|Mermaid|Named for something that was said to be unkillable. It was not.|399|13|240|12:346|26:18
+423|1365|Mirere Katar|Standard issue of the Mirere pattern. Nothing surprising, nothing wasted.|340|7|215|11:295|
+1898|1365|Georgette Claws|One of the rose-named blades. Quick in the hand, and lighter than it looks.|363|6|225|11:315|20:25
+986|1365|Spriggan|Named for something that was said to be unkillable. It was not.|423|8|240|11:352|26:18
+451|1366|Mirere Blades|Standard issue of the Mirere pattern. Nothing surprising, nothing wasted.|420|10|215|11:229|
+1899|1366|Escada Blades|One of the rose-named blades. Quick in the hand, and lighter than it looks.|448|9|225|11:244|20:25
+994|1366|Giranda|Named for something that was said to be unkillable. It was not.|523|11|240|11:273|26:18
+78|1367|Mirere Crossbow|Standard issue of the Mirere pattern. Nothing surprising, nothing wasted.|362|9|215|10:150|
+1889|1367|Tabris Crossbow|One of the rose-named blades. Quick in the hand, and lighter than it looks.|386|8|225|10:160|20:25
+918|1367|Quetzalcoatl|Named for something that was said to be unkillable. It was not.|450|10|240|10:178|26:18

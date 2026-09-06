@@ -62,6 +62,13 @@ import argparse, io, os, re, shutil, struct, sys
 OURS = "data"
 FIELD_ZSC_REL = r"3DDATA\ITEM\LIST_FieldITEM.ZSC"
 
+# Upper bound for an ability id written into a bonus column. The real limit is
+# AT_MAX in src/common/shared/datatype.h (~105-109 depending on the FRAROSE
+# block); 105 is the conservative floor of that range. Anything at or above it
+# runs off the end of CUserDATA::m_iAddValue on both client and server, which
+# have no bounds check -- see the --art-only note above.
+AT_MAX_GUARD = 105
+
 # name -> (item type number, STB, model ZSCs, STL, STL key prefix, our data-col count)
 #
 # "model ZSCs" is a tuple because armour is sex-split; it is empty for types with
@@ -626,6 +633,17 @@ def main():
                     help="weapon only: override ATTACK_SPEED (col 36). Lower is FASTER "
                          "(attack_speed = 1500/(value+5)), and evo-era values run ~6 higher "
                          "than ours, so copying them makes a weapon noticeably slower")
+    ap.add_argument("--req-stat", metavar="ID:VALUE",
+                    help="set the NON-level requirement pair, e.g. 10:320 for STR 320 "
+                         "(ability ids: 10 STR, 11 DEX, 12 INT, 13 CON, 14 CHARM, 15 SENSE). "
+                         "Without this the requirement comes from the template or the source "
+                         "row, which decouples it from --req-level -- that is how a batch of "
+                         "level-170 shields ended up demanding endgame STR.")
+    ap.add_argument("--bonus", metavar="ID:VALUE", action="append", default=[],
+                    help="set a bonus stat pair (cols 24/25 then 27/28). Repeatable, max 2. "
+                         "e.g. --bonus 20:25 for +25 HIT, --bonus 26:18 for +18 CRITICAL. "
+                         "Refused for ids >= AT_MAX, which would corrupt adjacent character "
+                         "state through the unbounded m_iAddValue[] write.")
     ap.add_argument("--field-model", type=int, help="ground-drop model index in OUR LIST_FieldITEM.ZSC")
     ap.add_argument("--copy-field-model", action="store_true",
                     help="port the source's ground-drop model object into our LIST_FieldITEM.ZSC")
@@ -808,6 +826,55 @@ def main():
                      "cannot set --req-level without dropping one")
         print("required level: source %s -> %d" % (row[slot + 1].decode() or "0", args.req_level))
         row[slot + 1] = str(args.req_level).encode("ascii")
+
+    if args.req_stat:
+        # The other half of the requirement pair. Kept separate from --req-level
+        # because they occupy the same two slots and a caller usually wants both:
+        # setting only the level leaves the stat gate at whatever the template
+        # had, which is how level-170 shields inherited an endgame STR bar.
+        try:
+            rid, rval = (int(x) for x in args.req_stat.split(":", 1))
+        except ValueError:
+            sys.exit("--req-stat wants ID:VALUE, e.g. 10:320")
+        if rid == 31:
+            sys.exit("--req-stat is for the non-level requirement; use --req-level for 31")
+        slot = None
+        for c in (19, 21):                       # reuse a slot already holding this id
+            if row[c].strip() == str(rid).encode("ascii"):
+                slot = c
+                break
+        if slot is None:                         # else a slot not holding the level
+            for c in (19, 21):
+                if row[c].strip() != b"31":
+                    slot = c
+                    row[c] = str(rid).encode("ascii")
+                    break
+        if slot is None:
+            sys.exit("both requirement slots hold a level requirement; cannot set --req-stat")
+        print("required stat: %s -> %d:%d" % (row[slot + 1].decode() or "0", rid, rval))
+        row[slot + 1] = str(rval).encode("ascii")
+
+    if args.bonus:
+        # Bonus pairs live at cols 24/25 and 27/28 and are ability ids fed into
+        # the unbounded m_iAddValue[nType] += nValue write on both client and
+        # server, so the id is range-checked here rather than trusted.
+        if len(args.bonus) > 2:
+            sys.exit("at most 2 --bonus pairs (cols 24/25 and 27/28)")
+        for n, spec in enumerate(args.bonus):
+            try:
+                bid, bval = (int(x) for x in spec.split(":", 1))
+            except ValueError:
+                sys.exit("--bonus wants ID:VALUE, e.g. 20:25")
+            if not 0 < bid < AT_MAX_GUARD:
+                sys.exit("--bonus id %d is outside 1..%d; an out-of-range ability id writes "
+                         "past m_iAddValue[] and corrupts adjacent character state"
+                         % (bid, AT_MAX_GUARD - 1))
+            col = 24 if n == 0 else 27
+            print("bonus %d: %s:%s -> %d:%d"
+                  % (n + 1, row[col].decode() or "-", row[col + 1].decode() or "-", bid, bval))
+            row[col] = str(bid).encode("ascii")
+            row[col + 1] = str(bval).encode("ascii")
+
     if not args.copy_field_model:
         field_count = len(Zsc(os.path.join(OURS, FIELD_ZSC_REL)).objects)
         if args.field_model is not None:
