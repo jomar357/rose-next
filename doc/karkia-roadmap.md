@@ -161,7 +161,7 @@ Write it as a `rebalance-karkia.py` in the same style — idempotent, sidecar ne
 `--dry-run` / `--verify` / `--restore` — not as edits folded into the importer. The importer
 should stay a faithful copy so it can be re-run.
 
-Then populate the three placeholder zones (§4, question 4).
+The three placeholder zones stay empty for now (§4, decision 4).
 
 **Acceptance:** re-run `scripts/balance-sim.py` against the written rows and check
 swings-per-kill lands in the same band as our own monsters at that level. Then actually play
@@ -183,7 +183,7 @@ level-18 loot. (This is not new — Oro's zones 71–82 already sit on occupied 
 Karkia is a chance to notice it. Either author sane tables at the Karkia zone ids too, or
 keep every Karkia mob's drop rate high enough that the fallback effectively never fires.)
 
-### Stage 6 — NPCs (optional, see question 5)
+### Stage 6 — NPCs
 
 32 rows, models, `LIST_EVENT` rows (all 32 `.CON`s are registered in Jrose's table, which is
 better than Oro where none were), and authored English dialog through the QEX1 appendix.
@@ -191,97 +191,131 @@ Nine are shopkeepers whose 14 `LIST_SELL` tabs need stock written from scratch.
 
 ---
 
-## 4. Open questions
+## 4. Decisions taken
 
-These change the work rather than being decidable during it. Recommendation first in each.
+Settled 2026-09-06.
 
-### 1. Where does Karkia sit in progression?
+1. **Karkia is an alternative to late Oro, not a sequel to it.** Same band, different
+   flavour, for players who do not enjoy the Wasteland. Level targets in §5.
+2. **The raid tier stays a raid.** The Drake → Hebarn Executive escalation is kept, tuned
+   down until a coordinated party can take it. Numbers in §5.
+3. **No fate-system hook** for now. Karkia reads as Hebarn territory but is open to everyone;
+   gating it on the Arua/Hebarn markers can be layered on later.
+4. **The three unpopulated zones are deferred.** They ship walkable and quiet; population is
+   a later pass.
+5. **NPCs are the last step of v1**, after monsters. The Wayfinder is the exception — it is
+   stage 2, because travel is not optional.
+6. **Monsters are the priority.** Stages 3 and 4 are what makes Karkia real.
 
-Karkia is authored at 211–250 against our 240 cap, and Oro already occupies 200–240. The
-answer sets every number in stage 4.
-
-- **(a) Post-Oro endgame, 225–240** *(recommended)*. Karkia becomes the thing you do after
-  Muris. Compresses 211–250 into 225–240, keeps Oro relevant, needs no cap change. The
-  entrance NPC then lives in Muris and Karkia is gated behind reaching Oro.
-- (b) Parallel to Oro, 200–240 — a second route through the same band. More content at the
-  same level, less sense of progression.
-- (c) Raise the cap past 240 for Karkia. We did this once for Oro (`project_level_cap_240`)
-  and the EXP curve work that came with it was substantial.
-
-### 2. What happens to the raid tier?
-
-Karkia's top end is a raid we have no systems for. `ks_2699` (Deadly Drake α, level 250) is
-scripted to summon **two 6.5 M-HP "Hebarn Executives"**, and three Spire Village trash mobs
-summon a 2.79 M-HP Corroded Golem. Our biggest boss is ~87 k HP, and per
-`project_class_identity_pass` we have no threat table and no group content.
-
-- **(a) Rescale them into our boss tier and drop the escalation** *(recommended)* — Drakes
-  become ~10x-trend zone bosses, the executive summons are removed from the `.aip`. Keeps
-  Karkia a solo/small-group planet, which is what our combat supports.
-- (b) Keep them as aspirational raid bosses nobody can kill yet. Honest, but it means placing
-  content that is currently dead.
-- (c) Build toward group content, with Karkia's top end as the target. A much bigger project.
-
-### 3. Do we hook Karkia to the Oro fate system?
-
-The raid bosses are literally ヘバーン幹部 — **Hebarn Executives** — and our Oro fate system
-already gates content on the Arua/Hebarn marker skills 2880/2881
-(`project_oro_fate_system`). That is a ready-made narrative hook.
-
-- **(a) Faction-flavoured but not gated** *(recommended)* — Karkia reads as Hebarn territory,
-  everyone can go. No new gating code, and it does not strand half the playerbase.
-- (b) Fate-gated: Hebarn players get a different reception, or Arua players a harder version.
-  More interesting, more authoring, and it doubles the testing.
-
-### 4. What goes in the three empty zones?
-
-`KBurnedForest`, `KMemories` and `KFlowerGarden` have regen infrastructure laid out (23, 10
-and 20 points; limits 265, 102, 188) but spawn only monster id 1 — チビゼリービーン, the
-level-2 Jelly Bean. Jrose never populated them.
-
-- **(a) Spread the existing Karkia roster across them** *(recommended)* — cheapest, and it
-  gives the 21-monster Cemetery roster somewhere else to appear.
-- (b) Author new monsters using art we already hold. More distinct, real work.
-- (c) Leave them quiet — no combat, pure atmosphere zones. Two of them (Memories, Flower
-  Garden) read that way from their names.
-
-Related: **10 of Karkia's 31 monsters are re-skins of the other 21** — Spire Village is the
-Cemetery roster again at +14 levels with an α suffix. Worth deciding whether to lean into
-that (same enemies, harder) or re-theme the α set.
-
-### 5. NPCs in the first release, or not?
-
-The zones work without them. The 32 dialogs are Japanese Lua bytecode we cannot regenerate —
-we would author replacements through QEX1.
-
-- **(a) Wayfinder only in v1, the rest later** *(recommended)*. One NPC to write, and Karkia
-  becomes playable at stage 4 instead of stage 6.
-- (b) All 32 up front, so Spire Village reads as inhabited from day one. Nine shops need
-  stock authored, which is a balance decision of its own.
-
-### 6. What do the monsters' 23 skills become?
-
-Karkia's AI casts 23 Jrose skill ids (716, 846, 2910–3685) through `AIACT_24`, 57 uses.
-Those rows exist on our side but mean different things, so copied verbatim the monsters cast
-whatever our row 3585 happens to be. **The Oro import cut exactly this corner** — it copied
-`.aip` files verbatim — so there is no precedent to inherit.
-
-- **(a) Blank them, ship melee-only, add skills back deliberately** *(recommended)*. Safe,
-  and it makes the first tuning pass legible.
-- (b) Map each to a comparable existing skill. 23 judgement calls, and a wrong one is a
-  monster casting a player buff at you.
-- (c) Author new monster skills. Real content, and `project_artisan_skill_import` shows the
-  recipe works.
-
-### 7. Where does the entrance live, and is it gated?
-
-Follows from question 1. If Karkia is post-Oro, the entrance NPC belongs in Muris and the
-return leg goes back there. If it is parallel, Junon Polis like Oro's Historian Jones. Also
-open: a level requirement on the warp, and whether the return leg is free (Oro's is).
+Not settled, and taken by default until it is: the monsters' **23 unresolved skill
+references** (§6). Stage 3 blanks them and ships melee-only monsters, because a wrong mapping
+is a monster casting a player buff at you and because a blank makes the first tuning pass
+legible. Reversible at any time.
 
 ---
 
-## 5. Effort shape
+## 5. Balance targets
+
+Ballpark, derived rather than guessed — but derived from `scripts/balance-sim.py`'s
+deliberately pessimistic baseline (no refine grades, gems, passives or buffs, and about 20%
+low on ATK against a measured character). **Treat every number as a floor and expect to
+tune down after the first real fight.**
+
+### Level bands
+
+Oro measured from its own spawn lumps runs 201–240, with late Oro (Wasteland 1 and 2, Ruins
+Path, Gates of Muris) at 208–240. Karkia should overlap that, not sit above it:
+
+| | authored | proposed | pairs with |
+|---|---|---|---|
+| 87 Cemetery | 211–221 | **215–228** | Wasteland 1 (208–225) |
+| 88 Spire Village | 225–231 | **228–238** | Wasteland 2 / Ruins Path (213–232) |
+| Deadly Drake 2729 (Cemetery) | 250 | **238** | — |
+| Deadly Drake α 2699 (Village) | 250 | **240** | Gates of Muris bosses (240) |
+| Hebarn Executives 2685/2686 | 250 | **240** | above anything we have |
+| Corroded Golem 2687 | 245 | **238** | — |
+| Revived Veteran 2688 | 240 | **235** | — |
+
+This keeps Karkia's own internal progression (Cemetery → Spire Village → bosses) instead of
+squashing it, and needs no level-cap change.
+
+### The three stats that matter, and the order they matter in
+
+Reference: our current top boss is the level-240 Fearsome Terrasaurus King —
+**87,360 effective HP** (`level x col 8`), ATK 2997, DEF 997, AVOID 504.
+
+- **DEF is a trap, not a difficulty knob.** Measured party DPS against a level-238 boss:
+  DEF 1100 costs 6%, DEF 1300 costs 26%, DEF 1500 costs 36%. Beyond that it stops making the
+  fight harder and starts making hits *read* as doing nothing — the documented failure mode
+  in `doc/balance-analysis.md`, and exactly what Karkia's authored DEF of 2300–3600 does.
+  **Cap boss DEF at ~1,250 and trash on the normal curve.**
+- **ATK is already at its ceiling.** Our existing boss at ATK 2997 kills a baseline
+  level-238 Champion in 4.2 swings (6.5 s) and a Mage in 2.5 (4 s). Karkia's authored
+  4,323–5,325 is a one-to-two-swing kill on anything. **Keep raid-boss ATK at 2,600–3,000**
+  and put the threat into adds and positioning, which is what "coordinate" can actually
+  answer. Raising it past 3,200 just makes the healer's reaction window shorter than the
+  server round trip.
+- **HP is the honest knob**, because it is the only one that lengthens a fight without
+  distorting how it reads.
+- Leave **AVOID** at our tier (~500). Raider accuracy is already the weak link — it lands
+  6–24% of swings at this level — and raising AVOID punishes one class disproportionately.
+
+### Boss HP budget
+
+Party cap is 7 (`MAX_PARTY_MEMBERS`). At the pessimistic baseline a level-238 player does
+~34–46 DPS against a boss in this DEF band; a geared, buffed one plausibly 1.5–2x that.
+
+| | proposed effective HP | `col 8` at that level | sanity check |
+|---|---:|---:|---|
+| Cemetery zone boss (Drake 2729) | **180,000** ≈ 2x our top boss | 756 @ lv238 | long solo fight; comfortable for 3–4 |
+| Raid encounter total (Drake α + 2 Executives) | **~450,000** | — | ~17 min for a geared 5, ~12 for 7; 2+ hours solo, i.e. not soloable |
+| — Drake α 2699 | 120,000 | 500 @ lv240 | the opener |
+| — each Hebarn Executive | 165,000 | 688 @ lv240 | the payload, x2 |
+
+Against Jrose's authored values that is a uniform ~7–8x reduction (their Drakes are
+1.3–1.7 M, their Executives 6.5 M each), which is about the ratio between their players'
+output and ours — so the shape of their encounter survives; only the scale changes.
+
+### The summon chain needs its own pass
+
+Karkia's monsters summon adds constantly, and two of those summons are boss-tier:
+
+| summoner | summons | authored HP | proposed |
+|---|---|---:|---|
+| `ks_2699` Drake α | 2685 + 2686 Hebarn Executives | 6,500,000 each | 165,000 each — **this is the raid, keep it** |
+| `ks_2692`, `ks_2697`, `ks_2698` *(trash)* | 2687 Corroded Golem | 2,793,000 | **~60,000** — an elite add, well below zone-boss tier |
+| `ks_2692`, `ks_2697`, `ks_2698` *(trash)* | 2688 Revived Veteran | 672,000 | **~45,000** |
+| `kak_summonseed` D=Seed | 2705 D-Pollinosis x6 | 10,850 | scale with the tier |
+| most Cemetery mobs | 2731 / 2689 Ghost Seed | 14–16 k, ATK 1 | scale with the tier |
+
+Trash summoning a boss is not something coordination can answer, so 2687 and 2688 come down
+hard. 2704 D=Seed is a stationary spawner (ATK 10 — it never attacks) at 215,000 authored
+HP; bring it to ~40,000 so clearing it is a real objective rather than an endurance test.
+
+EXP is 133x ours across the board; `scripts/rebalance-exp-rewards.py` owns that.
+
+---
+
+## 6. Still open
+
+Small, and none of them blocks starting.
+
+- **The 23 monster skill references.** Defaulting to blank (§4). Worth a deliberate pass
+  later — the Cemetery roster's identity is partly its casting, and
+  `project_artisan_skill_import` shows the recipe for authoring new monster skills works.
+- **Where the entrance NPC stands.** Proposal: **Muris**, since Karkia is an Oro-tier
+  alternative and Muris is where a player stands when choosing what to do next — which makes
+  reaching Oro a light, natural gate. Junon Polis instead would make Karkia bypass Oro
+  entirely. Return leg goes back to Muris either way, free, like Oro's.
+- **A level requirement on the warp**, or none. Oro deliberately has none — the real gate
+  there is the monsters. Same logic probably applies.
+- **Whether the α set gets re-themed.** 10 of Karkia's 31 monsters are the Cemetery roster
+  again at higher level with an α suffix. Shipping them as-is is honest ("the same horrors,
+  worse") and free; re-theming is real work. Decide when Spire Village is first playable.
+
+---
+
+## 7. Effort shape
 
 Rough, for sequencing rather than scheduling. The engineering is small and the authoring is
 most of it.
@@ -295,13 +329,13 @@ most of it.
 | 5 drops | trivial | **large: a Karkia loot tier** |
 | 6 NPCs | small | large: 32 dialogs + 14 shop tabs |
 
-No server or client code change is required by anything above. The two places that could
-change that are question 2 (group content) and question 6(c) (new monster skills).
+No server or client code change is required by anything above. The one thing that could
+change that is authoring new monster skills (§6), and even that is data.
 
-## 6. Before the first line of code
+## 8. Before the first line of code
 
 - Re-read [doc/jrose-survey.md](jrose-survey.md) §2 — all three silent-failure traps apply.
-- Answer questions 1 and 2 at minimum; they determine stage 4, which is the bulk of the work.
+- Re-read §5 — the balance targets are a floor from a pessimistic model, not a spec.
 - `rose.vfs` is 1.99 GB and Karkia adds ~105 MB, so no rollover concern
   (`reference_vfs_offset_limit`), but bake with `scripts/pack.ps1` so the archive self-verifies.
 - Servers cache STBs at startup — restart them after every stage, and rebake + redeploy the
