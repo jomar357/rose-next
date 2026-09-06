@@ -13,12 +13,16 @@ stage is independently testable in game and independently revertible:
                 lumps emptied on the way in (count = 0, lump table untouched),
                 so later stages just refill them.
     --stage 2   the internal warp gates: WARP.STB rows and the gate objects put
-                back into the .IFO WARP lumps. This is stage 2a of the roadmap;
-                2b (the Wayfinder NPC that gets you to Karkia at all) is a
-                separate push, because it needs a .CON built from scratch.
+                back into the .IFO WARP lumps. The way *in* is a separate
+                script, scripts/add-karkia-travel.py.
+    --stage 3   monsters: 38 LIST_NPC rows at their native ids, names, AI rows
+                and .aip files, character models/skeletons/motions/effects with
+                the usual index remap, mob-weapon presentation, and the spawn
+                lumps. Stats are copied as Jrose wrote them; re-deriving them
+                for our curve is stage 4.
 
-Stages 3-6 (monsters, the balance pass, drops, NPCs) are planned in the roadmap
-and not written yet.
+Stages 4-6 (the balance pass, drops, NPCs) are planned in the roadmap and not
+written yet.
 
 Every stage is idempotent -- re-running detects what is already in place and does
 nothing. --dry-run previews. --selftest proves every writer round-trips
@@ -148,6 +152,82 @@ GATE_NAMES = {
 WARP_STB_REL = r"3DDATA\STB\WARP.STB"
 WARP_DEST_ZONE_COL, WARP_DEST_EVENT_COL = 1, 2
 
+# --- stage 3: the monsters -------------------------------------------------
+#
+# 31 spawned plus 7 that exist only as AI summons, at their **native ids**. All 38
+# are free in our LIST_NPC (our last occupied row is 2265), and keeping the source
+# numbering is what makes the .aip summon references resolve with no binary
+# patching -- ks_2699 summons 2685 and 2686 by id.
+#
+# The names are authored. Jrose's LIST_NPC_S.STL is the legacy I_NUM dialect with
+# no language blocks and Japanese text, so there is nothing to copy; these are
+# translations, cross-checked against the .aip filenames where those name the
+# creature (kak_spider -> Murilo, kak_neggolem -> Neg Golem, kak_deadeye -> Evil
+# Eye, kak_melt -> Melt Qualle).
+#
+# Two deliberate choices worth knowing:
+#   * 2701 and 2702 both come out "D-Victim". They are separate rows at different
+#     levels whose only distinguishing text is the *editor* label (2701 is
+#     "transformed villager", 2702 "maddened infected"), and the in-game name is
+#     the same in the source. Kept faithful rather than invented; our own data
+#     already ships three zones called "The Golden Ring".
+#   * The Spire Village roster is the Cemetery roster again +14 levels with an
+#     alpha suffix, so it gets " Alpha". Re-theming that set is an open question
+#     in the roadmap, not something settled here.
+#   * A few are transliteration guesses with no established English: Murilo,
+#     Orgeid, Eugeid, Melt Qualle, Woodnoid.
+KARKIA_MONSTERS = {
+    # AI-summon only
+    2685: "Hebarn Officer Pazugenti",
+    2686: "Hebarn Officer Scylla Mira",
+    2687: "Corroded Golem",
+    2688: "Revived Veteran Warrior",
+    2689: "Ghost Seed",                     # shares STL key LNPC2731 with 2731
+    2705: "D-Pollinosis",
+    2731: "Ghost Seed",
+    # Spire Village (zone 88)
+    2690: "D-Victim Alpha",
+    2691: "D-Victim Alpha",
+    2692: "Revived Quarantine Officer Alpha",
+    2693: "D-Ghoul Ein Alpha",
+    2694: "D-Ghoul Eine Alpha",
+    2695: "Deadly Wolf Alpha",
+    2696: "Murilo Alpha",
+    2697: "Evil Eye Alpha",
+    2698: "D-Error Alpha",
+    2699: "Deadly Drake Alpha",
+    # The Desolate Cemetery (zone 87)
+    2701: "D-Victim",
+    2702: "D-Victim",
+    2703: "Revived Quarantine Officer",
+    2704: "D-Seed",
+    2712: "D-Ghoul Ein",
+    2713: "D-Ghoul Eine",
+    2714: "Deadly Wolf",
+    2715: "Murilo",
+    2716: "Evil Eye",
+    2717: "D-Error",
+    2719: "Woodnoid",
+    2720: "Dark Tower",
+    2721: "Element Battler",
+    2722: "Neg Golem",
+    2723: "Orgeid",
+    2724: "Eugeid",
+    2725: "Evil Fairy",
+    2727: "Zorn Gargoyle",
+    2728: "Elgar Gargoyle",
+    2729: "Deadly Drake",
+    2730: "Melt Qualle",
+}
+NPC_STB_REL = r"3DDATA\STB\LIST_NPC.STB"
+NPC_STL_REL = r"3DDATA\STB\LIST_NPC_S.STL"
+AI_STB_REL = r"3DDATA\STB\FILE_AI.STB"
+WEAPON_STB_REL = r"3DDATA\STB\LIST_WEAPON.STB"
+NPC_CHR_REL = r"3DDATA\NPC\LIST_NPC.CHR"
+PART_NPC_ZSC_REL = r"3DDATA\NPC\PART_NPC.ZSC"
+NPC_RANGE_COL = 26                 # bare-hand attack range, in cm
+MELEE_RANGE_CM = 800               # see the bullet-effect note in stage3()
+
 # Where a synthetic LUMP_ECONOMY comes from. Any of our zones would do -- 50 of our
 # 55 carry the identical 74-byte block -- but a populated Junon field zone gives
 # sane non-zero town figures rather than the all-zero ones some Oro zones carry.
@@ -182,6 +262,12 @@ def load_oro():
 
 
 oro = load_oro()
+
+# Which stage refills each entity lump stage 1 emptied. --verify reports all four
+# and only flags the ones whose stage has not run. (Below load_oro() because it
+# names import-oro's lump enum rather than restating the numbers.)
+LUMP_STAGE = {oro.LUMP_WARP: "gates", oro.LUMP_REGEN: "spawns",
+              oro.LUMP_MOB: "npcs", oro.LUMP_EVENT_OBJECT: "events"}
 
 
 # ------------------------------------------------------------------- helpers
@@ -396,14 +482,23 @@ def selftest(ours, src, src_index):
         ok = ok and same
         print(f"    {label:34s} {'OK' if same else 'FAIL'}   {name}")
 
-    for rel in (ZONE_STB_REL, SKY_STB_REL, WARP_STB_REL):
+    for rel in (ZONE_STB_REL, SKY_STB_REL, WARP_STB_REL,
+                NPC_STB_REL, AI_STB_REL, WEAPON_STB_REL):
         p = os.path.join(ours, rel.replace("\\", "/"))
         check("STB round-trip", os.path.basename(p),
               oro.Stb(p).to_bytes() == open(p, "rb").read())
 
-    p = os.path.join(ours, ZONE_STL_REL.replace("\\", "/"))
-    check("STL round-trip", os.path.basename(p),
-          oro.Stl(p).to_bytes() == open(p, "rb").read())
+    for rel in (ZONE_STL_REL, NPC_STL_REL):
+        p = os.path.join(ours, rel.replace("\\", "/"))
+        check("STL round-trip", os.path.basename(p),
+              oro.Stl(p).to_bytes() == open(p, "rb").read())
+
+    p = os.path.join(ours, NPC_CHR_REL.replace("\\", "/"))
+    check("CHR round-trip", os.path.basename(p),
+          oro.Chr(p).to_bytes() == open(p, "rb").read())
+    p = os.path.join(ours, PART_NPC_ZSC_REL.replace("\\", "/"))
+    check("ZSC round-trip", os.path.basename(p),
+          oro.Zsc(p).to_bytes() == open(p, "rb").read())
 
     # Karkia's own containers, plus a couple of ours, through the shared readers.
     probes = []
@@ -777,6 +872,220 @@ def stage2(ours, src, src_index, dry):
     print("          one spot, as Jrose authored it. Not a duplicate to clean up.")
 
 
+# --------------------------------------------------------- stage 3: monsters
+def stage3(ours, src, src_index, dry):
+    print("stage 3 -- monsters, at their native ids and with Jrose's own stats")
+
+    src_maps = os.path.join(src, MAPS_REL.replace("\\", "/"))
+    dst_maps = os.path.join(ours, MAPS_REL.replace("\\", "/"))
+    ids = sorted(KARKIA_MONSTERS)
+
+    def S(rel):
+        return oro.Stb(os.path.join(src, rel.replace("\\", "/")))
+
+    def O(rel):
+        return oro.Stb(os.path.join(ours, rel.replace("\\", "/")))
+
+    # --- 3a. cross-check the roster against what the spawn lumps actually name.
+    # The AI-summoned seven appear in no REGEN lump, so the two sets differ by
+    # design -- but a *spawned* id we do not know about would be a hole.
+    spawned, regen_src = set(), {}
+    for _, folder, _, _ in ZONES:
+        d = os.path.join(src_maps, folder)
+        for name in sorted(os.listdir(d)):
+            if not name.lower().endswith(".ifo"):
+                continue
+            buf, bounds = oro.read_ifo(os.path.join(d, name))
+            off, end = oro.lump_block(bounds, oro.LUMP_REGEN)
+            if off is None or buf[off:off + 4] == b"\0\0\0\0":
+                continue
+            regen_src[(folder, name)] = buf[off:end]
+            objs, _ = oro.read_lump(buf, bounds, oro.LUMP_REGEN)
+            for o in objs:
+                spawned.update(oro.regen_mob_ids(o["extra"]))
+    src_npc, our_npc = S(NPC_STB_REL), O(NPC_STB_REL)
+    # A spawned id we neither import nor already own would be a hole. One we
+    # already own is fine and expected: KBurnedForest, KMemories and KFlowerGarden
+    # spawn *only* monster id 1, which is our own level-2 Mini-Jelly Bean. Jrose
+    # laid out their regen points and never assigned a real monster, so those
+    # three zones come in as Jrose ships them -- visibly unfinished rather than
+    # quietly empty. Populating them is a later pass (roadmap §4, decision 4).
+    borrowed = sorted(i for i in spawned - set(ids) if our_npc.occupied(i))
+    unknown = sorted(spawned - set(ids) - set(borrowed))
+    if unknown:
+        raise SystemExit(f"spawn lumps reference monsters that are neither imported "
+                         f"nor already ours: {unknown}")
+    summon_only = sorted(set(ids) - spawned)
+    print(f"    {'roster':26s} {len(ids)} monsters "
+          f"({len(spawned & set(ids))} spawned, {len(summon_only)} AI-summoned only: "
+          f"{summon_only})")
+    if borrowed:
+        names = ", ".join(f"{i} ({our_npc.get(i, 0).decode('latin-1')})"
+                          for i in borrowed)
+        print(f"    {'placeholder spawns':26s} 3 zones spawn only our own {names}")
+    if max(ids) >= our_npc.rows:
+        raise SystemExit(f"monster id {max(ids)} beyond LIST_NPC.STB ({our_npc.rows})")
+    written, kept = 0, []
+    for i in ids:
+        if our_npc.occupied(i):
+            kept.append(i)
+            continue
+        for c in range(oro.NPC_COPY_COLS):
+            our_npc.set(i, c, src_npc.get(i, c))
+        our_npc.set(i, 0, KARKIA_MONSTERS[i])       # theirs is a Japanese label
+        our_npc.set(i, oro.NPC_PVP_COL, oro.DEFAULT_PVP_STATE)
+        written += 1
+    print(f"    {'LIST_NPC.STB':26s} {written} rows written"
+          + (f", {len(kept)} already ours {kept}" if kept else ""))
+
+    # --- 3c. names. 2689 and 2731 share one key in the source (both Ghost Seed),
+    # so the key is appended once and both rows point at it.
+    our_stl = oro.Stl(os.path.join(ours, NPC_STL_REL.replace("\\", "/")))
+    nnames = 0
+    for i in ids:
+        key = our_npc.get(i, oro.NPC_STRID_COL).decode("latin-1").strip()
+        if not key or our_stl.has(key):
+            continue
+        our_stl.append(key, i, KARKIA_MONSTERS[i])
+        nnames += 1
+    print(f"    {'LIST_NPC_S.STL':26s} +{nnames} keys (now {len(our_stl.keys)})")
+
+    # --- 3d. AI rows and their .aip files
+    src_ai, our_ai = S(AI_STB_REL), O(AI_STB_REL)
+    need_ai = sorted({int(our_npc.get(i, oro.NPC_AI_COL))
+                      for i in ids
+                      if our_npc.get(i, oro.NPC_AI_COL).strip().isdigit()} - {0})
+    grew = our_ai.grow_to(max(need_ai) + 1) if need_ai else 0
+    aips, ai_written, clobbered = set(), 0, []
+    for a in need_ai:
+        f = src_ai.get(a, 0)
+        if not f.strip():
+            raise SystemExit(f"AI row {a} is blank in the source FILE_AI.STB")
+        aips.add(f.decode("latin-1"))
+        if our_ai.get(a, 0) != f:
+            if our_ai.get(a, 0).strip():
+                clobbered.append(f"{a}: {our_ai.get(a, 0).decode('latin-1')} -> "
+                                 f"{f.decode('latin-1')}")
+            our_ai.set(a, 0, f)
+            ai_written += 1
+    for c in clobbered:
+        print(f"    !! AI row overwritten -- {c}")
+    print(f"    {'FILE_AI.STB':26s} +{grew} rows (now {our_ai.rows}), "
+          f"{ai_written} written, {len(need_ai)} AI types")
+    copy_new(aips, src_index, ours, dry, ".aip files")
+
+    # --- 3e. models, skeletons and motions, appended with a full index remap.
+    # import-oro.py owns this; nothing about it is Oro-specific.
+    our_npc.save(dry)
+    our_ai.save(dry)
+    if nnames:
+        our_stl.save(dry)
+    oro.import_characters(ids, ours, src, dry, "monster")
+
+    # ...but its asset sweep takes only skeletons and motions, not the character
+    # *effect* pool, so an effect a monster carries would be interned into the CHR
+    # and never copied. Karkia needs four, one of them Karkia-specific
+    # (kakia_fairy_01.eft on the Evil Fairy). Collected here rather than by
+    # patching import-oro, which is a shipped importer.
+    src_chr = oro.Chr(os.path.join(src, NPC_CHR_REL.replace("\\", "/")))
+    eff = set()
+    for i in ids:
+        c = src_chr.chars[i]
+        if not c:
+            continue
+        for _, e in c["effects"]:
+            if e < len(src_chr.effects):
+                eff.add(src_chr.effects[e].decode("latin-1"))
+    eff = {e for e in eff if "\\" in e or "/" in e}
+    copy_new(eff | effect_chain(eff, src_index), src_index, ours, dry,
+             "character effects")
+
+    # --- 3f. mob-weapon presentation. LIST_NPC cols 5/6 are weapon *model* rows,
+    # and an empty WEAPON_BULLET_EFFECT there means a ranged monster fires no
+    # projectile and lands no visible hit -- the same defect
+    # scripts/fix-mob-bullet-effects.py exists to repair.
+    src_wpn, our_wpn = S(WEAPON_STB_REL), O(WEAPON_STB_REL)
+    weapons = set()
+    for i in ids:
+        for col in (oro.NPC_R_WEAPON_COL, oro.NPC_L_WEAPON_COL):
+            v = our_npc.get(i, col).strip()
+            if v.isdigit() and int(v):
+                weapons.add(int(v))
+    users = {}
+    for i in ids:
+        for col in (oro.NPC_R_WEAPON_COL, oro.NPC_L_WEAPON_COL):
+            v = our_npc.get(i, col).strip()
+            if v.isdigit() and int(v):
+                users.setdefault(int(v), []).append(i)
+    wfixed, wempty = [], []
+    for w in sorted(weapons):
+        if w >= our_wpn.rows:
+            raise SystemExit(f"monster weapon row {w} beyond LIST_WEAPON.STB "
+                             f"({our_wpn.rows} rows)")
+        if any(our_wpn.get(w, c).strip() for c in oro.WEAPON_PRESENTATION_COLS):
+            continue                                # already presents something
+        got = [(c, src_wpn.get(w, c)) for c in oro.WEAPON_PRESENTATION_COLS
+               if src_wpn.get(w, c).strip()]
+        if not got:
+            wempty.append(w)
+            continue
+        for c, v in got:
+            our_wpn.set(w, c, v)
+        wfixed.append(w)
+    print(f"    {'LIST_WEAPON.STB':26s} {len(wfixed)} of {len(weapons)} mob weapons "
+          f"given attack presentation {wfixed}")
+    # An empty WEAPON_BULLET_EFFECT is only a defect for a *ranged* user:
+    # UsesProjectileAttackPresentation() is `weapon > 0 && bullet_effect > 0`, so an
+    # empty row simply selects the melee hit frame, which is correct for a melee
+    # monster and invisible for a bow/gun one (see fix-mob-bullet-effects.py).
+    # Karkia's melee users sit at 90-350 cm and its ranged ones at 1100-1800, so
+    # 800 falls in the empty band between the two clusters.
+    for w in wempty:
+        ranged = [i for i in users.get(w, [])
+                  if int(our_npc.get(i, NPC_RANGE_COL).strip() or 0) > MELEE_RANGE_CM]
+        who = ", ".join(f"{i} {KARKIA_MONSTERS.get(i, '?')}" for i in users.get(w, []))
+        if ranged:
+            print(f"    !! weapon row {w} has no bullet effect in either table and "
+                  f"is used by RANGED {ranged} -- they will fire nothing visible")
+        else:
+            print(f"    {'':26s} weapon row {w} has no presentation data anywhere; "
+                  f"its users are melee ({who}), so that is fine")
+    if wfixed:
+        our_wpn.save(dry)
+
+    # --- 3g. the spawn lumps, last, so a half-written run leaves no live spawns
+    # pointing at rows that do not exist yet.
+    files, points = 0, 0
+    for (folder, name), blob in sorted(regen_src.items()):
+        dp = os.path.join(dst_maps, folder, name)
+        if not os.path.isfile(dp):
+            raise SystemExit(f"{dp}: run --stage 1 first")
+        dbuf, dbounds = oro.read_ifo(dp)
+        doff, dend = oro.lump_block(dbounds, oro.LUMP_REGEN)
+        if doff is None:
+            raise SystemExit(f"{dp}: no REGEN lump to fill")
+        if dbuf[doff:dend] == blob:
+            continue
+        n, = struct.unpack_from("<i", blob, 0)
+        out = oro.build_ifo(dbounds, dbuf, {oro.LUMP_REGEN: blob})
+        files += 1
+        points += n
+        if not dry:
+            with open(dp, "wb") as fh:
+                fh.write(out)
+            vbuf, vbounds = oro.read_ifo(dp)
+            voff, vend = oro.lump_block(vbounds, oro.LUMP_REGEN)
+            if vbuf[voff:vend] != blob:
+                raise SystemExit(f"VERIFY FAILED: {dp} REGEN lump mismatch")
+    print(f"    {'IFO regen lumps':26s} {points} spawn points into {files} files")
+
+    print("\n    Stats are Jrose's, deliberately -- see the roadmap. On our curve a")
+    print("    level-213 trash mob takes ~4,200 swings and kills you in three hits,")
+    print("    so play one session to see the fights, then run the stage-4 pass.")
+    print("    Three placeholder zones (131/133/144) still spawn only a level-2")
+    print("    Jelly Bean; that is Jrose's authoring, not a broken import.")
+
+
 def verify(ours):
     """Re-derive the result from what is on disk, after the fact."""
     print("verify -- reading back what is in data/")
@@ -803,11 +1112,12 @@ def verify(ours):
             parse_economy(buf[eo:ee], p)
             econ = f"{ee - eo}B ok"
         names = [n for n, _ in oro.zon_events(p)]
-        # MOB/REGEN/EVENT_OBJECT must still be empty -- stages 3-6 refill those.
-        # WARP is *expected* to be live once stage 2 has run, so it is counted
-        # separately rather than flagged; holding it to the stage-1 expectation
-        # would report the gates we just placed as a fault.
-        live, gates_here = 0, 0
+        # Every entity lump stage 1 emptied is counted and reported by name; a
+        # lump is only *flagged* if the stage that refills it has not run yet.
+        # Reporting rather than asserting-empty is deliberate: holding a lump to
+        # the stage-1 expectation forever means every later stage's own output
+        # shows up as a fault, which happened twice before this was generalised.
+        counts = dict.fromkeys(LUMP_STAGE.values(), 0)
         for f in sorted(os.listdir(d)):
             if not f.lower().endswith(".ifo"):
                 continue
@@ -816,20 +1126,15 @@ def verify(ours):
                 off, _ = oro.lump_block(bd2, lt)
                 if off is None:
                     continue
-                count, = struct.unpack_from("<i", b2, off)
-                if not count:
-                    continue
-                if lt == oro.LUMP_WARP:
-                    gates_here += count
-                else:
-                    live += 1
+                counts[LUMP_STAGE[lt]] += struct.unpack_from("<i", b2, off)[0]
+        early = [k for k in ("npcs", "events") if counts[k]]
         flag = ""
-        if eo is None or live:
-            flag = "   <-- CHECK"
+        if eo is None or early:
+            flag = f"   <-- CHECK {early}" if early else "   <-- CHECK"
             bad += 1
-        print(f"    zone {row:3d} {folder:14s} {len(hims):3d} chunks  lumps={types}  "
-              f"economy={econ}  events={len(names)}  gates={gates_here}  "
-              f"unexpected-lumps={live}{flag}")
+        shown = " ".join(f"{k}={counts[k]}" for k in ("gates", "spawns", "npcs", "events"))
+        print(f"    zone {row:3d} {folder:14s} {len(hims):3d} chunks  "
+              f"economy={econ}  events={len(names)}  {shown}{flag}")
 
     zstb = oro.Stb(os.path.join(ours, ZONE_STB_REL.replace("\\", "/")))
     zstl = oro.Stl(os.path.join(ours, ZONE_STL_REL.replace("\\", "/")))
@@ -894,6 +1199,41 @@ def verify(ours):
     else:
         print("    gates: none placed yet (stage 2 not run)")
 
+    # --- stage 3: monsters. Rows, names, AI files and CHR entries, plus the
+    # spawn population each zone actually carries.
+    npc = oro.Stb(os.path.join(ours, NPC_STB_REL.replace("\\", "/")))
+    nstl = oro.Stl(os.path.join(ours, NPC_STL_REL.replace("\\", "/")))
+    ai = oro.Stb(os.path.join(ours, AI_STB_REL.replace("\\", "/")))
+    chr_ = oro.Chr(os.path.join(ours, NPC_CHR_REL.replace("\\", "/")))
+    ids = sorted(KARKIA_MONSTERS)
+    missing_row = [i for i in ids if not npc.occupied(i)]
+    if missing_row:
+        print(f"    monsters: none imported yet ({len(missing_row)} of {len(ids)} rows "
+              f"empty) -- stage 3 not run")
+    else:
+        wrong = [(i, npc.get(i, 0).decode("latin-1"))
+                 for i in ids if npc.get(i, 0).decode("latin-1") != KARKIA_MONSTERS[i]]
+        nokey = [i for i in ids
+                 if not nstl.has(npc.get(i, oro.NPC_STRID_COL).decode("latin-1").strip())]
+        nochr = [i for i in ids
+                 if i >= len(chr_.chars) or chr_.chars[i] is None]
+        aip_missing = []
+        for i in ids:
+            a = npc.get(i, oro.NPC_AI_COL).strip()
+            if not a.isdigit() or not int(a):
+                continue
+            f = ai.get(int(a), 0).decode("latin-1").strip()
+            if not f or not os.path.isfile(dest_of(ours, f)):
+                aip_missing.append((i, a.decode("latin-1"), f))
+        for label, items in (("name mismatch", wrong), ("no STL key", nokey),
+                             ("no CHR entry", nochr), ("missing .aip", aip_missing)):
+            if items:
+                bad += 1
+                print(f"    !! monsters {label}: {items[:6]}")
+        lv = sorted(npc.get(i, 7).decode("latin-1").strip() or "0" for i in ids)
+        print(f"    monsters {len(ids)} rows, {len(nstl.keys)} STL keys total, "
+              f"CHR {len(chr_.chars)} entries, levels {lv[0]}-{lv[-1]}, all .aip present")
+
     sky = oro.Stb(os.path.join(ours, SKY_STB_REL.replace("\\", "/")))
     if sky.rows <= SKY_ROW or not sky.occupied(SKY_ROW):
         bad += 1
@@ -908,7 +1248,7 @@ def verify(ours):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--stage", type=int, choices=(1, 2), action="append",
+    ap.add_argument("--stage", type=int, choices=(1, 2, 3), action="append",
                     help="stage to run (repeatable); omit to run them all")
     ap.add_argument("--dry-run", action="store_true", help="preview without writing")
     ap.add_argument("--selftest", action="store_true",
@@ -941,8 +1281,8 @@ def main():
         return 0
 
     print()
-    for s in sorted(set(args.stage or (1, 2))):
-        {1: stage1, 2: stage2}[s](ours, src, src_index, args.dry_run)
+    for s in sorted(set(args.stage or (1, 2, 3))):
+        {1: stage1, 2: stage2, 3: stage3}[s](ours, src, src_index, args.dry_run)
         print()
 
     if args.dry_run:

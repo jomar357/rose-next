@@ -1447,12 +1447,22 @@ def import_characters(ids, ours, src, dry, what):
         c = src_chr.chars[i]
         if c is None:
             raise SystemExit(f"{what} {i} has no LIST_NPC.CHR entry in the source")
+        # An index past the end of its pool is dead padding, not a reference:
+        # the value is always 52685 (0xCDCD, MSVC's uninitialised-heap fill) under
+        # anim type 65535, written out by whatever tool built these files. Our own
+        # LIST_NPC.CHR carries 112 of them across 12,027 anim entries and the
+        # client is fine with it, so they pass through verbatim rather than being
+        # remapped -- there is no string to intern -- or dropped, which would make
+        # imported rows a different shape from the ones we already ship.
+        sk = c["skel"]
         our_chr.chars[i] = dict(
-            skel=skel_map[c["skel"]],
+            skel=sk if sk >= len(src_chr.skeletons) else skel_map[sk],
             name=c["name"],
             models=[map_model(m) for m in c["models"]],
-            anims=[(t, motion_map[a]) for t, a in c["anims"]],
-            effects=[(t, effect_map[e]) for t, e in c["effects"]],
+            anims=[(t, a if a >= len(src_chr.motions) else motion_map[a])
+                   for t, a in c["anims"]],
+            effects=[(t, e if e >= len(src_chr.effects) else effect_map[e])
+                     for t, e in c["effects"]],
         )
         written += 1
 

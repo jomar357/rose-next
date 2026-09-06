@@ -186,7 +186,22 @@ out to Junon. No `IS_HACKING` disconnects — that is what a destination event p
 resolving to NULL looks like, and it is why the Oro importer verifies every destination
 byte-for-byte before writing.
 
-### Stage 3 — monsters, un-tuned
+### Stage 3 — monsters, un-tuned  *(DONE, 2026-09-07)*
+
+`--stage 3`. 38 `LIST_NPC` rows at native ids 2685–2731, 37 STL keys (2689 and 2731 share one), 36 AI rows and 34 `.aip` files, 38 `LIST_NPC.CHR` entries with +32 models / +16 meshes / +40 materials in `PART_NPC.ZSC`, 70 art files, 2 character effects, 2 mob-weapon presentation rows, and 2,011 spawn points into 77 `.IFO`s. Idempotent; `--verify` passes.
+
+Names are authored, not copied — Jrose's `LIST_NPC_S.STL` is the legacy `I_NUM` dialect with Japanese text and no language blocks. Cross-checked against the `.aip` filenames where those name the creature (`kak_spider` → Murilo, `kak_neggolem` → Neg Golem).
+
+Two things found by running it:
+
+- **`import_characters` crashed on a sentinel.** Three Karkia monsters carry an anim entry of `(65535, 52685)` — `0xCDCD`, MSVC's uninitialised-heap fill, written out by whatever built these files. **Our own `LIST_NPC.CHR` has 112 of them** across 12,027 entries, so it is tolerated padding, not corruption. Out-of-range pool indices now pass through verbatim instead of being remapped (there is no string to intern) or dropped (which would make imported rows a different shape from the ones we ship).
+- **Weapon row 1137 has no bullet effect in either table.** Harmless here: `UsesProjectileAttackPresentation()` is `weapon > 0 && bullet_effect > 0`, so an empty row just selects the melee hit frame — correct for its users, which are melee at 250 cm. The warning now applies the game's own test rather than firing on every empty row.
+
+#### Stage 3b — the monsters' skills  *(not built)*
+
+The six references in §6. Three re-point at skills we already own (Berserk, Tornado, Silence), which is a two-byte poke of `nSkill` in the `.aip`; three port by straight copy into rows that are blank here, one of them needing `QUESTARUA_EXP.EFT`. Deferred so stage 3 could be tested on its own — without it the affected monsters just melee, which is safe.
+
+#### What stage 3 deliberately did not do
 
 38 `LIST_NPC` rows at **native ids 2685–2731** (all free on our side, which makes the AI's
 summon references resolve with no binary patching), the 29 `.aip` files, character
