@@ -1,16 +1,19 @@
 # Karkia Import Roadmap
 
 Companion to [doc/karkia-survey.md](karkia-survey.md), which is the evidence. This is the
-plan. **Stage 1 is built** (`scripts/import-karkia.py`); stages 2-6 are not.
+plan. **Stages 1-3 are built** (`scripts/import-karkia.py`, `scripts/add-karkia-travel.py`);
+stages 4-6 are not. Stages 1 and 2a are validated in game.
 
 Two scope decisions are settled going in:
 
 - **No quests.** Karkia's are Japanese, and the RoseZA quest import was the painful half of
   `project_oro_import`.
-- **Travel is NPC-driven, not gate-driven.** Karkia has no entrance and splits into two
-  disconnected clusters plus an isolated Tower. Rather than author warp-gate objects into
-  maps we have never opened, every missing link becomes a teleporter NPC. This is a solved
-  problem here — see §2.
+- **Travel is NPC-driven, not gate-driven.** Karkia has no entrance at all. Rather than
+  author warp-gate objects into maps we have never opened, the way in is a dialog option on
+  NPCs that already do travel — a solved problem here, see §2.
+- **The Memories cluster and the Tower stay unreachable, deliberately.** Jrose gated 133/134/144
+  behind a quest about Karkia's past and 136 behind an endgame wave activity. They are content
+  we will author our own way into, not holes to patch.
 
 ---
 
@@ -21,64 +24,49 @@ to our curve, loot worth taking, and no dependency on Jrose's quest chain or its
 instanced-dungeon generator.
 
 ```
-                          [entrance NPC, outside Karkia]
-                                       |
-                                       v
-  86 Church  <--gate 170--  87 CEMETERY  --172-->  88 SpireVil  --185-->  135 TowerPlace
-   (W)                       (W) ^  |   ^           (W) ^  |               (W)  |
-                                 |  |   +---173--------+  |                     |
-                                 |  |                     +--------186----------+
-                              178|  ^179
-                                 v  |
-                          131 Burned Forest (W)
+   Jones (Junon Polis) / Nova (Orlean Portal Temple)
+                     |  "What of the dead world, Karkia?"
+                     v
+  86 Church  <--191--  87 CEMETERY  --192-->  88 SpireVil  --185-->  135 TowerPlace
+  (arrival)              ^  |   ^               ^  |                     |
+                         |  |   +----173--------+  |                     |
+                         |  |                      +--------186----------+
+                      178|  ^179
+                         v  |
+                  131 Burned Forest
 
-  134 MemoriesBoss --180--> 133 Memories <--190-- 144 FlowerGarden      136 Tower
-        (W)                    (W)                     (W)                 (W)
-
-  (W) = Wayfinder NPC.  Solid arrows are the 11 gates that already exist in the data.
+  134 MemoriesBoss --180--> 133 Memories <--190-- 144 FlowerGarden     136 Tower
+       [reached by a quest we have not written]                    [endgame activity]
 ```
 
-Everything reachable in both directions; the eight existing gates keep doing their job and
-the Wayfinder covers the six holes (into the planet, out of the planet, out of the Church,
-into Memories, into the Boss room, and both ways for the Tower).
+The gates are Jrose's own, restored. The way in is one dialog option on two existing NPCs.
+**The Church has no gate back out** — Jrose gave it one in and none back — so leaving is a
+Return scroll until stage 6 places its NPCs and one of them hosts the return trip.
 
 ---
 
 ## 2. The travel design
 
-The mechanism exists and is already tooled. `scripts/add-oro-travel.py` writes a QSD trigger
-whose reward is `REWD_007` (teleport), and `quest-editor con-warp <root> <npc> <key>
-<trigger> --write` appends a "take me there" option — with a confirm prompt and fully
-customisable text — onto an NPC's existing dialog through the QEX1 appendix. Oro reaches
-Muris and comes back exactly this way today.
+`scripts/add-karkia-travel.py` writes one QSD trigger, `Karkia-TravelToChurch`, appended to
+`QP401.QSD` as a `KarkiaTravel` pattern — the same file and mechanism Oro's travel uses. It
+teleports to zone 86 at that zone's own `start` event position, read out of the `.ZON` rather
+than pasted (the file stores `x, z, y` and both horizontal coordinates need a half-zone bias;
+`add-oro-travel.py`'s `zon_event_positions()` already gets this right).
 
-**Proposal: one `[Wayfinder]` NPC row, placed once in each of the nine zones, with a warp
-option per destination.** One `LIST_NPC` row, one `.CON`, one `LIST_EVENT` row, nine
-placements, and one QSD trigger per destination.
+`quest-editor con-warp` then appends the dialog option to both NPCs that already do travel,
+through the QEX1 appendix, so each keeps everything it already offered:
 
-Place each instance at that zone's own `start` event position. That is guaranteed walkable
-(it is where the zone drops you), it is where a teleporting player arrives, and it needs no
-map knowledge. All nine `start` positions were checked against the chunk grid and land on
-chunks that exist:
-
-| zone | `start` world position | chunk |
+| NPC | where | already offered |
 |---|---|---|
-| 86 Church | 517000, 521500 | 32,32 |
-| 87 Cemetery | 562026, 522137 | 35,32 |
-| 88 Spire Village | 536500, 521000 | 33,32 |
-| 131 Burned Forest | 521598, 521100 | 32,32 |
-| 133 Memories | 515902, 521100 | 32,32 |
-| 134 Memories Boss | 520000, 521000 | 32,32 |
-| 135 Tower Place | 516300, 521000 | 32,32 |
-| 136 Tower | 520000, 520000 | 32,32 |
-| 144 Flower Garden | 535148, 521000 | 33,32 |
+| 1104 `[Historian] Jones` | Junon Polis (zone 2) | the trip to Oro |
+| 2101 `[Interplanetary Guide] Nova` | Orlean Portal Temple (zone 73) | the trip home, the Oro fate choice |
 
-Read them out of the `.ZON` at build time rather than pasting them — the file stores
-`x, z, y` and every coordinate needs a half-zone bias added before it is a world position.
-`add-oro-travel.py`'s `zon_event_positions()` already does this correctly; reuse it.
+The Church rather than the Cemetery because it is Karkia's town: no monsters, and ten NPCs
+once stage 6 places them. The Cemetery is a 7x7 field of level-211+ monsters.
 
-The Wayfinder needs a model. Reuse an existing NPC model rather than importing one — this
-is plumbing, not a character.
+**Verify a `.CON` edit by decoding, never by grep.** The payload is XOR'd
+(`xor_key(len, file_size)`: len when odd, else file size), so a plaintext search reports a
+correct file as broken — which it did here on the first check.
 
 ---
 
@@ -304,8 +292,9 @@ Settled 2026-09-06.
    gating it on the Arua/Hebarn markers can be layered on later.
 4. **The three unpopulated zones are deferred.** They ship walkable and quiet; population is
    a later pass.
-5. **NPCs are the last step of v1**, after monsters. The Wayfinder is the exception — it is
-   stage 2, because travel is not optional.
+5. **NPCs are the last step of v1**, after monsters. The way *in* is the exception — it is
+   stage 2, because travel is not optional. (The per-zone Wayfinder that stage 2 was first
+   planned around was dropped; see §2 and stage 2b.)
 6. **Monsters are the priority.** Stages 3 and 4 are what makes Karkia real.
 
 The monsters' skill references, which the survey listed as 23 open items, turned out to be
