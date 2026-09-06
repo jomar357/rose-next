@@ -139,8 +139,8 @@ columns as Jrose wrote them for exactly one play session, so we can see the figh
 we change them, then never again.
 
 Zero AI opcodes here are new to our server, so nothing to implement. The `.aip` files copy
-verbatim; six skill rows want authoring alongside them (§6), four of which need no `.aip`
-change at all.
+verbatim; six skill references need attention (§6) — three re-point at skills we already own,
+three port across with one effect asset. None needs authoring.
 
 **Acceptance:** monsters spawn, animate, path, attack, and die. `/dps` shows damage flowing.
 The D=Seed's summon behaviour fires. Nothing crashes.
@@ -210,8 +210,8 @@ Settled 2026-09-06.
 6. **Monsters are the priority.** Stages 3 and 4 are what makes Karkia real.
 
 The monsters' skill references, which the survey listed as 23 open items, turned out to be
-almost a non-issue once checked properly — see §6. Copy the `.aip` files verbatim; six rows
-need attention, not twenty-three.
+almost a non-issue once checked properly — see §6. Copy the `.aip` files verbatim; six
+references need attention, not twenty-three, and none of the six needs authoring.
 
 ---
 
@@ -331,15 +331,54 @@ its AI with the Cemetery original:
 | 2714 / 2695 Deadly Wolf | 2941, 2954 | nothing — magnitude only |
 | 2719 Woodnoid | 2910, 2911, 2913 | nothing — magnitude, plus no cast animation |
 
-**Plan: copy the `.aip` files verbatim, then author six skill rows.** Four of them (716,
-3613, 3616, 3627) are blank on our side, so they can be written straight at those row numbers
-with no `.aip` patching at all. The other two (846, 3685) are occupied by our own skills, so
-they need a new row plus a two-byte poke of the `nSkill` field in the `.aip` — the parser
-already locates every one of those fields.
+### None of the six needs authoring
 
-That is a small, bounded job and it is worth doing rather than deferring: the Cemetery
-roster's identity is partly its casting, and a silence plus a stun is most of what makes the
-Evil Eye and Murillo interesting.
+Three of them we **already have**, because they are *player* skills the AI borrows —
+`LIST_SKILL` col 35 (Job) and the parent-skill and weapon columns give them away:
+
+| row | Jrose | ours | action |
+|---|---|---|---|
+| 716 | バーサク, a Champion 2H/spear/axe self-buff (job 62, parent 711, level 120) | **Berserk**, rows 361–380 | re-point the `.aip`. Import nothing |
+| 846 | トルネード, a Mage staff nuke (job 42, parent 841, level 70) | **Tornado**, rows 1086–1090 | re-point |
+| 3627 | `kleitos_沈黙`, a silence | **Silence**, rows 1071–1075 | re-point, or port theirs if the numbers differ enough to matter |
+
+Two caveats on those three. Our copies are *ranked families* (Berserk has 20 ranks), so pick
+a rank suited to a level-215+ monster rather than defaulting to rank 1. And the job/weapon/
+parent-skill columns are learning gates, not casting gates — a monster ignores them — but
+that is worth confirming in game rather than asserting.
+
+The other three are genuine monster skills, and they **port by straight copy**, because the
+support tables are index-aligned and Jrose only ever appended to them:
+
+| table | rows we both have | identical path | **rows only they have** | rows only we have | different |
+|---|---:|---:|---:|---:|---:|
+| `FILE_EFFECT` | 3162 | 496 | 484 | **0** | 26 |
+| `FILE_SOUND` | 2001 | 1283 | 75 | **0** | 1 |
+| `TYPE_MOTION` | 621 | 163 | 296 | **0** | 4 |
+| `FILE_MOTION` | 1271 | 350 | 284 | 21 | 0 |
+
+"0 rows only we have" is the property that matters: wherever we have a row, they have the
+same row, so a ported skill's effect / sound / motion index either resolves to the identical
+file here or lands on a row we left blank — never on a *different* asset. (`FILE_MOTION` is
+the exception with 21 rows of ours they lack, and 26 `FILE_EFFECT` rows genuinely differ;
+none of the six skills touches any of them, but a broader skill import should check.)
+
+Checked index by index for the three:
+
+| row | what it is | ports cleanly? |
+|---|---|---|
+| 3613 | `蟻スタン（5秒）` — type 17 AoE, radius 3000, power 400, 5 s stun | **yes.** Motions 8/9, effect 1611 `_s_spin_attack02.eft`, sound 131 all resolve to the same files here |
+| 3685 | type 8 self-buff, radius 1500, status effects 20 + 22, 50 s | **yes.** `LIST_STATUS` 20 and 22 are identical in every numeric column — the only difference is that they kept the Korean name and we translated it to "Def Increased" / "Magic Resistance Increased" |
+| 3616 | `questarua` — type 7, radius 3000, power 100 | **yes, plus one asset.** Its impact effect is `FILE_EFFECT` 1460 `questarua_exp.eft`, which is blank here; the file exists in the Jrose tree (`3Ddata\EFFECT\QUESTARUA_EXP.EFT` and its `EFFECTMESH\QUESTARUA_EXP` folder), so write the row and copy the assets |
+
+**Plan: copy the `.aip` files verbatim, re-point three `nSkill` fields at skills we already
+own, and port three rows plus one effect.** Copying cols 0–85 is safe — the layouts align by
+meaning across that whole range. **Col 86 does not**: ours is the STL key, theirs is
+`AVAILABLE_STATUS`, which is exactly the trap `doc/jrose-survey.md` §2.2 warns about. Leave
+our col 86 alone.
+
+Worth doing rather than deferring: the Cemetery roster's identity is partly its casting, and
+a silence plus a stun is most of what makes the Evil Eye and Murillo interesting.
 
 ---
 
@@ -373,8 +412,8 @@ most of it.
 | 5 drops | trivial | **large: a Karkia loot tier** |
 | 6 NPCs | small | large: 32 dialogs + 14 shop tabs |
 
-No server or client code change is required by anything above. The six skill rows in §6 are
-data too, so that stays true even with them authored.
+No server or client code change is required by anything above. The six skill references in §6 are
+data too, so that stays true.
 
 ## 9. Before the first line of code
 
