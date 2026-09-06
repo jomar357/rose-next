@@ -219,10 +219,17 @@ def zms_extent(path):
 
     Both come out of the header, which is read eagerly regardless of lazy
     geometry loading, so this is cheap.
+
+    Reads 8 KB rather than the header's nominal size because the **bone table
+    sits between the bounding box and the vertex count** and is variable length
+    (2 bytes per bone). A 64-byte read covers a rigid mesh and overruns on a
+    skinned one, and since the parse is wrapped in a bare except that failure
+    returned None -- which callers read as "cannot tell", so the placeholder
+    guard silently stopped evaluating exactly the more complex meshes.
     """
     try:
         with open(path, "rb") as fh:
-            d = fh.read(64)
+            d = fh.read(8192)
     except OSError:
         return None
     try:
