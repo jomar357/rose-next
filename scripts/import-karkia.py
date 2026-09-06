@@ -75,6 +75,7 @@ File formats this script writes are documented at their reader/writer functions,
 or in import-oro.py where they are shared.
 """
 import argparse
+import collections
 import importlib.util
 import io
 import os
@@ -264,6 +265,51 @@ PRESENTATION_COLS = {38: "LIST_EFFECT", 39: "LIST_EFFECT", 40: "FILE_SOUND",
 #         attacker into a melee one.
 PRESENTATION_DONOR = {1137: 1131}
 PRESENTATION_EFFECT_ROWS = [631]
+
+# --- stage 3i: the monsters' skills ---------------------------------------
+#
+# The Karkia AI casts 23 skill ids through AIACT_24. Diffed row by row against
+# ours, 12 are byte-identical and 5 differ only in magnitude -- monster-skill rows
+# in the high range of LIST_SKILL are inherited and nobody edited them. Six need
+# attention and none needs authoring. See doc/karkia-roadmap.md §6.
+#
+# Ported into their own row numbers, which are blank here. Cols 0-85 align by
+# meaning; **col 86 does not** -- ours is the STL key and theirs is
+# AVAILABLE_STATUS -- so it is left alone.
+#
+# Col 0 is *not* copied either: theirs is a Japanese editor label, and copying the
+# cp932 bytes into our UTF-8 table yields mojibake ("aX^i5bj"). The server reads
+# SKILL_NAME from col 0 while the client shows the STL name, so an ASCII label is
+# both correct and readable. These names are authored.
+#
+# The last five were missed by the original survey, which walked only the 31
+# *spawned* monsters' AI files -- the seven AI-summoned-only monsters have AI rows
+# of their own and brought five more skills with them. Walking each monster's
+# LIST_NPC col 16 rather than a hand-listed set of filenames is what found them.
+SKILL_PORTS = {                    # source row -> (our row, ASCII label)
+    3613: (3613, "Karkia Stun"),          # ant stun, 5 s, AoE r3000 power 400
+    3616: (3616, "Questarua Burst"),      # type 7, r3000 power 100
+    3627: (3627, "Kleitos Silence"),      # type 13, range 3000
+    3685: (3686, "Karkia Ward"),          # self DEF+MR buff; 3685 is our GM Blessing
+    3711: (3711, "Ferdinand Stun"),       # AoE r4000 power 200, 4 s
+    3771: (3771, "Duke Vlad Counter"),    # AoE r5000 power 10
+    3779: (3779, "KS Defence Down"),      # AoE r1800 power 300, 60 s
+    3780: (3780, "KS Stun"),              # AoE r1500 power 250, 5 s
+    3781: (3781, "KS Poison"),            # single target, power 350, 30 s
+}
+# Cast by the AI but already ours under another number, so the .aip is re-pointed
+# rather than the row being duplicated:
+#   716 is Jrose's Champion Berserk rank 1 of 5; ours is a 20-rank family and 361
+#       is the matching rank position -- the least invented choice, and stage 4
+#       can raise it.
+#   846 is their Tornado rank 1 of 2 at power 500. Our Tornado family only runs
+#       ranks 6-10, and rank 10 (row 1090) is power 501 -- matched on power rather
+#       than on rank, since the rank numbering does not correspond.
+SKILL_REPOINT = {716: 361, 846: 1090}
+SKILL_STB_REL = r"3DDATA\STB\LIST_SKILL.STB"
+SKILL_COPY_COLS = 86               # 0-85; 86 is our STL key, theirs is not
+AIACT_USE_SKILL = 25               # AIACT_24 as stored (file ids are 1-based)
+AIACT24_SKILL_OFF = 10             # dwSize(4) Type(4) btTarget(1) pad(1) nSkill
 
 # Where a synthetic LUMP_ECONOMY comes from. Any of our zones would do -- 50 of our
 # 55 carry the identical 74-byte block -- but a populated Junon field zone gives
@@ -784,6 +830,64 @@ def stage1(ours, src, src_index, dry):
     print("          *hidden* entries, so delete them before baking or they go in the .vfs.")
 
 
+# ---------------------------------------------------------------- AIP I/O
+# AI_FILE_HEADER: i32 pattern_count, i32 second, i32 second_of_attack_move,
+# i32 title_len, then title_len bytes. Per pattern: char[32] name, i32 events.
+# Per event: char[32] name, i32 conds, conds x (u32 size, u32 type, size-8 bytes),
+# then i32 acts and the same shape again. Every record is self-sizing, so the walk
+# never has to know a record's layout -- only the ones it wants to touch.
+def aip_walk_skill_actions(blob):
+    """Yield the absolute offset of every AIACT_24 record's nSkill field."""
+    o = 0
+    npat, _sec, _sec2, ntitle = struct.unpack_from("<iiii", blob, o)
+    o += 16 + ntitle
+    for _ in range(npat):
+        o += 32
+        nev, = struct.unpack_from("<i", blob, o); o += 4
+        for _ in range(nev):
+            o += 32
+            ncond, = struct.unpack_from("<i", blob, o); o += 4
+            for _ in range(ncond):
+                size, = struct.unpack_from("<I", blob, o)
+                if size < 8 or o + size > len(blob):
+                    raise ValueError(f"bad condition size {size} at {o}")
+                o += size
+            nact, = struct.unpack_from("<i", blob, o); o += 4
+            for _ in range(nact):
+                size, typ = struct.unpack_from("<II", blob, o)
+                if size < 8 or o + size > len(blob):
+                    raise ValueError(f"bad action size {size} at {o}")
+                if (typ & 0xFFFF) == AIACT_USE_SKILL:
+                    yield o + AIACT24_SKILL_OFF
+                o += size
+
+
+def aip_repoint(path, remap, dry):
+    """Rewrite the skill id of every AIACT_24 record named in `remap`.
+
+    Returns [(old, new)] for what changed. Idempotent: a record already carrying
+    the new id is not in `remap` and is left alone.
+    """
+    blob = bytearray(open(path, "rb").read())
+    changed = []
+    for off in aip_walk_skill_actions(blob):
+        cur, = struct.unpack_from("<h", blob, off)
+        if cur in remap:
+            struct.pack_into("<h", blob, off, remap[cur])
+            changed.append((cur, remap[cur]))
+    if changed and not dry:
+        oro.backup(path)
+        with open(path, "wb") as fh:
+            fh.write(blob)
+        # Re-read and re-walk: a bad offset would corrupt the record silently.
+        check = open(path, "rb").read()
+        got = {struct.unpack_from("<h", check, o)[0]
+               for o in aip_walk_skill_actions(check)}
+        if got & set(remap):
+            raise SystemExit(f"VERIFY FAILED: {path} still casts {got & set(remap)}")
+    return changed
+
+
 # ------------------------------------------------- stage 2a: the warp gates
 def collect_gates(src, src_maps):
     """{source warp id: (dest zone, dest event name, [(folder, ifo), ...])}.
@@ -1189,6 +1293,69 @@ def stage3(ours, src, src_index, dry):
     for w, dangling, silent in shared_bad:
         print(f"    {'':26s} weapon {w} is imperfect (dangling={dangling} "
               f"silent={silent}) but is shared with pre-existing monsters -- left alone")
+
+    # --- 3i. the monsters' skills. Three port into their own (blank) row numbers,
+    # one ports to a different row because its own is occupied, and two re-point at
+    # skills we already own. Nothing is authored.
+    src_skill, our_skill = S(SKILL_STB_REL), O(SKILL_STB_REL)
+    ported, skill_assets = [], set()
+    fe_before = len(fe_written)
+    for src_row, (dst_row, label) in sorted(SKILL_PORTS.items()):
+        if src_row >= src_skill.rows or not src_skill.occupied(src_row):
+            raise SystemExit(f"LIST_SKILL row {src_row} is not in the source")
+        # A row we already ported is identified by its skill number (col 1), not by
+        # its label -- an earlier version of this script copied the Japanese one,
+        # and matching on the label would call our own work someone else's row.
+        if our_skill.occupied(dst_row):
+            if num(our_skill, dst_row, 1) != num(src_skill, src_row, 1):
+                raise SystemExit(f"LIST_SKILL row {dst_row} is occupied by "
+                                 f"{our_skill.get(dst_row, 0).decode('latin-1')!r} -- "
+                                 f"point SKILL_PORTS at a free row instead")
+            if our_skill.get(dst_row, 0).decode("latin-1") == label:
+                continue                                  # already ported
+            our_skill.set(dst_row, 0, label)              # relabel in place
+            ported.append(f"{dst_row} relabelled")
+            continue
+        for c in range(SKILL_COPY_COLS):
+            our_skill.set(dst_row, c, src_skill.get(src_row, c))
+        our_skill.set(dst_row, 0, label)      # theirs is a Japanese editor label
+        ported.append(f"{src_row}->{dst_row}" if src_row != dst_row else str(src_row))
+        # every effect/sound the ported row names must exist on our side
+        for c in (56, 59, 62, 65, 74, 77, 80, 83):
+            v = num(src_skill, src_row, c)
+            if not v or v >= src_fe.rows or not src_fe.occupied(v):
+                continue
+            if v < fe.rows and fe.occupied(v):
+                continue
+            fe.grow_to(v + 1)
+            for c2 in range(min(fe.cols, src_fe.cols)):
+                fe.set(v, c2, src_fe.get(v, c2))
+            fe_written.append(v)
+            skill_assets.add(src_fe.get(v, 0).decode("latin-1").strip())
+    if ported:
+        our_skill.save(dry)
+        if fe_written:
+            fe.save(dry)
+    print(f"    {'LIST_SKILL.STB':26s} {len(ported)} rows ported {ported}"
+          + (f", FILE_EFFECT +{len(fe_written) - fe_before} rows "
+             f"{fe_written[fe_before:]}" if len(fe_written) > fe_before else ""))
+    if skill_assets:
+        chain = {os.path.join(EFFECT_DIR, a) if not ("\\" in a or "/" in a) else a
+                 for a in skill_assets if a}
+        copy_new(chain | effect_chain(chain, src_index), src_index, ours, dry,
+                 "skill effect assets")
+
+    remap = dict(SKILL_REPOINT)
+    remap.update({src: dst for src, (dst, _) in SKILL_PORTS.items() if src != dst})
+    patched = collections.Counter()
+    for a in sorted(aips):
+        p = dest_of(ours, a)
+        if not os.path.isfile(p):
+            continue
+        for old, new in aip_repoint(p, remap, dry):
+            patched[f"{old}->{new}"] += 1
+    print(f"    {'.aip skill re-points':26s} {sum(patched.values())} records "
+          f"{dict(patched) if patched else '(already done)'}")
 
     # --- 3g. the spawn lumps, last, so a half-written run leaves no live spawns
     # pointing at rows that do not exist yet.

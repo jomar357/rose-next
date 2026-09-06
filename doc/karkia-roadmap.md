@@ -197,9 +197,35 @@ Two things found by running it:
 - **`import_characters` crashed on a sentinel.** Three Karkia monsters carry an anim entry of `(65535, 52685)` — `0xCDCD`, MSVC's uninitialised-heap fill, written out by whatever built these files. **Our own `LIST_NPC.CHR` has 112 of them** across 12,027 entries, so it is tolerated padding, not corruption. Out-of-range pool indices now pass through verbatim instead of being remapped (there is no string to intern) or dropped (which would make imported rows a different shape from the ones we ship).
 - **Weapon row 1137 has no bullet effect in either table.** Harmless here: `UsesProjectileAttackPresentation()` is `weapon > 0 && bullet_effect > 0`, so an empty row just selects the melee hit frame — correct for its users, which are melee at 250 cm. The warning now applies the game's own test rather than firing on every empty row.
 
-#### Stage 3b — the monsters' skills  *(not built)*
+#### Stage 3b — the monsters' skills  *(DONE, 2026-09-07)*
 
-The six references in §6. Three re-point at skills we already own (Berserk, Tornado, Silence), which is a two-byte poke of `nSkill` in the `.aip`; three port by straight copy into rows that are blank here, one of them needing `QUESTARUA_EXP.EFT`. Deferred so stage 3 could be tested on its own — without it the affected monsters just melee, which is safe.
+Folded into `--stage 3` as step 3i. **36 of 36** skill ids the Karkia AI casts now resolve.
+
+§6 said 23 ids with six needing attention. Both numbers were low: that survey walked a
+hand-listed set of `.aip` filenames covering only the 31 *spawned* monsters, and the seven
+AI-summoned-only ones have AI rows of their own carrying five more skills (3711, 3771,
+3779–3781, on the two Hebarn Officers, the Corroded Golem and the Revived Veteran). Deriving
+the AI file from each monster's `LIST_NPC` col 16 instead of a filename list is what found
+them — and is what the verifier does now.
+
+Final tally: **9 rows ported**, **2 re-pointed**, 25 already correct.
+
+| | |
+|---|---|
+| ported into their own (blank) rows | 3613, 3616, 3627, 3711, 3771, 3779, 3780, 3781 |
+| ported to a different row | 3685 → 3686 (3685 is our "GM Blessing") |
+| re-pointed in the `.aip` | 716 → 361 Berserk, 846 → 1090 Tornado |
+| assets | `FILE_EFFECT` +2 rows, `QUESTARUA_EXP.EFT` + chain (6 files) |
+
+Two judgement calls. **Berserk** re-points to rank 1 because theirs is rank 1 of its family —
+matching the rank position is the least invented choice, and stage 4 can raise it.
+**Tornado** re-points to rank 10 instead, matched on *power*: theirs is power 500, and our
+Tornado family only runs ranks 6–10, of which rank 10 is power 501. The rank numbering does
+not correspond, so matching on it would have been meaningless.
+
+Col 0 is authored rather than copied: theirs is a Japanese editor label and the cp932 bytes
+become mojibake in our UTF-8 table. The server reads `SKILL_NAME` from col 0 while the client
+shows the STL name, so an ASCII label is both correct and readable.
 
 #### What stage 3 deliberately did not do
 
