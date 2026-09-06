@@ -154,12 +154,32 @@ warp. `--verify` also asserts Oro's 170/172 still point at zone 82.
 This makes each cluster walkable: 87 ↔ 88 ↔ 135, 87 ↔ 131, 87 → 86, and 133 ↔ 144, 134 → 133.
 There is still no way *into* Karkia — that is 2b.
 
-#### Stage 2b — the Wayfinder NPC  *(not built)*
+#### Stage 2b — the way in  *(DONE, 2026-09-07)*
 
-NPC row, model, `.CON`, `LIST_EVENT` row, nine placements, the QSD triggers, and the entrance
-and return legs. The `.CON` is the new part: `quest-editor con-warp` *appends* to an existing
-dialog and refuses an NPC with none, so a greeting-only `.CON` has to be built first —
-`convo::build_con` is the primitive, but nothing exposes it as a command yet.
+**Scoped down from a per-zone Wayfinder to a single option on two existing NPCs.** The
+Memories cluster (133/134/144) and the Tower (136) are not holes to patch: they are content
+Jrose gated behind a quest about Karkia's past and an endgame wave/boss activity, and we will
+author our own way in later. So no new NPC was needed, and no new Rust either.
+
+`scripts/add-karkia-travel.py` writes one QSD trigger, `Karkia-TravelToChurch`, appended to
+`QP401.QSD` as a `KarkiaTravel` pattern — the same file and mechanism Oro's travel uses. It
+teleports to **zone 86, the Church**, at that zone's own `start` event position read out of
+the `.ZON` rather than pasted. Then `quest-editor con-warp` appends the dialog option to both
+existing travel NPCs through the QEX1 appendix:
+
+| NPC | where | already offered |
+|---|---|---|
+| 1104 `[Historian] Jones` | Junon Polis (zone 2) | the trip to Oro |
+| 2101 `[Interplanetary Guide] Nova` | Orlean Portal Temple (zone 73) | the trip home, and the Oro fate choice |
+
+The Church rather than the Cemetery because it is Karkia's town: no monsters, and ten NPCs
+once stage 6 places them. The Cemetery is a 7×7 field of level-211+ monsters.
+
+**Known gap: the Church has no way out.** Jrose gave it a gate in (191, from the Cemetery)
+and none back, and its NPCs are not placed until stage 6 — so a player who takes the trip is
+standing in an empty 2×2 map and leaves by Return scroll. Closing it needs either a second
+warp option ("Karkia: the Cemetery") on the same two NPCs, which is ten minutes, or the
+Church's own NPCs at stage 6. Deliberately left open rather than decided here.
 
 **Acceptance:** walk every gate in both directions, then teleport to all nine zones and back
 out to Junon. No `IS_HACKING` disconnects — that is what a destination event position
