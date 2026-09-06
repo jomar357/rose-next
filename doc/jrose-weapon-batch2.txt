@@ -1,0 +1,115 @@
+# Jrose WEAPON import, batch 2 -- our IDs 1420-1453, imported 2026-09-06.
+#
+# Batch 1 took the three sets that cover all 13 weapon types. This takes the two
+# that do not (they are still coherent sets, just incomplete), plus the level-210
+# tier and a handful of one-off crossbows and staves:
+#
+#   lv210     6 types    the 210-pattern service tier -- blunt, 2H sword, axe,
+#                        gun, launcher, wand. The other seven types have no
+#                        lv210 model we do not already own.
+#   Tochu     11 types   mesh tochu_*, insect names: Anansi, Selket, Shelob,
+#                        Arachne, Psyche, Hepri, Myrmecoleon... (no spear, no dual)
+#   Toshin    10 types   mesh toshin_*, giant names: Jotunn, Titan, Gigantes,
+#                        Nephilim, Hecatoncheir, Kumbhakarna... (no spear, katar
+#                        and dual are covered but 2H sword and staff are not)
+#   singles   7 rows     3 crossbows + 4 staves, filling the level bands below
+#                        200 where our own ladder is thinnest.
+#
+# STATS ARE OURS. As in batch 1, every row is anchored to OUR lv230 flagship for
+# its own weapon type (rows 1355-1367), so each entry sits on our scale and keeps
+# that type's character -- a katar stays fast, an axe stays slow:
+#
+#   lv210   lv210  ATK x0.85  speed = type baseline       no bonus
+#   Tochu   lv220  ATK x0.98  speed = type baseline       +20 AVOID
+#   Toshin  lv235  ATK x1.06  speed = baseline + 1 (slow) +120 HP
+#   singles varies                                        varied
+#
+# Bonus ids are deliberately different from batch 1 (which used AT_HIT 20 and
+# AT_CRITICAL 26) so the sets stay distinguishable in play: AT_HP is 16, AT_MP 17,
+# AT_AVOID 22. Attack speed is inverted -- LOWER is faster (1500/(value+5)).
+#
+# THE REQUIREMENT GATE IS DERIVED FROM THE ITEM'S OWN LEVEL, not from a per-set
+# constant: reqmul = 0.50 + 0.50 * (level - 140) / 100, applied to the template's
+# requirement value. A flat per-set multiplier is what decoupled six imported
+# shields from their levels (see scripts/fix-shield-str-gates.py); the first draft
+# of this batch reproduced it exactly, handing four staves spanning levels 150-205
+# the same INT 288 gate. The requirement ABILITY is whatever that weapon type
+# already requires, read off the template -- STR for swords, DEX for bows and
+# katars, CON for guns, INT for casters -- never assumed.
+#
+# THE TEMPLATE MUST BE THE SAME WEAPON TYPE. --art-only clones every other column
+# from it, including type, range and the requirement ability id.
+#
+# THE ATK VALUES ARE ANCHORED TO THE FLAGSHIP'S *EFFECTIVE* ATK, and they were
+# corrected after the first import. A row has only two bonus slots (game cols
+# 24/25 and 27/28), and slot 1 is where all 13 flagships keep an ATK bonus --
+# ATK+10 on most types, +30 on staff/wand/katar, **+90 on dual**. `--bonus`
+# fills slot 1 first, so passing one silently overwrote it: 52 of the 73
+# imported rows lost that ATK, and five ended up weaker than the level-230
+# weapon they were scaled *up* from (Giranda, the level-240 mythic dual, sat 34
+# ATK under Dual Viper Blades). The lost ATK is now folded into the ATK column,
+# which is equivalent for combat -- both feed the same ATK term -- and the
+# values below are post-correction, so a replay reproduces them directly.
+# See scripts/fix-weapon-atk-bonus-loss.py for the derivation.
+#
+# ANYTHING NOT OVERRIDDEN IS STILL THE TEMPLATE'S. 42 rows carry a second bonus
+# inherited from their flagship -- INT+60/+50 on staves and wands, CRIT+75 on
+# katars, AVOID+80 on bows, DEX+10 on duals. That is deliberate: it is what
+# keeps a caster weapon feeling like one. Where the set bonus names the same
+# ability the two stack (Spriggan CRIT 18+75, Selket AVOID 20+80), which is
+# also intended -- the set bonus is meant to sit *on top* of the type's normal
+# character.
+#
+# Fields, pipe-separated:
+#
+#   jrose_row | our_template_row | name | description | ATK | atk_speed | req_level | req_stat(id:val) | bonus(id:val, may be empty)
+#
+# Replay (from the repo root; --dry-run first):
+#
+#   grep -v '^#' doc/jrose-weapon-batch2.txt | while IFS='|' read -r row tmpl name desc atk spd lv req bonus; do
+#     b=""; [ -n "$bonus" ] && b="--bonus $bonus"
+#     python scripts/import-item.py --type weapon \
+#       --source "C:/Users/Thomas/Desktop/Testclients/Jrose" \
+#       --source-row "$row" --art-only --template-row "$tmpl" \
+#       --name "$name" --desc "$desc" --atk "$atk" --atk-speed "$spd" \
+#       --req-level "$lv" --req-stat "$req" $b --copy-icon
+#   done
+#
+# Then: scripts/add-dds-mipmaps.py, delete any .bak under data/, bake, deploy.
+# This batch added no new icon sheet -- icon53.dds (opened by batch 1) had room.
+# Roll the whole batch back with:
+#   python scripts/remove-trailing-items.py --type weapon --from-id 1420 --dry-run
+53|1356|Strike Hammer|Service issue of the 210 pattern. Plain, and made in quantity.|370|12|210|10:310|
+122|1357|Assault Sword|Service issue of the 210 pattern. Plain, and made in quantity.|382|10|210|10:285|
+153|1359|Final Axe|Service issue of the 210 pattern. Plain, and made in quantity.|398|12|210|10:286|
+252|1361|Hyper Railgun|Service issue of the 210 pattern. Plain, and made in quantity.|387|11|210|13:240|
+280|1362|Photon Cannon|Service issue of the 210 pattern. Plain, and made in quantity.|420|12|210|10:151|
+351|1364|Force Wand|Service issue of the 210 pattern. Plain, and made in quantity.|303|12|210|12:280|
+4341|1355|Tsunemoto|Forged for things with too many legs. The edge is serrated for a reason.|409|11|220|10:315|22:20
+4342|1356|Anansi|Forged for things with too many legs. The edge is serrated for a reason.|436|12|220|10:328|22:20
+4344|1357|Dairo|Forged for things with too many legs. The edge is serrated for a reason.|451|10|220|10:302|22:20
+4346|1358|Apollyon|Forged for things with too many legs. The edge is serrated for a reason.|432|10|220|10:284|22:20
+4345|1359|Goggy|Forged for things with too many legs. The edge is serrated for a reason.|469|12|220|10:302|22:20
+4347|1360|Selket|Forged for things with too many legs. The edge is serrated for a reason.|443|10|220|11:302|22:20
+4348|1361|Shelob|Forged for things with too many legs. The edge is serrated for a reason.|456|11|220|13:254|22:20
+4349|1362|Myrmecoleon|Forged for things with too many legs. The edge is serrated for a reason.|494|12|220|10:160|22:20
+4350|1363|Arachne|Forged for things with too many legs. The edge is serrated for a reason.|422|10|220|12:288|22:20
+4351|1364|Psyche|Forged for things with too many legs. The edge is serrated for a reason.|378|12|220|12:297|22:20
+4343|1367|Hepri|Forged for things with too many legs. The edge is serrated for a reason.|404|9|220|10:153|22:20
+4234|1355|Jotunn|Made to bring down something far larger than the person holding it.|442|12|235|10:341|16:120
+4235|1356|Naglfar|Made to bring down something far larger than the person holding it.|472|13|235|10:356|16:120
+4240|1360|Goliath|Made to bring down something far larger than the person holding it.|480|11|235|11:327|16:120
+4241|1361|Titan|Made to bring down something far larger than the person holding it.|493|12|235|13:275|16:120
+4242|1362|Gigantes|Made to bring down something far larger than the person holding it.|535|13|235|10:174|16:120
+4243|1363|Mistcalf|Made to bring down something far larger than the person holding it.|457|11|235|12:312|16:120
+4244|1364|Bergelmir|Made to bring down something far larger than the person holding it.|409|13|235|12:322|16:120
+4245|1365|Nephilim|Made to bring down something far larger than the person holding it.|433|8|235|11:327|16:120
+4246|1366|Hecatoncheir|Made to bring down something far larger than the person holding it.|590|11|235|11:254|16:120
+4236|1367|Kumbhakarna|Made to bring down something far larger than the person holding it.|437|10|235|10:166|16:120
+77|1367|Grenade Bowgun|A one-off pattern, never made in numbers.|387|10|200|10:136|16:90
+76|1367|Cyclone Bowgun|A one-off pattern, never made in numbers.|363|8|180|10:119|22:18
+75|1367|Dragon Bowgun|A one-off pattern, never made in numbers.|330|9|160|10:102|
+4721|1363|Dreamvine Stave|A one-off pattern, never made in numbers.|410|10|205|12:264|17:120
+323|1363|Omega Staff|A one-off pattern, never made in numbers.|388|11|190|12:240|16:100
+4144|1363|Serpent Rod|A one-off pattern, never made in numbers.|362|9|170|12:208|22:16
+1341|1363|Standard Rod|A one-off pattern, never made in numbers.|313|10|150|12:176|

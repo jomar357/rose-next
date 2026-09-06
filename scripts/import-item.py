@@ -69,6 +69,9 @@ FIELD_ZSC_REL = r"3DDATA\ITEM\LIST_FieldITEM.ZSC"
 # have no bounds check -- see the --art-only note above.
 AT_MAX_GUARD = 105
 
+# AT_ATK, so an overwritten ATK bonus can be named in the warning below.
+AT_ATK = 18
+
 # name -> (item type number, STB, model ZSCs, STL, STL key prefix, our data-col count)
 #
 # "model ZSCs" is a tuple because armour is sex-split; it is empty for types with
@@ -870,8 +873,25 @@ def main():
                          "past m_iAddValue[] and corrupts adjacent character state"
                          % (bid, AT_MAX_GUARD - 1))
             col = 24 if n == 0 else 27
+            old_id = row[col].decode().strip()
+            old_val = row[col + 1].decode().strip()
             print("bonus %d: %s:%s -> %d:%d"
-                  % (n + 1, row[col].decode() or "-", row[col + 1].decode() or "-", bid, bval))
+                  % (n + 1, old_id or "-", old_val or "-", bid, bval))
+            # Slot 1 is where every one of our level-230 flagships keeps its ATK
+            # bonus (+10 on most types, +30 on staff/wand/katar, +90 on dual), and
+            # in --art-only the template's slots are already populated -- so the
+            # first --bonus overwrites it. That happened silently across two Jrose
+            # weapon batches and left five items weaker than the lower-level
+            # weapon they were scaled up from; see
+            # scripts/fix-weapon-atk-bonus-loss.py. There are only two slots, so
+            # this cannot be fixed by relocating; say loudly what is being lost.
+            if old_id.isdigit() and int(old_id) != bid and int(old_id) != 0:
+                print("  WARNING: this overwrites the template's %s bonus (%s:%s). "
+                      "There are only two bonus slots, so it cannot be kept as well -- "
+                      "if it is an ATK bonus (id 18), fold it into --atk or the item "
+                      "lands below its own template."
+                      % ("ATK" if int(old_id) == AT_ATK else "id %s" % old_id,
+                         old_id, old_val or "0"))
             row[col] = str(bid).encode("ascii")
             row[col + 1] = str(bval).encode("ascii")
 
