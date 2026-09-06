@@ -1,0 +1,82 @@
+# Jrose SUB-WEAPON (shield) import, batch 1 -- our IDs 308-342, imported 2026-09-06.
+#
+# First import into LIST_SUBWPN. Milestone 1 (back items, IDs 957-1061) is closed.
+#
+# Shields were identified by ZSC **dummy index 2** (DUMMY_IDX_L_SHIELD) rather
+# than by name. Both tables use the same convention -- dummy 1 is L_HAND for
+# off-hand props -- so that selection is exact rather than a keyword guess, and
+# every imported row was verified afterwards to still carry dummy 2.
+#
+# Structural checks before importing, same order as the back-item work:
+#   * attachment convention  identical (dummy 1 / dummy 2 on both sides)
+#   * skinning               11 of Jrose's 946 sub-weapon meshes are skinned, but
+#                            NONE of them are shields, so no skeleton dependency
+#   * placeholders           none among shields
+#   * columns 0-12           align (moot under --art-only, which reads no source cell)
+#
+# 43 new shield models exist; this took 35. Skipped: five sub-100-vertex joke
+# pieces and two of the four panda-bread variants.
+#
+# STATS ARE OURS. Jrose's required levels are 466-486 on their own scale and
+# meaningless here. Their DEF happens to land close to ours (their lv210 set is
+# 84-109 against our Golden Angel at 88), so the per-class split was preserved
+# and mapped onto our tiers:
+#
+#   our ladder before: rows 1-17 DEF 3-59 ungated, 306 DEF 88 @lv210,
+#                      307 DEF 122 @lv230
+#   added:             lv210  Freyja 84 / Garm 88 / Fafnir 100
+#                      lv220  Cathedral 95 / Ashura 100 / Reconquista 112
+#                      lv230  Ushumgal 108 / Zlatorog 120 / Lindwurm 132
+#                      lv240  Evolved trio 122 / 135 / 148
+#
+# The three-per-tier split is Jrose's and looks deliberate: caster / light /
+# heavy. Worth keeping if these are ever re-tuned.
+#
+# Fields, pipe-separated:
+#
+#   jrose_row | our_template_row | name | description | DEF | RES | required_level
+#
+# Replay (from the repo root; --dry-run first):
+#
+#   grep -v '^#' doc/jrose-subwpn-batch1.txt | while IFS='|' read -r row tmpl name desc def res lv; do
+#     python scripts/import-item.py --type subwpn #       --source "C:/Users/Thomas/Desktop/Testclients/Jrose" #       --source-row "$row" --art-only --template-row "$tmpl" #       --name "$name" --desc "$desc" --def "$def" --res "$res" --req-level "$lv" #       --copy-icon --copy-effects
+#   done
+#
+# Then: scripts/add-dds-mipmaps.py, delete any .bak under data/, bake, deploy.
+# Roll the whole batch back with:
+#   python scripts/remove-trailing-items.py --type subwpn --from-id 308 --dry-run
+21|306|Freyja's Mirror|A polished disc that turns spellwork aside more readily than steel.|84|32|210
+19|306|Garm Shield|A narrow guard shaped to leave a crossbow arm free.|88|30|210
+20|306|Fafnir's Shield|Overlapping drake scale on an iron frame. Heavy, and it shows.|100|30|210
+26|306|Cathedral Mirror|A consecrated mirror-face, carried by those who mend rather than strike.|95|36|220
+27|306|Ashura Buckler|Small, fast, and meant for someone already moving.|100|32|220
+25|306|Reconquista Shield|A full knight's shield, faced and bossed for the line.|112|34|220
+1401|307|Ushumgal Mirror|A serpent-etched mirror that drinks the light off a spell.|108|42|230
+1402|307|Zlatorog Buckler|Gold-horned and light in the hand, for all its weight of ornament.|120|38|230
+1400|307|Lindwurm Shield|A wyrm-scale wall. It does not move for anything.|132|40|230
+1404|307|Evolved Ushumgal Mirror|The serpent mirror, reworked. The etching has gone deeper.|122|48|240
+1405|307|Evolved Zlatorog Buckler|The gold horn, reworked, and heavier than it looks.|135|44|240
+1403|307|Evolved Lindwurm Shield|The wyrm wall, reworked. Very little gets past it.|148|46|240
+1410|307|Steam Clock (Gold)|A brass gear-train shield, still turning under its own tension.|115|40|215
+1411|307|Steam Clock (Silver)|A silvered gear-train shield, still turning under its own tension.|115|40|215
+1412|307|Steam Clock (Black)|A blackened gear-train shield, still turning under its own tension.|115|40|215
+1413|306|Steam Feather (Gold)|A brass wing that folds into a guard when you need it.|70|26|170
+1414|306|Steam Feather (Silver)|A silvered wing that folds into a guard when you need it.|70|26|170
+1415|306|Steam Feather (Black)|A blackened wing that folds into a guard when you need it.|70|26|170
+1390|306|Chronos Aspis|A clockwork face with hands that do not tell your time.|105|36|200
+1391|17|Lero Escudo|A small pendant-guard on a wound chain.|60|22|150
+1425|307|Lord of Riot|A slab of a shield, built for a fight already going badly.|130|42|235
+1416|17|Red Feather Compass|A cased compass on a bracer. The needle rarely agrees with north.|55|20|140
+203|17|Righteous Shield NEO|The old Righteous pattern, reforged and rather louder about it.|66|24|155
+2840|307|Lord Knight Shield|A tall command shield, meant to be seen from the back of a line.|118|40|225
+1440|306|Black Heaven Dragon|A coiled drake worked into a guard, in a black that gives nothing back.|90|34|190
+1439|306|Black Heaven Lion|A lion's face in the same black, jaw open.|78|28|175
+1408|306|Gryphon Lumen|A gryphon crest that catches light it was not given.|72|26|165
+1397|12|Mascot Plush|A stuffed mascot held up as a shield. It has taken hits.|26|10|70
+1292|12|Clinging Mascot|A plush figure clamped to your forearm, refusing to let go.|22|9|60
+1385|4|Bucket Shield|A plastic bin lid. It works better than it has any right to.|12|5|30
+1253|7|Rose Kite|A painted kite on a short spar, held out like a guard.|16|7|45
+1395|12|Maple Shield|A lacquered round faced with autumn leaf.|26|11|75
+1435|12|Hydrangea Cluster|A bloom-cluster boss in deep violet.|24|10|70
+1264|4|Raisin Bread Shield|A studded round loaf. Sincerely.|14|6|35
+1258|4|Panda Bread Shield|A panda-faced bun on a strap. Also sincerely.|14|6|35
