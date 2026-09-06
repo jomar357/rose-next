@@ -227,6 +227,43 @@ NPC_CHR_REL = r"3DDATA\NPC\LIST_NPC.CHR"
 PART_NPC_ZSC_REL = r"3DDATA\NPC\PART_NPC.ZSC"
 NPC_RANGE_COL = 26                 # bare-hand attack range, in cm
 MELEE_RANGE_CM = 800               # see the bullet-effect note in stage3()
+EFFECT_STB_REL = r"3DDATA\STB\LIST_EFFECT.STB"
+FILE_EFFECT_STB_REL = r"3DDATA\STB\FILE_EFFECT.STB"
+FILE_SOUND_STB_REL = r"3DDATA\STB\FILE_SOUND.STB"
+HITSOUND_STB_REL = r"3DDATA\STB\LIST_HITSOUND.STB"
+EFFECT_DIR = r"3DDATA\EFFECT"      # FILE_EFFECT names its .eft files bare
+
+# --- stage 3h: attack presentation ----------------------------------------
+#
+# Two *different* effect tables are in play, and getting them the wrong way round
+# makes correct data look broken and broken data look fine:
+#
+#   Hitted(iEffectIDX) -> EFFECT_HITTED_NORMAL(I) = g_TblEFFECT.get_int32(I, 9),
+#     and g_TblEFFECT is LIST_EFFECT.STB. So the impact effect is a **LIST_EFFECT**
+#     row whose col 9 is the FILE_EFFECT index. Fed by LIST_WEAPON 38/39.
+#   ShowEffectOnCharByIndex -> Add_EffectWithIDX, bounds-checked against
+#     CEffectLIST, which cgame.cpp builds from **FILE_EFFECT.STB**. So the death
+#     effect (LIST_NPC 34) is a FILE_EFFECT row.
+#
+# The trap that produced the reported bug: cobjchar_actionframe.cpp case 21/31
+# falls back to the NPC's own columns (33 hand-hit effect, 31 attack sound) *only
+# when the monster has no right-hand weapon*. A monster that equips a blank weapon
+# row therefore gets neither the weapon's presentation nor the NPC fallback --
+# damage numbers appear, and nothing else does.
+PRESENTATION_COLS = {38: "LIST_EFFECT", 39: "LIST_EFFECT", 40: "FILE_SOUND",
+                     41: "FILE_SOUND", 42: "LIST_HITSOUND"}
+# Repairs, applied only to weapon rows no pre-existing monster equips.
+#   1137: blank in both tables. Its two users are the melee Revived Quarantine
+#         Officers, so it is filled from 1131 -- the D-Ghoul's row, humanoid
+#         undead melee, which is the closest match we already own and which our
+#         own Shaman family shares.
+#   1156: col 38 names LIST_EFFECT row 631, which we do not have. The row is
+#         imported instead of cleared, because clearing it would also change the
+#         *server's* mind about the Evil Fairy: UsesProjectileAttackPresentation()
+#         is `bullet_effect > 0`, so a zero there silently converts a projectile
+#         attacker into a melee one.
+PRESENTATION_DONOR = {1137: 1131}
+PRESENTATION_EFFECT_ROWS = [631]
 
 # Where a synthetic LUMP_ECONOMY comes from. Any of our zones would do -- 50 of our
 # 55 carry the identical 74-byte block -- but a populated Junon field zone gives
@@ -886,6 +923,11 @@ def stage3(ours, src, src_index, dry):
     def O(rel):
         return oro.Stb(os.path.join(ours, rel.replace("\\", "/")))
 
+    def num(stb, r, c):
+        """int of a cell -- import-oro's Stb works in bytes and has no accessor."""
+        v = stb.get(r, c).strip()
+        return int(v) if v.isdigit() else 0
+
     # --- 3a. cross-check the roster against what the spawn lumps actually name.
     # The AI-summoned seven appear in no REGEN lump, so the two sets differ by
     # design -- but a *spawned* id we do not know about would be a hole.
@@ -1034,24 +1076,119 @@ def stage3(ours, src, src_index, dry):
         wfixed.append(w)
     print(f"    {'LIST_WEAPON.STB':26s} {len(wfixed)} of {len(weapons)} mob weapons "
           f"given attack presentation {wfixed}")
-    # An empty WEAPON_BULLET_EFFECT is only a defect for a *ranged* user:
+    # An empty WEAPON_BULLET_EFFECT (col 38) is only a defect for a *ranged* user:
     # UsesProjectileAttackPresentation() is `weapon > 0 && bullet_effect > 0`, so an
-    # empty row simply selects the melee hit frame, which is correct for a melee
+    # empty col 38 simply selects the melee hit frame, which is correct for a melee
     # monster and invisible for a bow/gun one (see fix-mob-bullet-effects.py).
     # Karkia's melee users sit at 90-350 cm and its ranged ones at 1100-1800, so
     # 800 falls in the empty band between the two clusters.
+    #
+    # That reasoning covers col 38 and *only* col 38. A melee monster still needs
+    # 39/40/42, and a row blank in all five leaves it with no hit effect and no
+    # sound at all -- which is the bug this comment originally waved through.
+    # Step 3h below is what checks and repairs that.
     for w in wempty:
         ranged = [i for i in users.get(w, [])
                   if int(our_npc.get(i, NPC_RANGE_COL).strip() or 0) > MELEE_RANGE_CM]
-        who = ", ".join(f"{i} {KARKIA_MONSTERS.get(i, '?')}" for i in users.get(w, []))
         if ranged:
             print(f"    !! weapon row {w} has no bullet effect in either table and "
                   f"is used by RANGED {ranged} -- they will fire nothing visible")
-        else:
-            print(f"    {'':26s} weapon row {w} has no presentation data anywhere; "
-                  f"its users are melee ({who}), so that is fine")
     if wfixed:
         our_wpn.save(dry)
+
+    # --- 3h. attack presentation: validate every index against the table that
+    # actually consumes it, and repair the Karkia-exclusive weapon rows. This runs
+    # unconditionally rather than only for newly-written rows, so re-running fixes
+    # data an earlier version of this script already wrote.
+    le, fe = O(EFFECT_STB_REL), O(FILE_EFFECT_STB_REL)
+    fs, hs = O(FILE_SOUND_STB_REL), O(HITSOUND_STB_REL)
+    tables = {"LIST_EFFECT": le, "FILE_EFFECT": fe,
+              "FILE_SOUND": fs, "LIST_HITSOUND": hs}
+
+    def resolves(tbl, v):
+        return v == 0 or (v < tbl.rows and tbl.occupied(v))
+
+    # 3h-i. import the LIST_EFFECT rows our weapons name but we do not have,
+    # together with any FILE_EFFECT row they point at and its asset.
+    src_le, src_fe = S(EFFECT_STB_REL), S(FILE_EFFECT_STB_REL)
+    eff_written, fe_written, eff_assets = [], [], set()
+    for r in PRESENTATION_EFFECT_ROWS:
+        if r < le.rows and le.occupied(r):
+            continue
+        if r >= src_le.rows or not src_le.occupied(r):
+            raise SystemExit(f"LIST_EFFECT row {r} is not in the source either")
+        le.grow_to(r + 1)
+        for c in range(min(le.cols, src_le.cols)):
+            le.set(r, c, src_le.get(r, c))
+        eff_written.append(r)
+        for c in range(le.cols):          # every cell that names a FILE_EFFECT row
+            v = num(le, r, c)
+            if not v or v >= src_fe.rows or not src_fe.occupied(v):
+                continue
+            if v < fe.rows and fe.occupied(v):
+                continue
+            fe.grow_to(v + 1)
+            for c2 in range(min(fe.cols, src_fe.cols)):
+                fe.set(v, c2, src_fe.get(v, c2))
+            fe_written.append(v)
+            eff_assets.add(src_fe.get(v, 0).decode("latin-1").strip())  # bare name
+    if eff_written:
+        le.save(dry)
+    if fe_written:
+        fe.save(dry)
+    print(f"    {'LIST_EFFECT.STB':26s} +{len(eff_written)} rows {eff_written}, "
+          f"FILE_EFFECT +{len(fe_written)} rows {fe_written}")
+    # FILE_EFFECT names its files bare (`questarua_gem.eft`), and the client hands
+    # that straight to the VFS -- they live flat in 3DDATA\EFFECT\, so the prefix
+    # is added here rather than the name being dropped for having no separator.
+    if eff_assets:
+        chain = {os.path.join(EFFECT_DIR, a) if not ("\\" in a or "/" in a) else a
+                 for a in eff_assets if a}
+        copy_new(chain | effect_chain(chain, src_index), src_index, ours, dry,
+                 "effect assets")
+
+    # 3h-ii. repair the weapon rows, but only ones no pre-existing monster equips
+    ours_only = {}
+    for w in sorted(weapons):
+        holders = [r for r in range(our_npc.rows)
+                   if our_npc.occupied(r)
+                   and w in (num(our_npc, r, oro.NPC_R_WEAPON_COL),
+                             num(our_npc, r, oro.NPC_L_WEAPON_COL))]
+        ours_only[w] = all(h in KARKIA_MONSTERS for h in holders)
+    repaired, shared_bad = [], []
+    for w in sorted(weapons):
+        vals = {c: num(our_wpn, w, c) for c in PRESENTATION_COLS}
+        melee = [i for i in users.get(w, [])
+                 if int(our_npc.get(i, NPC_RANGE_COL).strip() or 0) <= MELEE_RANGE_CM]
+        dangling = [c for c, t in PRESENTATION_COLS.items()
+                    if not resolves(tables[t], vals[c])]
+        # "Silent" means the *melee* path presents nothing. A row carrying a
+        # bullet effect is never silent whatever its owner's range: the server's
+        # UsesProjectileAttackPresentation() is `bullet_effect > 0`, so it takes
+        # the projectile path and cols 39/40 are never consulted.
+        silent = bool(melee) and not vals[38] and not vals[39] and not vals[40]
+        if not dangling and not silent:
+            continue
+        if not ours_only[w]:
+            shared_bad.append((w, dangling, silent))
+            continue
+        donor = PRESENTATION_DONOR.get(w)
+        if silent and donor:
+            for c in (39, 40, 42):
+                our_wpn.set(w, c, our_wpn.get(donor, c))
+            repaired.append(f"{w} melee presentation from {donor}")
+        for c in dangling:
+            if resolves(tables[PRESENTATION_COLS[c]], num(our_wpn, w, c)):
+                continue                     # an import above fixed it
+            repaired.append(f"{w} col {c}={vals[c]} still dangles")
+    if repaired:
+        our_wpn.save(dry)
+    print(f"    {'attack presentation':26s} "
+          f"{len([r for r in repaired if 'from' in r])} weapon rows repaired"
+          + (f": {repaired}" if repaired else ""))
+    for w, dangling, silent in shared_bad:
+        print(f"    {'':26s} weapon {w} is imperfect (dangling={dangling} "
+              f"silent={silent}) but is shared with pre-existing monsters -- left alone")
 
     # --- 3g. the spawn lumps, last, so a half-written run leaves no live spawns
     # pointing at rows that do not exist yet.
