@@ -1,7 +1,7 @@
 # Karkia Import Roadmap
 
 Companion to [doc/karkia-survey.md](karkia-survey.md), which is the evidence. This is the
-plan. **Nothing here is built yet.**
+plan. **Stage 1 is built** (`scripts/import-karkia.py`); stages 2-6 are not.
 
 Two scope decisions are settled going in:
 
@@ -91,10 +91,18 @@ Each stage is independently testable in game and independently revertible.
 `data/` is gitignored, so **the script's docstring is the only committed record** of what was
 done and why.
 
-### Stage 1 — terrain, art, zone rows
+### Stage 1 — terrain, art, zone rows  *(DONE, 2026-09-06)*
+
+Built as `scripts/import-karkia.py`. Result: 962 map files (59.96 MB), 208 terrain
+tiles (12.12 MB), 16 object tables, 462 art files (13.01 MB), 2 sky textures; 88 `.IFO`
+with entity lumps emptied, 9 `.ZON` given a `LUMP_ECONOMY`, `LIST_ZONE` grown to 145
+rows, `LIST_ZONE_S.STL` +9 keys, `LIST_SKY` row 17 added. Then
+`scripts/add-dds-mipmaps.py` gave mip chains to the 419 new power-of-two textures --
+all 419 were files this import created, no pre-existing texture was touched.
+`--verify` and a re-run (fully idempotent, 0 of everything) both pass. What it does:
 
 Copy the 9 `.ZON`/`.IFO` sets with the MOB, REGEN, WARP and EVENT_OBJECT lumps emptied on
-the way in (count = 0, lump table untouched) so later stages just refill them. Plus the 18
+the way in (count = 0, lump table untouched) so later stages just refill them. Plus the 16
 map `.ZSC`s, `3Ddata\KARKIA\`, the 208 terrain tiles, the new map meshes and textures,
 `LIST_SKY` row 17 + the two `LUNAR\Sky02` textures, `LIST_ZONE` rows 86–144 with fresh
 `LZON*` STL keys, and English zone names via `scripts/add-zone-name.py`.
@@ -105,15 +113,16 @@ Two things this stage must get right:
   variant with no lump 4, so `CEconomy::Load` never runs and the server's zone economy runs
   on uninitialised heap. Copy the five ints from a comparable zone of ours.
 - **Never overwrite an existing `.dds`.** 331 of the shared textures differ only because ours
-  have mip chains and Jrose's do not. Run `scripts/add-dds-mipmaps.py` over the 93 new ones
-  instead.
+  have mip chains and Jrose's do not. `copy_new()` never overwrites, which makes that safe by
+  construction; the new textures then get chains of their own from
+  `scripts/add-dds-mipmaps.py` (419 files, every one written by this import).
 
 Also renumber on the way in: `WARP.STB` 170 and 172 are live Oro gates, and STL key
 `LZON086` belongs to our zone 82.
 
 **Acceptance:** GM-warp into each of the nine and walk around. No missing-asset lines in
 `error.txt`, no black terrain, minimap draws, zone name shows above it. Run
-`scripts/audit-zsc-bounds.py` afterwards — Karkia adds 18 ZSC tables and the cached bounding
+`scripts/audit-zsc-bounds.py` afterwards — Karkia adds 16 ZSC tables and the cached bounding
 boxes in every ZSC in the game are wrong (`doc/zsc-bounding-boxes.md`), so confirm nothing
 under-covers badly enough to pop out of the frustum.
 

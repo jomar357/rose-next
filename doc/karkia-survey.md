@@ -79,7 +79,7 @@ verified:
   32 NPCs, 11 warp gates, 3 effects, 3 morphs, 1 event object. All 23 `OCEAN` lumps are
   well-formed (`float size; i32 count; count x 6 floats`; it is not an object lump, so
   `parse_object_lump` will "fail" on it — that is the script, not the data).
-- **18 map `.ZSC`** — every object id placed by an `.IFO` is inside its table's object
+- **16 map `.ZSC`** — every object id placed by an `.IFO` is inside its table's object
   count, and no referenced object is empty.
 - `LIST_NPC.CHR` / `PART_NPC.ZSC` — all 70 characters have a CHR entry.
 
@@ -324,7 +324,7 @@ Mirror `scripts/import-oro.py` — same stage structure, same idempotence, same 
 `--selftest` discipline. Each stage independently testable and independently revertible.
 
 1. **Terrain, art, zone rows, names.** The 9 `.ZON`/`.IFO` sets with MOB/REGEN/WARP/
-   EVENT_OBJECT lumps emptied on the way in, the 18 map `.ZSC`s, the 208 tiles, `LIST_SKY`
+   EVENT_OBJECT lumps emptied on the way in, the 16 map `.ZSC`s, the 208 tiles, `LIST_SKY`
    row 17, the synthetic `LUMP_ECONOMY`, `LIST_ZONE` rows and English names. Testable by
    GM-warping in and walking around. **Never overwrite an existing `.dds`.**
 2. **Gates.** 10 `WARP.STB` rows at *new* ids (170 and 172 must move) with the `.IFO` warp
