@@ -138,7 +138,9 @@ Copy for identity — name, model, size, sounds, attack type, range, AI id. Leav
 columns as Jrose wrote them for exactly one play session, so we can see the fights before
 we change them, then never again.
 
-Zero AI opcodes here are new to our server, so nothing to implement.
+Zero AI opcodes here are new to our server, so nothing to implement. The `.aip` files copy
+verbatim; six skill rows want authoring alongside them (§6), four of which need no `.aip`
+change at all.
 
 **Acceptance:** monsters spawn, animate, path, attack, and die. `/dps` shows damage flowing.
 The D=Seed's summon behaviour fires. Nothing crashes.
@@ -207,10 +209,9 @@ Settled 2026-09-06.
    stage 2, because travel is not optional.
 6. **Monsters are the priority.** Stages 3 and 4 are what makes Karkia real.
 
-Not settled, and taken by default until it is: the monsters' **23 unresolved skill
-references** (§6). Stage 3 blanks them and ships melee-only monsters, because a wrong mapping
-is a monster casting a player buff at you and because a blank makes the first tuning pass
-legible. Reversible at any time.
+The monsters' skill references, which the survey listed as 23 open items, turned out to be
+almost a non-issue once checked properly — see §6. Copy the `.aip` files verbatim; six rows
+need attention, not twenty-three.
 
 ---
 
@@ -296,13 +297,56 @@ EXP is 133x ours across the board; `scripts/rebalance-exp-rewards.py` owns that.
 
 ---
 
-## 6. Still open
+## 6. The monsters' skill references
+
+The survey flagged 23 skill ids the Karkia AI casts through `AIACT_24` and warned they might
+mean different things here. Checked properly — every one of our 87 columns, both sides — the
+picture is far better than that:
+
+| | rows | what happens if we copy the `.aip` verbatim |
+|---|---|---|
+| **identical on both sides** | 12 — 3548, 3549, 3557, 3572, 3574, 3575, 3579, 3580, 3582, 3585, 3586, 3599 | works exactly as authored |
+| **same skill, different numbers** | 5 — 2910, 2911, 2913, 2941, 2954 | right effect, our duration and magnitude (mostly *stronger*: 2941 is rate 15 / 35 s here against rate 7 / 15 s there). 2910/2911/2913 have no casting or action motion on our side, so the effect lands with no animation |
+| **blank on our side** | 4 — 716, 3613, 3616, 3627 | the monster spends an AI action doing nothing. `CObjAI::SetCMD_Skill2OBJ` does not validate the row, so an empty skill executes as an empty skill — no crash |
+| **genuinely different** | 2 — 846, 3685 | see below |
+
+Those two are the only real losses, and neither is harmful:
+
+- **846** is トルネード (Tornado) there — type 17, radius 700, power 500 — and **Spell Mastery**
+  here, a type-15 passive. The AI casts it *at its attack target*, so instead of a 500-power
+  AoE the monster fires a passive at the player: a no-op, or at worst a trivial gift.
+- **3685** is a radius-1500 self-buff there and **GM Blessing** here — which despite the name
+  is an empty row (no type, no ability pairs). The AI casts it *on itself*, so nothing
+  happens.
+
+So the blast radius is **10 of the 38 monsters**, and they pair up because the α set shares
+its AI with the Cemetery original:
+
+| monsters | affected rows | what they lose |
+|---|---|---|
+| 2703 / 2692 Revived Quarantine Member | 716 (self), 846 (target) | its self-Berserk and its Tornado — the biggest loss |
+| 2716 / 2697 Evil Eye | 3685 (self), 3627 (target) | a self-buff and a silence |
+| 2715 / 2696 Murillo | 3613 (target) | a 5 s stun |
+| 2725 Evil Fairy | 3616 (target) | a 100-power nuke |
+| 2714 / 2695 Deadly Wolf | 2941, 2954 | nothing — magnitude only |
+| 2719 Woodnoid | 2910, 2911, 2913 | nothing — magnitude, plus no cast animation |
+
+**Plan: copy the `.aip` files verbatim, then author six skill rows.** Four of them (716,
+3613, 3616, 3627) are blank on our side, so they can be written straight at those row numbers
+with no `.aip` patching at all. The other two (846, 3685) are occupied by our own skills, so
+they need a new row plus a two-byte poke of the `nSkill` field in the `.aip` — the parser
+already locates every one of those fields.
+
+That is a small, bounded job and it is worth doing rather than deferring: the Cemetery
+roster's identity is partly its casting, and a silence plus a stun is most of what makes the
+Evil Eye and Murillo interesting.
+
+---
+
+## 7. Still open
 
 Small, and none of them blocks starting.
 
-- **The 23 monster skill references.** Defaulting to blank (§4). Worth a deliberate pass
-  later — the Cemetery roster's identity is partly its casting, and
-  `project_artisan_skill_import` shows the recipe for authoring new monster skills works.
 - **Where the entrance NPC stands.** Proposal: **Muris**, since Karkia is an Oro-tier
   alternative and Muris is where a player stands when choosing what to do next — which makes
   reaching Oro a light, natural gate. Junon Polis instead would make Karkia bypass Oro
@@ -315,7 +359,7 @@ Small, and none of them blocks starting.
 
 ---
 
-## 7. Effort shape
+## 8. Effort shape
 
 Rough, for sequencing rather than scheduling. The engineering is small and the authoring is
 most of it.
@@ -329,10 +373,10 @@ most of it.
 | 5 drops | trivial | **large: a Karkia loot tier** |
 | 6 NPCs | small | large: 32 dialogs + 14 shop tabs |
 
-No server or client code change is required by anything above. The one thing that could
-change that is authoring new monster skills (§6), and even that is data.
+No server or client code change is required by anything above. The six skill rows in §6 are
+data too, so that stays true even with them authored.
 
-## 8. Before the first line of code
+## 9. Before the first line of code
 
 - Re-read [doc/jrose-survey.md](jrose-survey.md) §2 — all three silent-failure traps apply.
 - Re-read §5 — the balance targets are a floor from a pessimistic model, not a spec.
