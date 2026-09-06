@@ -70,6 +70,7 @@ import argparse
 import importlib.util
 import io
 import os
+import re
 import shutil
 import struct
 import sys
@@ -152,6 +153,65 @@ oro = load_oro()
 
 
 # ------------------------------------------------------------------- helpers
+# import-oro.py's ABS_ASSET_RE matches only .ptl/.dds/.tga/.zms, so an .eft that
+# animates a mesh -- and names the .zmo that drives it -- loses the motion. That
+# is not theoretical: JGTFOODSHOP_NIGHT01.EFT names JGTFOODSHOP_NIGHT01.ZMO, and
+# the client pops a modal "open error" box for it on entering Spire Village. 14
+# .zmo across the Karkia effect chain were missed that way.
+#
+# .eft is included so the walk is transitive through nested effects, and .mrp
+# (morph targets) because an animated-building .eft names one of those too.
+EFFECT_ASSET_RE = re.compile(
+    rb"3DDATA[\\/][0-9A-Za-z_\\/. -]+?\.(?:ptl|dds|tga|zms|zmo|eft|mrp)", re.I)
+# A .ptl names its textures bare; an .eft names its .mrp bare, relative to itself.
+BARE_TEXTURE_RE = re.compile(rb"[0-9A-Za-z_][0-9A-Za-z_-]*\.(?:dds|tga)", re.I)
+BARE_SIBLING_RE = re.compile(rb"[0-9A-Za-z_][0-9A-Za-z_.-]*\.(?:mrp|zmo)", re.I)
+PARTICLE_TEXTURE_DIR = r"3DDATA\EFFECT\PARTICLES\TEXTURE"
+
+
+def effect_chain(seeds, src_index):
+    """.eft -> .ptl/.mrp/.zmo/.zms -> particle texture, transitively.
+
+    Same shape as import-oro.py's version, with the wider extension set above and
+    bare sibling names resolved against the referring file's own directory. Both
+    formats are length-prefixed binary; the paths are recovered by pattern rather
+    than with a full parser because these fields are all we need and the files are
+    a few hundred bytes each.
+    """
+    out, queue, seen = set(), list(seeds), set()
+    while queue:
+        rel = queue.pop()
+        k = key_of(rel)
+        if k in seen:
+            continue
+        seen.add(k)
+        out.add(rel)
+        p = src_index.get(k)
+        if p is None:
+            continue
+        blob = open(p, "rb").read()
+        for hit in EFFECT_ASSET_RE.finditer(blob):
+            queue.append(hit.group().decode("latin-1"))
+        # A bare name is a path *reconstruction*, not a reference: we are guessing
+        # the directory. Only take it if the guess resolves, because a bare name
+        # that does not is usually one already covered by an absolute path
+        # elsewhere in the same file (an .eft names both `_pumpkin_01.zmo` and
+        # `3DDATA\EFFECT\EFFECTMESH\_PUMPKIN_01.ZMO`), and reporting the failed
+        # guess as "missing from source" would be a lie about a file we have.
+        # Absolute references stay unguarded, so a genuinely absent one is still
+        # reported.
+        parent = os.path.dirname(k)
+        bare = []
+        if k.endswith(".ptl"):
+            bare = [os.path.join(PARTICLE_TEXTURE_DIR, h.group().decode("latin-1"))
+                    for h in BARE_TEXTURE_RE.finditer(blob)]
+        elif k.endswith(".eft"):
+            bare = [os.path.join(parent, h.group().decode("latin-1"))
+                    for h in BARE_SIBLING_RE.finditer(blob)]
+        queue += [b for b in bare if key_of(b) in src_index]
+    return out
+
+
 def key_of(rel):
     """Data-relative lookup key: backslashes, separator runs collapsed, lowercase.
 
@@ -484,7 +544,7 @@ def stage1(ours, src, src_index, dry):
                     n = o["extra"][0]
                     art.add(o["extra"][1:1 + n].decode("latin-1"))
     art = {a for a in art if "\\" in a or "/" in a}
-    art |= oro.effect_chain({a for a in art if a.lower().endswith(".eft")}, src)
+    art |= effect_chain({a for a in art if a.lower().endswith(".eft")}, src_index)
     copy_new(zsc_rels, src_index, ours, dry, "object tables")
     _, _, _, art_dds = copy_new(art, src_index, ours, dry, "deco/cnst art")
     new_dds += art_dds

@@ -21,7 +21,20 @@
 
 #include "rose/common/common_interface.h"
 
-#define TEST_ZONE_NO 100
+/// Zones from here up are treated as test rows and never served locally:
+/// InitLocalZone clears m_pCheckedLocalZONE for all of them, so InitZoneLIST
+/// creates no CZoneTHREAD and Proc_TELEPORT falls into its "some other server
+/// owns this zone" branch -- which, in a single-gameserver deployment, means the
+/// player is handed to the world server for a relay that can never land.
+///
+/// It was 100, which silently capped the whole game at zone 99. Karkia occupies
+/// 86-144 at its native numbering, so 86/87/88 worked and 131+ did not, with
+/// nothing in the log but the absence of an "Adding zone" line. Raised to 250,
+/// which is what the same constant became later in the original codebase.
+///
+/// The other two readers of this constant (CheckZoneToLocal, GetZoneName) have
+/// no callers, so this loop is its only live effect.
+#define TEST_ZONE_NO 250
 
 #define MAX_GAME_OBJECTS 65535
 #define DEF_GAME_USER_POOL_SIZE 8192
