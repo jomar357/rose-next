@@ -12,9 +12,13 @@ stage is independently testable in game and independently revertible:
                 gates: the copied .IFOs get their MOB/REGEN/WARP/EVENT_OBJECT
                 lumps emptied on the way in (count = 0, lump table untouched),
                 so later stages just refill them.
+    --stage 2   the internal warp gates: WARP.STB rows and the gate objects put
+                back into the .IFO WARP lumps. This is stage 2a of the roadmap;
+                2b (the Wayfinder NPC that gets you to Karkia at all) is a
+                separate push, because it needs a .CON built from scratch.
 
-Stages 2-6 (gates and travel, monsters, the balance pass, drops, NPCs) are
-planned in the roadmap and not written yet.
+Stages 3-6 (monsters, the balance pass, drops, NPCs) are planned in the roadmap
+and not written yet.
 
 Every stage is idempotent -- re-running detects what is already in place and does
 nothing. --dry-run previews. --selftest proves every writer round-trips
@@ -115,6 +119,34 @@ ZONE_NAME_COL, ZONE_STL_COL = 0, 26
 # Four Karkia zones point at LIST_SKY row 17 (a Lunar sky variant); the other five
 # use row 1, which is already byte-identical to ours.
 SKY_ROW = 17
+
+# --- stage 2a: the internal warp gates ------------------------------------
+#
+# Karkia places 11 gate objects carrying 10 distinct warp ids. Eight of those ids
+# are free in our WARP.STB; **170 and 172 are live Oro gates** (TOWN->ODE01 and
+# ODRP01->ODE01), so copying them verbatim would silently redirect Muris. They are
+# remapped to 191/192, which keeps every Karkia gate in one contiguous 173-192
+# band -- our table's last occupied row is 172, so that whole band is free.
+#
+# Everything else about a gate is read from the source at run time rather than
+# restated here: the destination zone and the destination event-position name come
+# out of Jrose's WARP.STB, and the placements come out of the source .IFOs. Only
+# the id remap and the English name are authored.
+GATE_REMAP = {170: 191, 172: 192}
+GATE_NAMES = {
+    170: "KCemetery -> KChurch (The Desolate Cemetery -> The Abandoned Church)",
+    172: "KCemetery -> KSpireVil (The Desolate Cemetery -> Spire Village)",
+    173: "KSpireVil -> KCemetery (Spire Village -> The Desolate Cemetery)",
+    178: "KCemetery -> KBurnedForest (The Desolate Cemetery -> The Burned Forest)",
+    179: "KBurnedForest -> KCemetery (The Burned Forest -> The Desolate Cemetery)",
+    180: "KMemoriesBoss -> KMemories (Infinite Prison -> Memories of Karkia)",
+    185: "KSpireVil -> KTowerPlace (Spire Village -> Foot of the Tower)",
+    186: "KTowerPlace -> KSpireVil (Foot of the Tower -> Spire Village)",
+    189: "KMemories -> KFlowerGarden (Memories of Karkia -> Garden of Karkia)",
+    190: "KFlowerGarden -> KMemories (Garden of Karkia -> Memories of Karkia)",
+}
+WARP_STB_REL = r"3DDATA\STB\WARP.STB"
+WARP_DEST_ZONE_COL, WARP_DEST_EVENT_COL = 1, 2
 
 # Where a synthetic LUMP_ECONOMY comes from. Any of our zones would do -- 50 of our
 # 55 carry the identical 74-byte block -- but a populated Junon field zone gives
@@ -364,7 +396,7 @@ def selftest(ours, src, src_index):
         ok = ok and same
         print(f"    {label:34s} {'OK' if same else 'FAIL'}   {name}")
 
-    for rel in (ZONE_STB_REL, SKY_STB_REL):
+    for rel in (ZONE_STB_REL, SKY_STB_REL, WARP_STB_REL):
         p = os.path.join(ours, rel.replace("\\", "/"))
         check("STB round-trip", os.path.basename(p),
               oro.Stb(p).to_bytes() == open(p, "rb").read())
@@ -620,6 +652,131 @@ def stage1(ours, src, src_index, dry):
     print("          *hidden* entries, so delete them before baking or they go in the .vfs.")
 
 
+# ------------------------------------------------- stage 2a: the warp gates
+def collect_gates(src, src_maps):
+    """{source warp id: (dest zone, dest event name, [(folder, ifo), ...])}.
+
+    Read rather than restated: the destination pair comes from Jrose's WARP.STB and
+    the placements from the source .IFOs, so a gate this script does not know about
+    cannot go missing silently.
+    """
+    src_warp = oro.Stb(os.path.join(src, WARP_STB_REL.replace("\\", "/")))
+    placed = {}
+    for _, folder, _, _ in ZONES:
+        d = os.path.join(src_maps, folder)
+        for name in sorted(os.listdir(d)):
+            if not name.lower().endswith(".ifo"):
+                continue
+            buf, bounds = oro.read_ifo(os.path.join(d, name))
+            if oro.lump_block(bounds, oro.LUMP_WARP)[0] is None:
+                continue
+            objs, _ = oro.read_lump(buf, bounds, oro.LUMP_WARP)
+            for o in objs:
+                placed.setdefault(o["warp_id"], []).append((folder, name))
+    out = {}
+    for wid, where in sorted(placed.items()):
+        dest = src_warp.get(wid, WARP_DEST_ZONE_COL).strip()
+        dest = int(dest) if dest.isdigit() else -1
+        event = src_warp.get(wid, WARP_DEST_EVENT_COL).strip()
+        out[wid] = (dest, event, where)
+    return out
+
+
+def stage2(ours, src, src_index, dry):
+    print("stage 2a -- the internal warp gates")
+
+    src_maps = os.path.join(src, MAPS_REL.replace("\\", "/"))
+    dst_maps = os.path.join(ours, MAPS_REL.replace("\\", "/"))
+    folder_of = {row: folder for row, folder, _, _ in ZONES}
+    gates = collect_gates(src, src_maps)
+
+    ours_zone_rows = {row for row, _, _, _ in ZONES}
+    for wid, (dest, event, where) in gates.items():
+        if dest not in ours_zone_rows:
+            raise SystemExit(f"warp {wid} -> zone {dest}, which is not a Karkia zone "
+                             f"we imported (placed in {sorted({f for f, _ in where})})")
+
+    # --- 2a-i. every destination event position must resolve, byte for byte.
+    # This is the check that matters: the server hashes the name and looks it up in
+    # the destination zone, and a miss is what produces an IS_HACKING disconnect
+    # rather than a failed warp.
+    bad = []
+    for wid, (dest, event, _) in sorted(gates.items()):
+        d = os.path.join(dst_maps, folder_of[dest])
+        zon = [f for f in os.listdir(d) if f.lower().endswith(".zon")][0]
+        names = [n for n, _ in oro.zon_events(os.path.join(d, zon))]
+        if event not in names:
+            bad.append((wid, dest, event, f"not among {len(names)} events in {zon}"))
+    if bad:
+        for wid, dest, event, why in bad:
+            print(f"    !! warp {wid} -> zone {dest} event {event!r}: {why}")
+        raise SystemExit("destination event positions missing -- refusing to write")
+    print(f"    {'event positions':26s} all {len(gates)} resolve byte-for-byte")
+
+    # --- 2a-ii. WARP.STB rows
+    our_warp = oro.Stb(os.path.join(ours, WARP_STB_REL.replace("\\", "/")))
+    written, remapped = 0, []
+    for wid, (dest, event, _) in sorted(gates.items()):
+        ours_id = GATE_REMAP.get(wid, wid)
+        if ours_id >= our_warp.rows:
+            raise SystemExit(f"warp id {ours_id} beyond our WARP.STB ({our_warp.rows} rows)")
+        before = list(our_warp.d[ours_id])
+        if wid not in GATE_REMAP and any(x.strip() for x in before) \
+                and our_warp.get(ours_id, 0) != GATE_NAMES[wid].encode("latin-1"):
+            raise SystemExit(f"warp {ours_id} is occupied by "
+                             f"{our_warp.get(ours_id, 0).decode('latin-1')!r} -- "
+                             f"add it to GATE_REMAP rather than overwriting it")
+        our_warp.set(ours_id, 0, GATE_NAMES[wid])
+        our_warp.set(ours_id, WARP_DEST_ZONE_COL, str(dest))
+        our_warp.set(ours_id, WARP_DEST_EVENT_COL, event)
+        if our_warp.d[ours_id] != before:
+            written += 1
+        if wid != ours_id:
+            remapped.append(f"{wid}->{ours_id}")
+    print(f"    {'WARP.STB':26s} {written} rows written"
+          + (f", remapped {', '.join(remapped)} (live Oro gates)" if remapped else ""))
+    our_warp.save(dry)
+
+    # --- 2a-iii. put the gate objects back into our .IFO copies
+    files, placements = 0, 0
+    for _, folder, _, _ in ZONES:
+        s, d = os.path.join(src_maps, folder), os.path.join(dst_maps, folder)
+        for name in sorted(os.listdir(s)):
+            if not name.lower().endswith(".ifo"):
+                continue
+            sbuf, sbounds = oro.read_ifo(os.path.join(s, name))
+            if oro.lump_block(sbounds, oro.LUMP_WARP)[0] is None:
+                continue
+            sobjs, _ = oro.read_lump(sbuf, sbounds, oro.LUMP_WARP)
+            if not sobjs:
+                continue
+            dp = os.path.join(d, name)
+            dbuf, dbounds = oro.read_ifo(dp)
+            if oro.lump_block(dbounds, oro.LUMP_WARP)[0] is None:
+                raise SystemExit(f"{dp}: no WARP lump to fill (run --stage 1 first)")
+            have, dtrail = oro.read_lump(dbuf, dbounds, oro.LUMP_WARP)
+            if len(have) == len(sobjs):
+                continue                              # already restored
+            keep = []
+            for o in sobjs:
+                fixed = bytearray(o["fixed"])
+                struct.pack_into("<h", fixed, 0, GATE_REMAP.get(o["warp_id"], o["warp_id"]))
+                keep.append(dict(o, fixed=bytes(fixed)))
+            blob = oro.build_ifo(dbounds, dbuf,
+                                 {oro.LUMP_WARP: oro.build_object_lump(keep, dtrail)})
+            files += 1
+            placements += len(keep)
+            if not dry:
+                with open(dp, "wb") as fh:
+                    fh.write(blob)
+    print(f"    {'gate objects':26s} {placements} placements into {files} .IFO")
+
+    print("\n    Karkia is now walkable within each cluster. Still no way IN: that is")
+    print("    stage 2b (the Wayfinder NPC), so reach it with a GM warp for now.")
+    print("    NOTE: gate 185 is placed twice in KSPIREVIL\\34_33.IFO -- two objects on")
+    print("          one spot, as Jrose authored it. Not a duplicate to clean up.")
+
+
 def verify(ours):
     """Re-derive the result from what is on disk, after the fact."""
     print("verify -- reading back what is in data/")
@@ -646,21 +803,33 @@ def verify(ours):
             parse_economy(buf[eo:ee], p)
             econ = f"{ee - eo}B ok"
         names = [n for n, _ in oro.zon_events(p)]
-        live = 0
+        # MOB/REGEN/EVENT_OBJECT must still be empty -- stages 3-6 refill those.
+        # WARP is *expected* to be live once stage 2 has run, so it is counted
+        # separately rather than flagged; holding it to the stage-1 expectation
+        # would report the gates we just placed as a fault.
+        live, gates_here = 0, 0
         for f in sorted(os.listdir(d)):
             if not f.lower().endswith(".ifo"):
                 continue
             b2, bd2 = oro.read_ifo(os.path.join(d, f))
             for lt in oro.LUMPS_STAGE1_EMPTY:
                 off, _ = oro.lump_block(bd2, lt)
-                if off is not None and b2[off:off + 4] != b"\0\0\0\0":
+                if off is None:
+                    continue
+                count, = struct.unpack_from("<i", b2, off)
+                if not count:
+                    continue
+                if lt == oro.LUMP_WARP:
+                    gates_here += count
+                else:
                     live += 1
         flag = ""
         if eo is None or live:
             flag = "   <-- CHECK"
             bad += 1
         print(f"    zone {row:3d} {folder:14s} {len(hims):3d} chunks  lumps={types}  "
-              f"economy={econ}  events={len(names)}  live-entity-lumps={live}{flag}")
+              f"economy={econ}  events={len(names)}  gates={gates_here}  "
+              f"unexpected-lumps={live}{flag}")
 
     zstb = oro.Stb(os.path.join(ours, ZONE_STB_REL.replace("\\", "/")))
     zstl = oro.Stl(os.path.join(ours, ZONE_STL_REL.replace("\\", "/")))
@@ -681,6 +850,50 @@ def verify(ours):
         if problems:
             bad += 1
             print(f"    !! zone {row}: {'; '.join(problems)}")
+    # --- stage 2a: gates. Count placements, resolve every destination, and prove
+    # the two live Oro gates we remapped around are still pointing at Muris.
+    warp = oro.Stb(os.path.join(ours, WARP_STB_REL.replace("\\", "/")))
+    zon_events_of, placed = {}, {}
+    for row, folder, _, _ in ZONES:
+        d = os.path.join(dst_maps, folder)
+        if not os.path.isdir(d):
+            continue
+        zon = [f for f in os.listdir(d) if f.lower().endswith(".zon")][0]
+        # zon_events yields the names as bytes; decode so the comparison below is
+        # like-for-like. (The stage-2 writer compares bytes to bytes and was fine;
+        # only this reader mixed the two, and reported every gate unresolved.)
+        zon_events_of[row] = {n.decode("latin-1")
+                              for n, _ in oro.zon_events(os.path.join(d, zon))}
+        for f in sorted(os.listdir(d)):
+            if not f.lower().endswith(".ifo"):
+                continue
+            b2, bd2 = oro.read_ifo(os.path.join(d, f))
+            if oro.lump_block(bd2, oro.LUMP_WARP)[0] is None:
+                continue
+            objs, _ = oro.read_lump(b2, bd2, oro.LUMP_WARP)
+            for o in objs:
+                placed.setdefault(o["warp_id"], []).append(folder)
+    if placed:
+        for wid in sorted(placed):
+            dest = warp.get(wid, WARP_DEST_ZONE_COL).strip()
+            dest = int(dest) if dest.isdigit() else -1
+            event = warp.get(wid, WARP_DEST_EVENT_COL).decode("latin-1").strip()
+            ok = dest in zon_events_of and event in zon_events_of[dest]
+            if not ok:
+                bad += 1
+            print("    gate %-4d x%-2d from %-14s -> zone %-4d event %-14s %s"
+                  % (wid, len(placed[wid]), ",".join(sorted(set(placed[wid])))[:14],
+                     dest, event, "ok" if ok else "<-- UNRESOLVED"))
+        for wid, want in ((170, "82"), (172, "82")):
+            got = warp.get(wid, WARP_DEST_ZONE_COL).decode("latin-1").strip()
+            name = warp.get(wid, 0).decode("latin-1")
+            if got != want or "ODE01" not in name:
+                bad += 1
+                print(f"    !! Oro gate {wid} was overwritten: zone {got!r} {name!r}")
+        print("    Oro gates 170/172 still -> zone 82 (Gates of Muris)")
+    else:
+        print("    gates: none placed yet (stage 2 not run)")
+
     sky = oro.Stb(os.path.join(ours, SKY_STB_REL.replace("\\", "/")))
     if sky.rows <= SKY_ROW or not sky.occupied(SKY_ROW):
         bad += 1
@@ -695,7 +908,7 @@ def verify(ours):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--stage", type=int, choices=(1,), action="append",
+    ap.add_argument("--stage", type=int, choices=(1, 2), action="append",
                     help="stage to run (repeatable); omit to run them all")
     ap.add_argument("--dry-run", action="store_true", help="preview without writing")
     ap.add_argument("--selftest", action="store_true",
@@ -728,8 +941,8 @@ def main():
         return 0
 
     print()
-    for s in sorted(set(args.stage or (1,))):
-        {1: stage1}[s](ours, src, src_index, args.dry_run)
+    for s in sorted(set(args.stage or (1, 2))):
+        {1: stage1, 2: stage2}[s](ours, src, src_index, args.dry_run)
         print()
 
     if args.dry_run:

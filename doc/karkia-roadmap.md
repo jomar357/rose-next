@@ -134,9 +134,32 @@ under-covers badly enough to pop out of the frustum.
 
 ### Stage 2 — gates and travel
 
-The 8 usable `WARP.STB` gates at new ids with the `.IFO` warp objects repointed, then the
-Wayfinder: NPC row, model, `.CON`, `LIST_EVENT` row, nine placements, and the QSD triggers.
-Plus the entrance and return legs.
+Split into two pushes, because the halves have very different risk. 2a is data through the
+machinery stage 1 already proved; 2b needs a `.CON` built from scratch, which is new Rust.
+
+#### Stage 2a — the internal warp gates  *(DONE, 2026-09-07)*
+
+`--stage 2`. 10 `WARP.STB` rows and 11 gate placements back into the `.IFO` WARP lumps.
+**170 and 172 were remapped to 191/192** — they are live Oro gates (`TOWN→ODE01`,
+`ODRP01→ODE01`), so copying them verbatim would have silently redirected Muris. That puts
+every Karkia gate in one contiguous 173–192 band; our table's last occupied row was 172.
+
+Everything but the id remap and the English names is read from the source at run time — the
+destination zone and event name from Jrose's `WARP.STB`, the placements from its `.IFO`s — so
+a gate the script does not know about cannot go missing quietly. All 10 destination event
+positions were verified to resolve byte-for-byte in the destination `.ZON` **before** anything
+was written; a miss there is what produces an `IS_HACKING` disconnect rather than a failed
+warp. `--verify` also asserts Oro's 170/172 still point at zone 82.
+
+This makes each cluster walkable: 87 ↔ 88 ↔ 135, 87 ↔ 131, 87 → 86, and 133 ↔ 144, 134 → 133.
+There is still no way *into* Karkia — that is 2b.
+
+#### Stage 2b — the Wayfinder NPC  *(not built)*
+
+NPC row, model, `.CON`, `LIST_EVENT` row, nine placements, the QSD triggers, and the entrance
+and return legs. The `.CON` is the new part: `quest-editor con-warp` *appends* to an existing
+dialog and refuses an NPC with none, so a greeting-only `.CON` has to be built first —
+`convo::build_con` is the primitive, but nothing exposes it as a command yet.
 
 **Acceptance:** walk every gate in both directions, then teleport to all nine zones and back
 out to Junon. No `IS_HACKING` disconnects — that is what a destination event position
