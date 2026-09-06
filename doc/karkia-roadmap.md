@@ -91,7 +91,7 @@ Each stage is independently testable in game and independently revertible.
 `data/` is gitignored, so **the script's docstring is the only committed record** of what was
 done and why.
 
-### Stage 1 — terrain, art, zone rows  *(DONE, 2026-09-06)*
+### Stage 1 — terrain, art, zone rows  *(DONE + validated in game, 2026-09-07)*
 
 Built as `scripts/import-karkia.py`. Result: 962 map files (59.96 MB), 208 terrain
 tiles (12.12 MB), 16 object tables, 462 art files (13.01 MB), 2 sky textures; 88 `.IFO`
@@ -99,7 +99,13 @@ with entity lumps emptied, 9 `.ZON` given a `LUMP_ECONOMY`, `LIST_ZONE` grown to
 rows, `LIST_ZONE_S.STL` +9 keys, `LIST_SKY` row 17 added. Then
 `scripts/add-dds-mipmaps.py` gave mip chains to the 419 new power-of-two textures --
 all 419 were files this import created, no pre-existing texture was touched.
-`--verify` and a re-run (fully idempotent, 0 of everything) both pass. What it does:
+`--verify` and a re-run (fully idempotent, 0 of everything) both pass.
+
+In-game test found two defects, both fixed in e22e156e and neither in the map data:
+`TEST_ZONE_NO` was 100, a hard ceiling that left zones 131+ with no `CZoneTHREAD`, so
+86/87/88 worked and the rest dropped the player on teleport (see
+`reference_zone_number_ceiling`); and the asset walker missed the `.zmo` an `.eft` names,
+costing 15 motion files. Re-tested: all nine zones load, assets display. What it does:
 
 Copy the 9 `.ZON`/`.IFO` sets with the MOB, REGEN, WARP and EVENT_OBJECT lumps emptied on
 the way in (count = 0, lump table untouched) so later stages just refill them. Plus the 16
