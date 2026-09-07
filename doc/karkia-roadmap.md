@@ -350,11 +350,25 @@ Three things worth carrying forward:
   nine were empty regardless, our own 1074 `[Wounded Traveler] Seth` having a
   `LIST_NPC` row but no CHR entry.
 
-#### Stage 6b — the way back out
+#### Stage 6b — the way back out  *(DONE, 2026-09-07)*
 
-The deferred item from §1: the Church has a gate in and none back. Now that its ten
-NPCs exist, this is one travel option on one of them, through the same
-`quest-editor con-warp` + QEX1 path stage 2b used for Jones and Nova.
+The oldest open gap, from §1: Jrose gave the Church a gate in and none back, so
+leaving was a Return scroll. `add-karkia-travel.py` now carries **both legs** — each
+its own QSD pattern, so either can be added alone and a re-run of either is a no-op
+— and the return lands in **Junon Polis**, read from `JPT01.ZON`'s own `start` event
+rather than hard-coded. Host is **[Explorer] Petri (4146)**, the Church's own
+traveller: the same casting as Jones the Historian and Nova the Guide.
+
+**And 19 NPCs were mute, which was not the Japanese text.** `zonefile.cpp` resolves a
+dialog with `_stricmp` on the **full basename** of `EVENT_FILENAME`, extension
+included, and Jrose stores the reference *with* `.con` for the `EM86` family and
+*without* it for the other 19. Their server tolerated that; ours sets
+`nQuestIDX = 0`, so those NPCs had no dialog at all. Stage 6 now rewrites each
+placement's reference to exactly what our `LIST_EVENT` row holds — **32 of 32
+resolve, up from 13**.
+
+Verify a `.CON` edit by **decoding the QEX1 appendix**, never by grep: the payload is
+XOR'd, so a plaintext search reports a correct file as broken.
 
 #### Stage 6c — English dialog
 
