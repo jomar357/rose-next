@@ -372,7 +372,7 @@ XOR'd, so a plaintext search reports a correct file as broken.
 
 #### Stage 6c — English dialog  *(DONE, 2026-09-07)*
 
-`scripts/translate-karkia-dialog.py`. **All 20 reachable NPCs, 1,131 nodes, 0
+`scripts/translate-karkia-dialog.py`. **All 20 reachable NPCs, 1,140 nodes, 0
 missing.** The 12 in Memories and the Garden are left, since those zones sit
 behind a quest we have not written.
 
@@ -399,6 +399,62 @@ pre-existing rows are byte-identical.
 Translations live in `scripts/karkia-dialog-en.json`, committed — `data/` is
 gitignored, so authored text kept only there would be lost. An untranslated string
 stays Japanese rather than being guessed at.
+
+#### Stage 6e — the six mute NPCs  *(DONE, 2026-09-07)*
+
+`scripts/unlock-karkia-idle-dialog.py`. Six reachable NPCs opened no dialog at
+all — Blago, Emil, Ragia, Jenner, Brown, Physalis. Not the Japanese text, and
+not a broken import: it is `CEvent::Conversation` doing what it is told.
+
+```cpp
+case SC_MSG_NPCSAY:
+    Del_ClickITEMS();
+    g_itMGR.CloseQueryDlg();
+    szMessage = this->ParseMESSAGE(...m_Message.Get());
+    if (szMessage == NULL) break;      // no window, AND no recursion
+    g_itMGR.OpenQueryDLG(...);
+    Conversation(...m_lChildDataIDX);
+```
+
+The text is `g_LngTBL.GetEventString(iStrID)`, so **a node with an empty LTB cell
+renders nothing and never reaches its child menu.** Every Karkia `.CON` opens on
+a `BasicMenu` node that is deliberately empty (its own Japanese reads "normally
+blocked off, do not use"), so an NPC is audible only if some *later* root node
+both passes its check function and has text. The talkers have an ungated
+greeting there; these six had every greeting behind a `TA_*`/`AT_*` check for a
+quest chain we never imported, so the root loop skipped all of them.
+
+The fix blanks the 32-byte check-function field on one existing greeting each,
+promoting it to that NPC's default line. No node added, no string resized: the
+field is a fixed slot in the 80-byte record, so it is a pure in-place edit of
+the XOR'd collection. Verified byte-for-byte — file sizes, node trees and Lua
+tails all identical, and **every changed byte is a character of the blanked
+name** (11 = `TA_Normal01`, 30 = `AT_Kakia_EpisodeQ527_Before_01`).
+
+Which greeting, and why — none of the six has a click function of its own, so
+exposing one only ever shows text:
+
+| NPC | line | subtree |
+|---|---|---|
+| Blago | "……." | 1 node, no clicks — reads as a captain who won't talk to you |
+| Emil | "Why in god's name did they post me somewhere this dangerous…" | 1 node, no clicks |
+| Ragia | "…It is still too early for you, child." | 1 node; `root[2]` rejected, its option fires `AT_Normal04` |
+| Jenner | his first-meeting line, the right default for a player who has done none of his quests | 7 nodes, no clicks |
+| Brown | the "lost child" greeting into the lore of the goddess abandoning Karkia | 37 nodes, no clicks |
+| Physalis | "Hmm… Is there not a decent ring to be had anywhere…" | 8 nodes; one option fired `AT_Q547_02`, so that *click* field is blanked too |
+
+Brown's `root[3]` was rejected for a second reason worth remembering: **all** of
+its options are gated, so the box would have opened with no way to dismiss it.
+An exposed greeting needs at least one ungated option under it.
+
+The only two click functions anywhere in the exposed subtrees are
+`AT_GotoJunon` (left gated, on a branch we do not expose) and `AT_Q547_02`
+(neutered). Nothing un-gates a quest grant or a turn-in.
+
+Knock-on: `translate-karkia-dialog.py` now reads conversation nodes from **our**
+`data/3DDATA/EVENT`, not the Jrose originals. It skips gated nodes, so a node
+this script exposes has to be collectable from the files we actually ship or its
+line stays Japanese. That added 9 strings (1,131 → 1,140).
 
 #### Stage 6d — shops
 

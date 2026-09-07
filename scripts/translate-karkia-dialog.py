@@ -60,6 +60,10 @@ SRC = r"C:\Users\Thomas\Desktop\Testclients\Jrose"
 OUR_LTB = os.path.join(ROOT, "data", "3DDATA", "EVENT", "ulngtb_con.ltb")
 SRC_LTB = os.path.join(SRC, "3DDATA", "EVENT", "ulngtb_con.ltb")
 SRC_EVENT = os.path.join(SRC, "3DDATA", "EVENT")
+# Gates are read from OUR copies, not the Jrose originals: unlock-karkia-idle-
+# dialog.py blanks check functions in data/, and a node it exposes has to
+# become collectable here or its line stays Japanese.
+OUR_EVENT = os.path.join(ROOT, "data", "3DDATA", "EVENT")
 TRANSLATIONS = os.path.join(HERE, "karkia-dialog-en.json")
 SIDECAR = os.path.join(ROOT, "data", "3DDATA", "EVENT", "ulngtb_con.karkia.json")
 # Backups go OUTSIDE data/: pack.rs walks the data tree filtering only hidden
@@ -195,7 +199,7 @@ def collect(scope):
     src = Ltb(SRC_LTB)
     want = {}
     for con in scope:
-        p = os.path.join(SRC_EVENT, con)
+        p = os.path.join(OUR_EVENT, con)
         if not os.path.isfile(p):
             raise SystemExit(f"missing source dialog {con}")
         for sid, check in con_nodes(p):
@@ -258,7 +262,7 @@ def main():
               f"{len(distinct_missing)} distinct, "
               f"{sum(len(s) for s in distinct_missing)} chars")
         for con in scope:
-            ids = {s for s, _c in con_nodes(os.path.join(SRC_EVENT, con))}
+            ids = {s for s, _c in con_nodes(os.path.join(OUR_EVENT, con))}
             m = len([s for s in missing if s in ids])
             t = len([s for s in have if s in ids])
             print(f"      {con:<14} {t:>4} done  {m:>4} missing")
