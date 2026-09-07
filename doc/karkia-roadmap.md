@@ -540,6 +540,23 @@ is unreachable, and there is no armour import yet.
 Still dangling, all on **unreachable** Memories NPCs: 513–515 (Bordeaux), 593
 (Ginias), 594 (Astraea). Blank tabs, no crash.
 
+**Stocking the tabs was not enough for Gelt** (found in game). His entire service
+menu — `GF_openStore`, `GF_openBank`, `GF_repair`, `GF_openUpgrade`, all four
+registered in `game_func_reg.inc` — hangs off a single root node gated on
+`TA_Kakia_EpisodeQ532_Finish`, the plague-cure arc we never imported. Until that node
+is exposed he answers with the fallback "………" and one "(He's barely breathing.)"
+option, and the shop is unreachable however well stocked. `unlock-karkia-idle-dialog.py`
+now exposes and promotes it, so Spire Village gets **storage, shop, repair and refine**
+in one NPC. Nemo needed nothing — her store node was already ungated.
+
+So a shop needs *three* things, not two: a `LIST_SELL` row with stock, a `LIST_NPC`
+tab pointing at it, **and a reachable dialog node that calls `GF_openStore`**. The
+third is the one that is invisible in the tables.
+
+Cost of the call: Gelt reads as cured while Sulfa and Dinos still groan beside him.
+Accepted — it is the same trade already made for the other five mute NPCs, and there
+is no in-game way to run the arc that would cure him.
+
 ---
 
 ## 4. Decisions taken

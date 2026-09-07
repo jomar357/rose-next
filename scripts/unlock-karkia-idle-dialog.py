@@ -118,6 +118,10 @@ CHECK_OFF, CLICK_OFF, FUNC_LEN = 12, 44, 32
 PROMOTE = [
     ("EM02-112.CON", "[Warrant Officer] Holk", 0, 30749),
     ("EM86-003.CON", "[Priest] Brown", 0, 21289),
+    # Gelt already sits after his ungated "………" line, so blanking the gate
+    # would be enough today -- promoted anyway so the shop cannot be lost to a
+    # later node that turns out to pass, which is the mistake made once here.
+    ("EM86-013.CON", "[Spire Warrior] Gelt", 0, 25970),
 ]
 
 # (con, who, [(menu, str_id, field, expected current name)])
@@ -140,6 +144,18 @@ TARGETS = [
     ("EM02-115.CON", "[Artificer] Physalis",
      [(0, 31024, "check", "TA_Q547_01"),
       (2, 31025, "click", "AT_Q547_02")]),
+    # Gelt is Spire Village's quartermaster, and his whole service menu --
+    # GF_openStore, GF_openBank, GF_repair, GF_openUpgrade, all four registered
+    # in game_func_reg.inc -- hangs off this one node. Jrose gates it behind
+    # finishing the plague-cure arc (episode 532), which we never imported, so
+    # without this his shop tabs can never open: he answers with the fallback
+    # "………" line and a single "(He's barely breathing.)" option.
+    #
+    # Exposing it is the same call already made for the other five: show the
+    # state that makes the NPC work when no quest can ever run. The cost is
+    # that Gelt reads as cured while Sulfa and Dinos still groan beside him.
+    ("EM86-013.CON", "[Spire Warrior] Gelt",
+     [(0, 25970, "check", "TA_Kakia_EpisodeQ532_Finish")]),
 ]
 
 
