@@ -643,6 +643,24 @@ to it, an idle event decays it, and the cast is gated on it staying under a ceil
   no debuff, twice over; 30% self-buff 3598; the same two officer self-buffs.
 - **2699 Deadly Drake α** — no skills at all. It is a stat check and a summoner.
 
+**Tornado is switched off (2026-09-07).** Skill 1090 on the Revived Quarantine
+Officer (2703) and its Alpha (2692) was reported in game as damage with no visible
+cast, and a run of "blank hits" ending in a death. That is not bad luck:
+`kak_livingdead.aip` carries a damaged-rate of **100%**, so 2703 rolled it on 10% of
+every hit it took. Filling in its missing animation pair fixed the *monster's*
+animation, not the skill's presentation. It is disabled by zeroing the percentage on
+the `AICOND_07` gating its event — the same way the source data disables its own
+dead events — via `AIP_DISABLE_SKILLS` in the importer, so a re-run cannot restore
+it. One byte to put back.
+
+Worth noting what makes it the odd one out: 1090 is one of only **two re-pointed
+skills**, meaning one of *our player* skills handed to a monster rather than a row
+ported from Jrose. Its sibling 361 Berserk is a self-buff and presents its own
+effect, so it looks fine. 3613 Karkia Stun was also never seen in game and is
+deliberately **left enabled** — 35% damaged-rate × a 10% roll × "target has no
+harmful status" is ~3.5% of hits taken, which explains it without a defect, and its
+motion pair is verified present.
+
 Motion is clean: 76 of the 80 `AIACT_24` records already resolved to a complete
 casting/skill anim pair, and the four that did not were the Revived Quarantine Officer,
 fixed in `a86dbbff`. Every boss animates.
