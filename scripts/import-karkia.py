@@ -306,6 +306,35 @@ SKILL_PORTS = {                    # source row -> (our row, ASCII label)
 #       ranks 6-10, and rank 10 (row 1090) is power 501 -- matched on power rather
 #       than on rank, since the rank numbering does not correspond.
 SKILL_REPOINT = {716: 361, 846: 1090}
+
+# Skills the AI is stopped from ever casting, by zeroing the percentage on the
+# AICOND_07 that gates their event. `Get_RANDOM(100) < 0` is never true, so the
+# event is permanently dead -- which is how the source data itself disables things
+# (both Hebarn Officers ship a 0% self-heal), so it needs no new mechanism and is a
+# single byte to put back.
+#
+# 1090 Tornado, on the Revived Quarantine Officer (2703) and its Alpha (2692).
+#   Reported in game as damage with no animation and no visible cast, and a run of
+#   "blank hits" ending in a death. The rates say the report is not bad luck:
+#   kak_livingdead.aip has a damaged-rate of *100%*, so 2703 rolled this on 10% of
+#   every hit it took. Adding the missing casting/skill anim pair (a86dbbff) fixed
+#   the monster's animation but evidently not the skill's own presentation.
+#
+#   The likely reason it is this skill and not the others: 1090 is one of only two
+#   *re-pointed* skills (SKILL_REPOINT), i.e. one of OUR player skills handed to a
+#   monster, rather than a row ported from Jrose. Its sibling 361 Berserk is a
+#   self-buff and shows its own effect, so it looks fine; an AoE damage skill has to
+#   present a hit on a target it was never authored to reach. Left as a known
+#   unknown rather than chased -- removing it costs one AI action on one monster.
+#
+# NOT disabled, for contrast: 3613 Karkia Stun on Murilo (2715/2696) was also never
+# seen in game, but that one is fully explained without a defect -- 35% damaged-rate
+# x a 10% roll x "target has no harmful status" is ~3.5% of hits taken, and its
+# motion pair (8/9) is verified present on both casters. It is a ported row, not a
+# re-pointed player skill. Add 3613 here if it turns out to misbehave too.
+AIP_DISABLE_SKILLS = {
+    1090: "Tornado: damage with no visible cast, 10% of every hit taken on 2703",
+}
 SKILL_STB_REL = r"3DDATA\STB\LIST_SKILL.STB"
 SKILL_COPY_COLS = 86               # 0-85; 86 is our STL key, theirs is not
 AIACT_USE_SKILL = 25               # AIACT_24 as stored (file ids are 1-based)
@@ -939,6 +968,86 @@ def aip_repoint(path, remap, dry):
     return changed
 
 
+AICOND_RANDOM_PCT = 8              # AICOND_07 as stored; its body is one BYTE cPercent
+
+
+def aip_walk_events(blob):
+    """Yield (pattern, event, [(cond_type, off, size)], [(act_type, off, size)])."""
+    o = 0
+    npat, _sec, _rate, ntitle = struct.unpack_from("<iiii", blob, o)
+    o += 16 + ntitle
+    for pi in range(npat):
+        o += 32
+        nev, = struct.unpack_from("<i", blob, o); o += 4
+        for ei in range(nev):
+            o += 32
+            nc, = struct.unpack_from("<i", blob, o); o += 4
+            conds = []
+            for _ in range(nc):
+                size, typ = struct.unpack_from("<II", blob, o)
+                if size < 8 or o + size > len(blob):
+                    raise ValueError(f"bad condition size {size} at {o}")
+                conds.append((typ & 0xFFFF, o, size)); o += size
+            na, = struct.unpack_from("<i", blob, o); o += 4
+            acts = []
+            for _ in range(na):
+                size, typ = struct.unpack_from("<II", blob, o)
+                if size < 8 or o + size > len(blob):
+                    raise ValueError(f"bad action size {size} at {o}")
+                acts.append((typ & 0xFFFF, o, size)); o += size
+            yield pi, ei, conds, acts
+
+
+def aip_disable(path, skills, dry):
+    """Zero the AICOND_07 percentage gating every event that casts one of `skills`.
+
+    Returns [(skill, pattern, event)] for what changed. Idempotent: a percentage
+    already at 0 is left alone and not reported.
+
+    Refuses an event that carries any action besides the cast, because killing the
+    event would silently take those with it. All four events this currently targets
+    hold exactly one action, so the guard costs nothing today and stops the next use
+    of this config from doing more than it says.
+    """
+    blob = bytearray(open(path, "rb").read())
+    changed = []
+    for pi, ei, conds, acts in aip_walk_events(blob):
+        casts = [struct.unpack_from("<h", blob, off + AIACT24_SKILL_OFF)[0]
+                 for t, off, _s in acts if t == AIACT_USE_SKILL]
+        hit = [s for s in casts if s in skills]
+        if not hit:
+            continue
+        if len(acts) != 1:
+            raise SystemExit(
+                f"{os.path.basename(path)} pattern {pi} event {ei} casts {hit} but "
+                f"has {len(acts)} actions -- disabling it would drop the others; "
+                f"remove the AIACT_24 record instead of gating the event")
+        pct = [off for t, off, _s in conds if t == AICOND_RANDOM_PCT]
+        if not pct:
+            raise SystemExit(
+                f"{os.path.basename(path)} pattern {pi} event {ei} casts {hit} but "
+                f"has no AICOND_07 to zero -- it would fire unconditionally")
+        for off in pct:
+            if blob[off + 8] == 0:
+                continue                      # already disabled
+            blob[off + 8] = 0
+            changed.append((hit[0], pi, ei))
+    if changed and not dry:
+        oro.backup(path)
+        with open(path, "wb") as fh:
+            fh.write(blob)
+        check = bytearray(open(path, "rb").read())
+        for pi, ei, conds, acts in aip_walk_events(check):
+            casts = [struct.unpack_from("<h", check, off + AIACT24_SKILL_OFF)[0]
+                     for t, off, _s in acts if t == AIACT_USE_SKILL]
+            if any(s in skills for s in casts):
+                for t, off, _s in conds:
+                    if t == AICOND_RANDOM_PCT and check[off + 8] != 0:
+                        raise SystemExit(f"VERIFY FAILED: {path} still rolls "
+                                         f"{check[off + 8]}% for {casts}")
+    return changed
+
+
 REGEN_POS_OFF = 2 + 2 + 4 + 4 + 4 + 4 + 16   # into the 60-byte fixed object header
 
 
@@ -1542,6 +1651,18 @@ def stage3(ours, src, src_index, dry):
             patched[f"{old}->{new}"] += 1
     print(f"    {'.aip skill re-points':26s} {sum(patched.values())} records "
           f"{dict(patched) if patched else '(already done)'}")
+
+    # Skills withdrawn after in-game testing -- see AIP_DISABLE_SKILLS. Done here,
+    # after the re-points, because the ids it names are OUR numbering.
+    killed = collections.Counter()
+    for a in sorted(aips):
+        p = dest_of(ours, a)
+        if not os.path.isfile(p):
+            continue
+        for sk, _pi, _ei in aip_disable(p, AIP_DISABLE_SKILLS, dry):
+            killed[sk] += 1
+    print(f"    {'.aip skills disabled':26s} {sum(killed.values())} events "
+          + (f"{dict(killed)}" if killed else "(already done)"))
 
     # --- 3j. skill animations. Every AIACT_24 names a casting slot; both halves
     # of the pair have to exist in the CHR or the cast presents nothing at all.
