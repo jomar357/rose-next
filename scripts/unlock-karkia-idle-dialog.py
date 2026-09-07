@@ -122,6 +122,26 @@ PROMOTE = [
     # would be enough today -- promoted anyway so the shop cannot be lost to a
     # later node that turns out to pass, which is the mistake made once here.
     ("EM86-013.CON", "[Spire Warrior] Gelt", 0, 25970),
+    # Kashi, the Church's gate guard. His root carries TA_CanNotExit_Church,
+    # whose bytecode negates its quest check -- so it is TRUE precisely because
+    # the switch it reads was never imported. It fired after his greeting, with
+    # no text, closing the window the greeting had opened: mute NPC, and the
+    # con-warp exit option appended to nothing. Third instance of this pattern
+    # after Holk and Brown, and the first where a trailing option made "move it
+    # last" the wrong fix -- hence target_slot.
+    ("EM86-004.CON", "[Church Guard] Kashi", 0, 21586),
+    # Petri and Nemo are not broken -- they are *fragile*. Their greeting sits
+    # at root[1] with gated speech nodes after it, so they work only because
+    # every one of those gates is a positive quest check that returns false.
+    # Both carry something a player cannot do without: Petri is the only way
+    # home (a failure strands you in Karkia) and Nemo's shop hangs off her
+    # greeting's child menu. Promotion is free and removes the dependency.
+    #
+    # Eleven other reachable NPCs are fragile the same way and are deliberately
+    # left alone: they carry only flavour, and each promotion is a change to a
+    # file that currently works.
+    ("EM86-009.CON", "[Explorer] Petri", 0, 23269),
+    ("EM86-001.CON", "[Shrine Maiden] Nemo", 0, 21321),
 ]
 
 # (con, who, [(menu, str_id, field, expected current name)])
@@ -252,19 +272,47 @@ def find_item(coll, str_id):
     return None, num_sub
 
 
+# cevent.cpp SC_MSG_*: 1/2 open a window, 0/3/4 append a line to the open one.
+SPEECH_TYPES = (1, 2)
+
+
+def item_type(coll, slot):
+    o, = struct.unpack_from("<I", coll, 8 + slot * 4)
+    return struct.unpack_from("<i", coll, o + 4)[0]
+
+
+def target_slot(coll, num_sub, moving):
+    """Where the greeting has to sit: last of the speech nodes, but ahead of
+    every option node.
+
+    A speech node opens a window and closes whatever was open; an option node
+    only appends a line to the window that is already open. So the greeting has
+    to run after every other speech node (or one of them closes it) and before
+    every option node (or the option is appended to nothing). Putting it simply
+    last is wrong the moment the menu ends in options -- which is exactly what
+    an appended con-warp/con-store option does.
+    """
+    order = [k for k in range(num_sub) if k != moving]
+    for pos, k in enumerate(order):
+        if item_type(coll, k) not in SPEECH_TYPES:
+            return pos
+    return len(order)
+
+
 def promote_last(blob, menu, str_id, con, report):
-    """Move the node carrying `str_id` to the end of the menu's offset table."""
+    """Move the node carrying `str_id` to its winning slot (see target_slot)."""
     b = bytearray(blob)
     off, length, key = menu_span(b, menu)
     coll = decode(b, off, length, key)
     j, num_sub = find_item(coll, str_id)
     if j is None:
         raise SystemExit(f"{con} menu{menu}: no node with str_id {str_id}")
-    if j == num_sub - 1:
-        report.append(f"   {con} menu{menu}: str_id {str_id} already last")
+    want = target_slot(coll, num_sub, j)
+    if j == want:
+        report.append(f"   {con} menu{menu}: str_id {str_id} already in slot {want}")
         return None
     table = [struct.unpack_from("<I", coll, 8 + k * 4)[0] for k in range(num_sub)]
-    table.append(table.pop(j))
+    table.insert(want, table.pop(j))
     for k, v in enumerate(table):
         struct.pack_into("<I", coll, 8 + k * 4, v)
     for k in range(8, len(coll)):          # re-encode; key is content-independent
@@ -272,8 +320,8 @@ def promote_last(blob, menu, str_id, con, report):
     b[off:off + length] = coll
     if len(b) != len(blob):
         raise SystemExit(f"{con}: size changed -- refusing to write")
-    report.append(f"   {con} menu{menu}: str_id {str_id} moved {j} -> {num_sub - 1}"
-                  f" (of {num_sub}), now wins the root loop")
+    report.append(f"   {con} menu{menu}: str_id {str_id} moved {j} -> {want}"
+                  f" (of {num_sub}), last speech node and ahead of every option")
     return bytes(b)
 
 
@@ -281,7 +329,9 @@ def promote_applied(blob, menu, str_id):
     off, length, key = menu_span(blob, menu)
     coll = decode(blob, off, length, key)
     j, num_sub = find_item(coll, str_id)
-    return j is not None and j == num_sub - 1
+    if j is None:
+        return False
+    return j == target_slot(coll, num_sub, j)
 
 
 def check_applied(blob, edits):

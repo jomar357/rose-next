@@ -199,11 +199,30 @@ and a `Kakia-gotocemetery` trigger, all gated behind a `chk-churchout-qsw` quest
 we never imported. His greeting is already "It's dangerous out there. Still going?". We
 are re-opening a door the original design put there, not inventing one.
 
-Note his root also carries `TA_CanNotExit_Church` — a **default-state** gate of exactly
-the shape that broke Holk and Brown ([[stage 6e]]). It is harmless only because the
-trigger it checks does not exist, and a *missing* trigger returns `QST_RESULT_INVALID`
-(0). A trigger that exists and *fails* returns 2, which is truthy. Do not import
-`chk-churchout-qsw` without re-checking this NPC.
+**And that gate was not harmless — Kashi was mute in game.** His root also carries
+`TA_CanNotExit_Church`, and its bytecode carries an extra instruction the neighbouring
+`TA_Goto_Cemetery` does not: it **negates** its quest check. So it is true precisely
+*because* the `chk-churchout-qsw` switch was never imported. It ran after his greeting,
+found no text, and closed the window the greeting had just opened — mute NPC, and the
+new exit option appended to nothing.
+
+Third instance of the pattern after Holk and Brown, and the one that showed the earlier
+fix was too narrow: **"move the greeting last" is wrong once the menu ends in options.**
+A speech node (`SC_MSG_NPCSAY`/`NEXTMSG`) opens a window and closes whatever was open;
+an option node (`CLOSE`/`PLAYERSELECT`/`JUMPSELECT`) only appends a line to the window
+already open. The greeting must therefore run **after every other speech node but ahead
+of every option node** — which is what `target_slot` now computes, and what an appended
+`con-warp`/`con-store` option makes necessary.
+
+Do not import `chk-churchout-qsw` without re-checking this NPC.
+
+**Petri and Nemo were hardened at the same time.** Neither was broken; both were
+*fragile* — greeting at root[1] with gated speech nodes after it, working only because
+every one of those gates happens to be false. Both carry something a player cannot do
+without (Petri is the only way home; Nemo's shop hangs off her greeting's child menu),
+so both were promoted. **Eleven other reachable NPCs are fragile the same way** and were
+left alone deliberately: they carry only flavour, and each promotion changes a file that
+currently works. The pessimistic simulation in the roadmap's tooling names them.
 
 Simulated result:
 
