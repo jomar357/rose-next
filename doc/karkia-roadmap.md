@@ -284,21 +284,37 @@ is square-rooted and capped, so the Neg Golem stays the tankiest thing in the Ce
 ordinary trash instead of 41x. Levels are remapped linearly inside each zone so Jrose's own
 progression survives. All seven balance passes `--verify` clean.
 
-### Stage 5 — drops
+### Stage 5 — drops  *(wiring DONE 2026-09-07; content pending)*
 
-Author `ITEM_DROP` rows. Nothing is copyable — item ids mean different things across dumps.
-Karkia's mob drop-table ids 831, 832, 835 and 851–854 are all free on our side, so keep them
-and copy `LIST_NPC` col 18 verbatim.
+Split, because the plumbing turned out to be broken in a way the content pass would
+have inherited. `scripts/rewire-karkia-drops.py` fixed it and
+**[doc/project-drops.md](project-drops.md) is the plan for the rest.**
 
-**One trap to handle here.** `CCal::Get_DropITEM` falls back to `iDropTBL = iZoneNO` when the
-mob's own drop roll fails, so `ITEM_DROP` rows are indexed by drop-table id *and* by zone
-number in one row space. Our drop-table ids run 61–486 densely, so **rows 86, 87, 88, 131,
-133–136 and 144 are already occupied by other monsters' loot** — row 87 is labelled "EVE Zone
-(Farming System)", row 144 belongs to a pair of level-18 monsters. Adding Karkia at those
-zone numbers newly activates the collision, and a Karkia mob whose roll fails would drop
-level-18 loot. (This is not new — Oro's zones 71–82 already sit on occupied rows — but
-Karkia is a chance to notice it. Either author sane tables at the Karkia zone ids too, or
-keep every Karkia mob's drop rate high enough that the fallback effectively never fires.)
+Two collisions, both from one cause — a drop-table id and a zone id share a single
+namespace in `Get_DropITEM`:
+
+- Karkia's own tables (Jrose's 831/832/835/851–854) were live for our Desert
+  Scavenger, its Agitated twin, and the **Fearsome Terrasaurus King**. Authoring
+  Karkia loot into them would have handed it to Oro. Now 900–906.
+- Karkia's **zone fallback** rows (86, 87, 88, 131, 133–136, 144) were live tables
+  for thirteen of our own low-level monsters — rows 86 and 87 are named *"EVE Zone
+  (Fishing System)"* and *"(Farming System)"*. With drop chance at 20, **~80% of
+  Karkia's drops came from those tables**, which is what players were actually
+  picking up. Those tables moved to 940–948 with their users repointed; chance is
+  now 80, our own level-200+ median.
+
+Karkia now drops **nothing**, deliberately: correct-and-empty is a better base than
+plausible-and-wrong, and the content pass is now pure content.
+
+Two things §5 of the drops doc records that change what is possible:
+
+- **A drop cell is `type * 1000 + number`, so item numbers above 999 cannot drop at
+  all.** The 73 imported Jrose weapons (1381–1453) are unreachable as loot; the 35
+  shields and 43 of the back items are fine. The weapons want a Karkia NPC shop in
+  stage 6 rather than an encoding change.
+- **Oro has the identical defect** — all 40 of its level-200+ monsters point at empty
+  tables and it has been running on its zone fallback since import. The endgame has
+  never had an authored loot tier; Karkia only made it visible.
 
 ### Stage 6 — NPCs
 
