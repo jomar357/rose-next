@@ -232,7 +232,7 @@ three port across with one effect asset. None needs authoring.
 **Acceptance:** monsters spawn, animate, path, attack, and die. `/dps` shows damage flowing.
 The D=Seed's summon behaviour fires. Nothing crashes.
 
-### Stage 4 — the balance pass
+### Stage 4 — the balance pass  *(DONE, 2026-09-07)*
 
 The real work, and the reason Karkia cannot ship on Jrose's numbers. Karkia DEF is 2,350 at
 level 213 where ours is 737, which puts every player swing on the damage floor of 5 —
@@ -255,6 +255,34 @@ The three placeholder zones stay empty for now (§4, decision 4).
 **Acceptance:** re-run `scripts/balance-sim.py` against the written rows and check
 swings-per-kill lands in the same band as our own monsters at that level. Then actually play
 it.
+
+**Result.** `scripts/rebalance-karkia.py` does levels, HP and ATK; DEF and RES are left to
+`rebalance-endgame-curve.py`, which already caps every level-200+ monster at the trend
+fitted from levels 60–199 and had simply never seen Karkia (it last ran in August). Measured
+with the server's own PVM damage formula against a level-240 character:
+
+| | before | after |
+|---|---:|---:|
+| swings to kill a trash mob | 3,481 | **67** |
+| hits the player survives | 2.8 | **18.6** |
+| Neg Golem, the tankiest field elite | 143,650 | **193** |
+
+Two things that were nearly missed:
+
+- **The DEF number in the paragraph above is the one that mattered, and it was the only one
+  a new script did not need to touch.** Duplicating that cap in `rebalance-karkia.py` would
+  have left two copies to keep in sync; restoring and re-applying the existing pass after
+  the levels moved was the whole fix.
+- **The boss sidecar is load-bearing.** `rebalance-endgame-curve.py` resolves a boss as
+  "listed in a sidecar **or** `NPC_HP >= 1000`", and budgeting boss HP moves Karkia's bosses
+  *below* that threshold while its ordinary trash (Neg Golem at 6,500) sits *above* it — the
+  heuristic fails in both directions here. It now reads a list of sidecars and Karkia writes
+  its own.
+
+Ranking inside a zone is preserved, not flattened: each monster's ratio to its zone median
+is square-rooted and capped, so the Neg Golem stays the tankiest thing in the Cemetery at 3x
+ordinary trash instead of 41x. Levels are remapped linearly inside each zone so Jrose's own
+progression survives. All seven balance passes `--verify` clean.
 
 ### Stage 5 — drops
 
