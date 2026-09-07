@@ -365,7 +365,44 @@ Against Jrose's authored values that is a uniform ~7–8x reduction (their Drake
 1.3–1.7 M, their Executives 6.5 M each), which is about the ratio between their players'
 output and ours — so the shape of their encounter survives; only the scale changes.
 
-### The summon chain needs its own pass
+### Spawn density is authored on a different philosophy from ours
+
+Reported from a first visit: *"Spire Village is an absolute hell, there is so many
+monsters."* Measured, it is not mainly a count problem — it is a **distribution**
+problem, and Karkia's two real zones are laid out unlike anything we ship.
+
+`CRegenPOINT::Load` reads a per-point `m_iLimitCNT`, and `Proc()` only spawns while
+`m_iLiveCNT < m_iLimitCNT`, so that field is the concurrent cap. Pairing it with the
+spawn positions in the `.IFO` gives the shape of a zone:
+
+| zone | points | monsters | per point | median gap to nearest point |
+|---|---:|---:|---:|---:|
+| **Karkia Spire Village** | 1111 | 1111 | **1.0** | **5.0 m** |
+| **Karkia Cemetery** | 847 | 847 | **1.0** | **7.5 m** |
+| Eldeon EZ01 | 2118 | 2118 | 1.0 | 8.9 m |
+| Junon JG07 | 81 | 798 | 9.9 | 21.5 m |
+| Oro ODE01 | 25 | 241 | 9.6 | 33.5 m |
+| Oro ODD01 | 65 | 350 | 5.4 | 45.0 m |
+| Lunar LP03 | 61 | 280 | 4.6 | 46.1 m |
+
+Ours are **clumps**: a handful of points, ~5-10 monsters each, 20-45 m of empty
+ground between them, so a player picks a clump, clears it, and walks to the next.
+Karkia is **a carpet**: one monster per point, points 5 m apart, 10th-percentile gap
+2.5 m. There is no quiet ground anywhere in Spire Village — you are never not in
+contact range of something. Only EZ01 is authored the same way here, and it is a
+low-level zone with harmless monsters.
+
+**Do not act on this before stage 4.** The stats are still Jrose's, so every one of
+those 1111 monsters currently takes ~4,200 swings and kills a player in three hits;
+*any* density is hell under that. Their density was authored for their power curve,
+not ours — the same mismatch the DEF numbers show. Re-test after the balance pass and
+only then decide.
+
+If it is still too much afterwards, the lever is thinning, not tuning: `limit` is
+already 1, so it cannot go lower, and the knob is deleting a fraction of the regen
+points. Dropping ~55% of Spire Village's would put it at a ~10 m gap (EZ01-like);
+dropping ~75% gives ~15 m, between EZ01 and JG07. Stage 3 already rewrites REGEN
+lumps, so it is the same machinery.
 
 Karkia's monsters summon adds constantly, and two of those summons are boss-tier:
 
