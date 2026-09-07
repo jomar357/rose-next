@@ -1935,7 +1935,36 @@ def stage6(ours, src, src_index, dry):
     print(f"    {'CHR entries remapped':26s} {len(moved)} "
           f"{moved if moved else '(none needed)' if not dry else '(dry run)'}")
 
-    # --- 6e. the placements themselves, last, so a half-written run leaves no NPC
+    # --- 6e. normalise the .CON reference each placement carries.
+    #
+    # zonefile.cpp resolves an NPC's dialog with
+    #     _stricmp(std::filesystem::path(EVENT_FILENAME(row)).filename(), szName)
+    # which is an EXACT basename compare, extension included. Jrose stores the
+    # reference with ".con" for the EM86 family and WITHOUT it for the other 19,
+    # and their server evidently tolerated that; ours cannot, so those 19 resolved
+    # to nQuestIDX = 0 and had no dialog at all -- reported in game as "I don't
+    # think I can talk to them", which is not the Japanese text at all.
+    #
+    # Rewritten to exactly what our LIST_EVENT row holds, so the compare cannot
+    # miss. The record is `int AI` + one pascal string and nothing else.
+    canon, fixed_refs = {}, []
+    for i, r in ev_rows.items():
+        canon[i] = os.path.basename(
+            our_ev.get(r, EVENT_FILE_COL).decode("latin-1").replace("\\", "/"))
+    for objs, _t in placements.values():
+        for o in objs:
+            want = canon.get(o["obj_id"])
+            if not want:
+                continue
+            cur = mob_con_name(o["extra"])
+            if cur == want:
+                continue
+            o["extra"] = o["extra"][:4] + oro.put_bstr(want.encode("latin-1"))
+            fixed_refs.append(f"{o['obj_id']}:{cur}->{want}")
+    print(f"    {'.CON references fixed':26s} {len(fixed_refs)} "
+          + (f"(e.g. {fixed_refs[0]})" if fixed_refs else "(all already exact)"))
+
+    # --- 6f. the placements themselves, last, so a half-written run leaves no NPC
     # pointing at a row or a model that is not there yet.
     files, n = 0, 0
     for (folder, name), (objs, trailing) in sorted(placements.items()):

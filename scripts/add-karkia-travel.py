@@ -19,9 +19,15 @@ monsters whose only route to the Church is a one-way gate in its far corner
 (chunk 35_35). Landing players in the town is the same shape as Oro dropping them
 in the Portal Room rather than the Wasteland.
 
-Note the Church currently has **no way out** -- Jrose gave it a gate in and none
-back, and its NPCs are not placed yet. Leaving is a Return scroll until a later
-stage or a quest adds one. That is a known gap, not an oversight here.
+And the way back, added once stage 6a placed the Church's NPCs:
+
+    [Explorer] Petri, the Abandoned Church (npc 4146)  --> zone 2, Junon Polis
+
+Jrose gave the Church a gate in and none back, so this is the only exit that is
+not a Return scroll. Petri is the Church's own traveller, which is the same
+casting as Jones the Historian and Nova the Guide. Junon Polis rather than the
+Orlean Portal Temple because it is where Jones stands, so the loop closes where
+most players started it.
 
 This script writes only the QSD trigger. The dialog options are appended by the
 quest editor, which owns the .CON codec:
@@ -50,15 +56,29 @@ ROOT = os.path.dirname(HERE)
 DATA = os.path.join(ROOT, "data")
 QSD = os.path.join(DATA, "3DDATA", "QUESTDATA", "QP401.QSD")
 
-TRIGGER = "Karkia-TravelToChurch"
-TRAVEL_PATTERN = "KarkiaTravel"
 ZONE_CHURCH = 86
+ZONE_HOME = 2                       # City of Junon Polis, LIST_ZONE row 2
 CHURCH_ZON = os.path.join(DATA, "3DDATA", "MAPS", "KARKIA", "KCHURCH", "KCHURCH.ZON")
+HOME_ZON = os.path.join(DATA, "3DDATA", "MAPS", "JUNON", "JPT01", "JPT01.ZON")
+
+# (pattern, trigger, destination zone, the .ZON to read the landing spot from).
+# Two patterns rather than two triggers in one, so each leg can be added on its
+# own run and a re-run of either is a no-op.
+LEGS = [
+    ("KarkiaTravel", "Karkia-TravelToChurch", ZONE_CHURCH, CHURCH_ZON),
+    ("KarkiaReturn", "Karkia-TravelHome", ZONE_HOME, HOME_ZON),
+]
+TRIGGER = LEGS[0][1]                # kept for the message at the end
 
 # The NPCs that get the option. Both are placed and both already have a .CON.
 HOSTS = [
-    (1104, "[Historian] Jones",            "Junon Polis (zone 2)"),
-    (2101, "[Interplanetary Guide] Nova",  "Orlean Portal Temple (zone 73)"),
+    (1104, "[Historian] Jones",           "Junon Polis (zone 2)",       LEGS[0][1]),
+    (2101, "[Interplanetary Guide] Nova", "Orlean Portal Temple (73)",  LEGS[0][1]),
+    # The way back. [Explorer] Petri is the Church's own traveller, which is the
+    # same casting as Jones the Historian and Nova the Guide -- and his dialog
+    # resolves (EM86-009.con, LIST_EVENT 90), which nine of the ten Church NPCs do
+    # and one does not.
+    (4146, "[Explorer] Petri",            "The Abandoned Church (86)",  LEGS[1][1]),
 ]
 
 REWD_007 = 0x01000000 | 7
@@ -82,11 +102,11 @@ def load(name):
     return mod
 
 
-def landing_spot():
+def landing_spot(zon=CHURCH_ZON):
     travel = load("add-oro-travel")
-    pos = travel.zon_event_positions(CHURCH_ZON)
+    pos = travel.zon_event_positions(zon)
     if "start" not in pos:
-        raise SystemExit(f"{CHURCH_ZON}: no 'start' event position (have {sorted(pos)})")
+        raise SystemExit(f"{zon}: no 'start' event position (have {sorted(pos)})")
     x, y = pos["start"]
     return int(round(x)), int(round(y))
 
@@ -94,37 +114,43 @@ def landing_spot():
 def build(dry):
     fate = load("import-oro-fate")
     blob = open(QSD, "rb").read()
-    if fate.qsd_has_trigger(blob, TRIGGER):
-        print(f"   {TRIGGER} already present, nothing to do")
-        return
-
     tmpl = fate.qsd_find_entity(open(TEMPLATE_QSD, "rb").read(),
                                 TEMPLATE_TRIGGER, REWD_007)
     if tmpl is None:
         raise SystemExit(f"no REWD_007 template in {TEMPLATE_TRIGGER}")
 
-    x, y = landing_spot()
-    # STR_REWD_007: int iZoneSN; int iX; int iY; BYTE btPartyOpt.
-    # Party option 0 -- dragging someone else's whole party to another planet on
-    # one member's click is not what anyone means by "yes".
-    rew = fate.qsd_patch(tmpl, (0, "<iii", (ZONE_CHURCH, x, y)), (12, "<B", (0,)))
-    trigger = fate.qsd_build_trigger(TRIGGER, [], [rew])
-    print(f"   {TRIGGER:<24} -> zone {ZONE_CHURCH} at ({x}, {y})  "
-          f"[displayed {x/100:.0f},{y/100:.0f}]")
+    before, wrote = len(blob), 0
+    for pattern, trigger, zone, zon in LEGS:
+        if fate.qsd_has_trigger(blob, trigger):
+            print(f"   {trigger:<24} already present, skipped")
+            continue
+        x, y = landing_spot(zon)
+        # STR_REWD_007: int iZoneSN; int iX; int iY; BYTE btPartyOpt.
+        # Party option 0 -- dragging someone else's whole party to another planet
+        # on one member's click is not what anyone means by "yes".
+        rew = fate.qsd_patch(tmpl, (0, "<iii", (zone, x, y)), (12, "<B", (0,)))
+        out = fate.qsd_append_pattern(blob, pattern,
+                                      [fate.qsd_build_trigger(trigger, [], [rew])])
+        ok, consumed = fate.qsd_parse_ok(out)
+        if not ok:
+            raise SystemExit(f"rebuilt QSD does not re-parse ({consumed}/{len(out)})")
+        if not fate.qsd_has_trigger(out, trigger):
+            raise SystemExit(f"{trigger} missing after rebuild")
+        gz, gx, gy = struct.unpack_from("<iii",
+                                        fate.qsd_find_entity(out, trigger, REWD_007), 8)
+        if (gz, gx, gy) != (zone, x, y):
+            raise SystemExit(f"{trigger}: wrote ({gz},{gx},{gy}), wanted "
+                             f"({zone},{x},{y})")
+        print(f"   {trigger:<24} -> zone {zone} at ({x}, {y})  "
+              f"[displayed {x/100:.0f},{y/100:.0f}]")
+        blob = out
+        wrote += 1
 
-    out = fate.qsd_append_pattern(blob, TRAVEL_PATTERN, [trigger])
-    ok, consumed = fate.qsd_parse_ok(out)
-    if not ok:
-        raise SystemExit(f"rebuilt QSD does not re-parse ({consumed}/{len(out)})")
-    if not fate.qsd_has_trigger(out, TRIGGER):
-        raise SystemExit(f"{TRIGGER} missing after rebuild")
-    got = fate.qsd_find_entity(out, TRIGGER, REWD_007)
-    gz, gx, gy = struct.unpack_from("<iii", got, 8)
-    if (gz, gx, gy) != (ZONE_CHURCH, x, y):
-        raise SystemExit(f"{TRIGGER}: wrote ({gz},{gx},{gy}), wanted "
-                         f"({ZONE_CHURCH},{x},{y})")
-    fate.write_file(QSD, out, dry)
-    print(f"   QP401.QSD {len(blob)} -> {len(out)} bytes, re-parsed clean")
+    if not wrote:
+        print("   nothing to do")
+        return
+    fate.write_file(QSD, blob, dry)
+    print(f"   QP401.QSD {before} -> {len(blob)} bytes, re-parsed clean")
 
 
 def selftest():
@@ -163,8 +189,8 @@ def main():
     print("\ndone." + ("  (dry run -- nothing written)" if args.dry_run else ""))
     if not args.dry_run:
         print("next: append the dialog options --")
-        for npc, who, where in HOSTS:
-            print(f"   quest-editor con-warp <data> {npc} karkia {TRIGGER} --write"
+        for npc, who, where, trig in HOSTS:
+            print(f"   quest-editor con-warp <data> {npc} karkia {trig} --write"
                   f"    # {who}, {where}")
         print("then bake + restart. Appended options need the QEX1-aware client,")
         print("so deploy client and data together.")
