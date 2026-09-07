@@ -486,16 +486,59 @@ Knock-on: `translate-karkia-dialog.py` now reads conversation nodes from **our**
 this script exposes has to be collectable from the files we actually ship or its
 line stays Japanese. That added 9 strings (1,131 → 1,140).
 
-#### Stage 6d — shops
+#### Stage 6d — shops  *(DONE, 2026-09-07)*
 
-Seven `LIST_SELL` tabs need stock written (513, 514, 515, 584, 585, 593, 594). The
-other seven Karkia references resolve to **our existing tabs** — the Master Smith
-lands on One-hand/Two-hand/Bows, the Parel Caravan on Materials — which is a working
-shop for free, as long as nothing authors Karkia stock *into* those rows.
+`scripts/add-karkia-shops.py`. Two working shops, 4 tabs, 72 items.
 
-This is also where the imported Jrose weapons go: `doc/project-drops.md` establishes
-they can never drop (item numbers above 999 are unaddressable in a drop cell), so a
-Karkia shop is their only home short of changing the encoding.
+**This section's original plan was wrong in two ways, both found by reading the
+client rather than the tables.**
+
+First: **a shop only exists if the NPC's `.CON` calls `GF_openStore`.** Exactly three
+reachable Karkia conversations do — EM86-001 (Nemo), EM86-013 (Gelt) and EM02-114
+(Orentark). **Belfa does not**, so the claim above that the Master Smith gives us "a
+working shop for free" is false: his four tabs can never open no matter what is in
+them. Worse, they are our low-level rows 478–481, whose stock is **level 38–77** —
+junk in a level 215–240 zone. Left alone here; fixing him means editing compiled Lua
+(a QEX1 appendix or a `.CON` rebuild), which is its own job. Orentark's Materials and
+Dealer Skill tabs genuinely are free and are kept.
+
+All three sellers call `GF_openStore(owner, 0)`, and the client draws the fourth tab
+only for `bSpecialTab = 1` — so **only `LIST_NPC` cols 21–23 are usable**.
+
+Second: **the imported Jrose weapons were sellable all along.**
+`Rose::Store::encode_store_item` has a wide form, `type * 100000 + no` for ids above
+999, supported by client, server and the shop editor. The 999 wall is a **drop-side**
+limit only. See `doc/project-drops.md`.
+
+A dangling tab row turned out to be harmless: `STBDATA::value` bounds-checks the flat
+index and returns a default, so rows 584/585 read as an empty nameless tab rather than
+out of bounds. (`CStringManager::GetStoreTabName` guards with `iIndex > row_count` —
+a real off-by-one that lets `iIndex == row_count` through, harmless for the same
+reason.) So rather than pad `LIST_SELL` out to row 585 with 22 dead rows, four rows
+were appended at 561–564 and the two NPCs repointed.
+
+| row | caption | stock | seller |
+|---|---|---|---|
+| 561 | Karkia Arms lv215 | 13 weapons, every weapon type | Gelt |
+| 562 | Karkia Arms lv225 | 13 weapons, every weapon type | Gelt |
+| 564 | Ammo/Arrows | 13 arrows, 18 bullets/shells, Repair Hammer | Gelt |
+| 563 | Potions | 13 endgame consumables + Junon return scroll | Nemo |
+
+Rows 563/564 are numbered to land on `LSEL563` "Potions" and `LSEL564` "Ammo/Arrows",
+two **orphan STL keys already in `LIST_SELL_S.STL` with no matching STB row** — which
+is why the potion tab is the lower number. The script asserts a reused key's text
+matches the stock behind it, so a stale caption cannot silently sit over our tab.
+
+The weapon tiers are picked so Karkia never duplicates Oro, whose merchant Huzam sells
+210 and 230: **Oro 210/230, Karkia shop 215/225, Karkia drops 220/235/240.** The
+level-240 mythical set (Bahamut, Phoenix, Griffon, …) is deliberately held back for
+loot, and `--verify` proves none of the 34 reserved weapons leaked into a shop.
+
+Armour is deliberately unstocked — Karkia's armourer (Astraea) is in Memories, which
+is unreachable, and there is no armour import yet.
+
+Still dangling, all on **unreachable** Memories NPCs: 513–515 (Bordeaux), 593
+(Ginias), 594 (Astraea). Blank tabs, no crash.
 
 ---
 

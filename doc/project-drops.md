@@ -90,6 +90,34 @@ and stage 6 is coming anyway); make them quest rewards; or widen the drop encodi
 which touches shared client/server code and every existing table's meaning. **The
 shop is the recommendation** — it also gives Karkia's NPCs a reason to exist.
 
+**Resolved by stage 6d, and better than expected.** `Rose::Store::encode_store_item`
+already has a **wide form** — `type * 100000 + no` for ids above 999 — supported by
+the client, the server *and* the shop editor. So the shop route needed no encoding
+work at all. Drops still cannot use it: `Get_DropITEM`'s cell is `type * 1000 +
+number` with no wide equivalent, so the 999 wall is a **drop-side** limit only.
+
+`scripts/add-karkia-shops.py` sells two of the tiers and **reserves three for
+drops**, chosen so Karkia never duplicates Oro (whose merchant Huzam sells 210 and
+230 from tabs 5 and 6):
+
+| tier | ids | where |
+|---|---|---|
+| lv215 "Mirere" (13, all weapon types) | 1381, 1384, 1387, 1390, 1393, 1396, 1399, 1402, 1405, 1408, 1411, 1414, 1417 | **shop** (Gelt) |
+| lv225 (13, all weapon types) | 1382, 1385, 1388, 1391, 1394, 1397, 1400, 1403, 1406, 1409, 1412, 1415, 1418 | **shop** (Gelt) |
+| lv220 (11) | 1426–1436 | **reserved for drops** |
+| lv235 (10) | 1437–1446 | **reserved for drops** |
+| lv240 (13, the mythical names) | 1383, 1386, 1389, 1392, 1395, 1398, 1401, 1404, 1407, 1410, 1413, 1416, 1419 | **reserved for drops** |
+
+Left out of both: the partial lv210 set (1420–1425) duplicates Oro's tier, and the
+low oddments (1447–1453, levels 150–205) sit far below Karkia's 215–240 band.
+
+The lv240 set — Bahamut, Phoenix, Griffon, Unicorn, Albion, Quetzalcoatl, Aerie,
+Catoblepas, Oberon, Mermaid, Spriggan, Giranda, Hellhound — is the crown tier and
+belongs on the bosses (§4d). **But it cannot drop while it is numbered above 999.**
+That is the one thing here still blocked on the encoding, and it is worth solving:
+these are the most desirable items Karkia has. `add-karkia-shops.py --verify` proves
+none of the 34 reserved weapons has leaked into any shop tab.
+
 ---
 
 ## 4. The content plan
