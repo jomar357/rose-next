@@ -284,7 +284,7 @@ is square-rooted and capped, so the Neg Golem stays the tankiest thing in the Ce
 ordinary trash instead of 41x. Levels are remapped linearly inside each zone so Jrose's own
 progression survives. All seven balance passes `--verify` clean.
 
-### Stage 5 — drops  *(wiring DONE 2026-09-07; content pending)*
+### Stage 5 — drops  *(wiring DONE 2026-09-07; content DONE 2026-09-08)*
 
 Split, because the plumbing turned out to be broken in a way the content pass would
 have inherited. `scripts/rewire-karkia-drops.py` fixed it and

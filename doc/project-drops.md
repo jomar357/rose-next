@@ -188,6 +188,53 @@ nothing drops money today. Worth deciding deliberately rather than inheriting.
 
 ---
 
+## 4e. Built — the numbers as shipped  *(DONE, 2026-09-08)*
+
+`scripts/add-karkia-drops.py`. 9 tables + 2 zone mirrors, 11 rows written.
+
+Measured by simulating `Get_DropITEM` faithfully over 600k kills per case, not
+estimated:
+
+| | Cemetery 900 (lv215-228) | Alphas 906 (lv228-240) | Boss 903 (lv240) |
+|---|---|---|---|
+| materials | 38.7% | 38.6% | 12.2% |
+| use items | 7.3% | 3.8% | 3.8% |
+| **shield** | **1 in 30** | **1 in 30** | 1 in 13 |
+| **weapon** | **1 in 33** | **1 in 15** | **38%** (mythical) |
+| money | 15.1% | 15.0% | 0% |
+| nothing | 32.5% | 32.7% | 38.4% |
+
+Three things worth keeping:
+
+- **The zone rows 87 and 88 mirror 900 and 906.** `col 20` = 80 sends **20% of
+  every roll to the row numbered after the zone**, so without the mirrors a fifth
+  of all rolls hit an empty table and every rate above loses 20% — shields would
+  be 1 in 37, not 1 in 30. This is the cheapest way to make the fallback harmless.
+- **Money fires *instead of* an item**, so `col 19` is not free: at 15% it takes
+  15% off the item rate. Bosses are set to **0** so it can never eat a mythical
+  roll. A money drop pays ~2,000 z at lv215 and ~2,500 z at lv240; at 15% that is
+  ~319 z/kill, so a 768,000 z shop weapon is ~2,400 kills. Raise `WORLD_VAR_DROP_M`
+  (default 100) if that reads as too slow — it is a live GM-settable world var,
+  not a table edit.
+- **906 carries three redirects, not two**, so weapons run 1 in 15 there against
+  1 in 33 in the Cemetery. Deliberate: it is the only cap-level farm and has twice
+  the weapon pool (10 lv235 against 5 lv220).
+
+**Both Drakes were bosses sharing a trash table** — 2729 pointed at 900 and 2699
+at 906, so they dropped exactly what the mobs around them did. They now have rows
+907 and 908.
+
+Verified that `CLIB_GameSRV::CheckSTB_DropITEM` zeroes **nothing**: all 9,570
+decodable cells in the whole table survive it, including the 66 new wide-encoded
+weapon cells. That check matters because the sanitiser deletes what it cannot
+parse rather than ignoring it.
+
+The level gap does the rest of the work: a level-240 player gets **100% nothing**
+from the Cemetery, which is what makes 906 the only cap farm rather than a
+preference.
+
+---
+
 ## 5. Oro has exactly the same problem
 
 Not a Karkia-only defect, and worth doing in the same pass:
