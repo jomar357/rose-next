@@ -370,10 +370,35 @@ resolve, up from 13**.
 Verify a `.CON` edit by **decoding the QEX1 appendix**, never by grep: the payload is
 XOR'd, so a plaintext search reports a correct file as broken.
 
-#### Stage 6c — English dialog
+#### Stage 6c — English dialog  *(DONE, 2026-09-07)*
 
-Override the Japanese text through the QEX1 appendix, which appends without
-replacing the compiled Lua. 32 dialogs.
+`scripts/translate-karkia-dialog.py`. **All 20 reachable NPCs, 1,131 nodes, 0
+missing.** The 12 in Memories and the Garden are left, since those zones sit
+behind a quest we have not written.
+
+Not through QEX1, as this section originally assumed — **dialog text is not in the
+`.CON` at all.** A conversation node carries a `str_id` that indexes
+`ulngtb_con.ltb`: row = the string id, col 0 a key, cols 1..N the per-language
+text as UTF-16LE (`GetEventString(id) = GetMbcsString(lang+1, id)`). So the whole
+translation is rows in that table and not one byte of any `.CON`.
+
+Scope was the work. Jrose ships **2,383 translatable strings / 67k Japanese
+characters**, mostly branches for quest chains we never imported. Two filters make
+it tractable:
+
+- drop nodes gated behind a check function — quest state that can never be true
+- **de-duplicate**: "I'll pass" appears 96 times, "Thank you" 55, "Understood" 49
+
+That is 2,383 → **654 distinct strings**, and 147 of them alone covered 54% of all
+nodes.
+
+For once an id space was free by luck rather than arrangement: Karkia's ids run
+21135–33071 and our table had 20876 rows. Verified after writing that all 20,876
+pre-existing rows are byte-identical.
+
+Translations live in `scripts/karkia-dialog-en.json`, committed — `data/` is
+gitignored, so authored text kept only there would be lost. An untranslated string
+stays Japanese rather than being guessed at.
 
 #### Stage 6d — shops
 
