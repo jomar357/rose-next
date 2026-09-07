@@ -142,11 +142,21 @@ NEW_TABS = [
 ]
 
 # npc row -> the three drawable tabs, in order
+#
+# Belfa carries the same arms and ammunition as Gelt, deliberately. He is the
+# Master Smith at the Foot of the Tower, which is the staging zone -- gear
+# should be buyable where you prepare, not only in the deep field. Sharing the
+# rows costs nothing and keeps one place to edit the stock.
+#
+# His old tabs 478-481 are *our* low-level rows, shared with Crune: level 38-77
+# stock in a level 215-240 zone. Repointing leaves Crune untouched.
 NPC_TABS = {
-    4019: (561, 562, 564),   # [Spire Warrior] Gelt -- arms and ammunition
-    4142: (563, 0, 0),       # [Shrine Maiden] Nemo -- "short of supplies"
+    4019: (561, 562, 564),   # [Spire Warrior] Gelt  -- arms and ammunition
+    4103: (561, 562, 564),   # [Master Smith] Belfa  -- the Tower staging shop
+    4142: (563, 0, 0),       # [Shrine Maiden] Nemo  -- "short of supplies"
 }
-NPC_NAMES = {4019: "[Spire Warrior] Gelt", 4142: "[Shrine Maiden] Nemo"}
+NPC_NAMES = {4019: "[Spire Warrior] Gelt", 4103: "[Master Smith] Belfa",
+             4142: "[Shrine Maiden] Nemo"}
 
 # STB tables an item type is validated against, for the don't-sell / range check
 TYPE_TABLE = {T_WEAPON: "LIST_WEAPON.STB", T_USE: "LIST_USEITEM.STB",

@@ -494,13 +494,12 @@ line stays Japanese. That added 9 strings (1,131 → 1,140).
 client rather than the tables.**
 
 First: **a shop only exists if the NPC's `.CON` calls `GF_openStore`.** Exactly three
-reachable Karkia conversations do — EM86-001 (Nemo), EM86-013 (Gelt) and EM02-114
-(Orentark). **Belfa does not**, so the claim above that the Master Smith gives us "a
-working shop for free" is false: his four tabs can never open no matter what is in
-them. Worse, they are our low-level rows 478–481, whose stock is **level 38–77** —
-junk in a level 215–240 zone. Left alone here; fixing him means editing compiled Lua
-(a QEX1 appendix or a `.CON` rebuild), which is its own job. Orentark's Materials and
-Dealer Skill tabs genuinely are free and are kept.
+reachable Karkia conversations did — EM86-001 (Nemo), EM86-013 (Gelt) and EM02-114
+(Orentark). **Belfa did not**, so the claim above that the Master Smith gives us "a
+working shop for free" was false: his four tabs could never open no matter what was in
+them. Worse, they were our low-level rows 478–481, whose stock is **level 38–77** —
+junk in a level 215–240 zone. **Fixed in 6f below.** Orentark's Materials and Dealer
+Skill tabs genuinely are free and are kept.
 
 All three sellers call `GF_openStore(owner, 0)`, and the client draws the fourth tab
 only for `bSpecialTab = 1` — so **only `LIST_NPC` cols 21–23 are usable**.
@@ -556,6 +555,51 @@ third is the one that is invisible in the tables.
 Cost of the call: Gelt reads as cured while Sulfa and Dinos still groan beside him.
 Accepted — it is the same trade already made for the other five mute NPCs, and there
 is no in-game way to run the arc that would cure him.
+
+#### Stage 6f — Belfa's shop  *(DONE, 2026-09-08)*
+
+Belfa turned out not to be a shopkeeper at all. His 173 menus are **entirely
+`GF_SwapItem` weapon-exchange trades** — three families (`vice_*`, `Schwarz_*`,
+`dwpn_*`, 13 weapon types each) that swap a weapon plus Graphistone for an
+upgraded one, every branch gated on a `*_have` quest trigger we never imported.
+So his whole dialog is dead apart from the greeting, the forging-info chain, and
+"I'll pass."
+
+Two changes, because a shop needs **three** things and he had none of them right:
+
+1. **A reachable node that opens it.** New `quest-editor con-store` appends an
+   ungated `SC_MSG_CLOSE` option to the root menu whose click function is a QEX1
+   appendix wrapper:
+
+   ```lua
+   function QSbelfa_OPEN(E)
+       GF_openStore(QF_getEventOwner(E), 0)
+       return 1
+   end
+   ```
+
+   CLOSE rather than SELECT is deliberate and copies retail: `Click_ITEM` runs
+   the click function, then `Conversation(-1)` returns 0, which shuts the
+   conversation window and leaves the shop dialog on screen. `E` is the CEvent
+   handle the click passes in; `QF_getEventOwner` turns it into the NPC index.
+
+   Built on the existing `append_warp_option` machinery rather than a second
+   codec in Python — `convo.rs` warns against inlining copies of this logic, and
+   a structural `.CON` rewrite is exactly where that would bite.
+
+2. **Tabs worth opening.** Repointed 478–481 → 561/562/564, the same arms and
+   ammunition Gelt sells. Deliberately shared: Belfa is at the Foot of the Tower,
+   the staging zone, and gear should be buyable where you prepare rather than
+   only in the deep field. Crune keeps 478–481 untouched.
+
+Verified the rebuild preserved everything: the main Lua blob is **byte-identical**
+(30,323 bytes, still valid Lua 4 bytecode, the exchange functions intact), nodes
+went 264 → 265 exactly, every original `str_id` survives, and the forging-info
+chain — real translated content explaining Graphistone — is untouched. It was the
+reason not to repurpose an existing option instead.
+
+**Gotcha:** `con-store` writes `.bak` files *into* `data/`, which `pack.rs` would
+bake into the `.vfs`. They are moved to `build/data-bak-archive/` after every run.
 
 ---
 

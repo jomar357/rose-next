@@ -45,6 +45,7 @@ fn main() -> ExitCode {
         Some("con-wire") => cmd_con_wire(&args[1..]),
         Some("con-append") => cmd_con_append(&args[1..]),
         Some("con-warp") => cmd_con_warp(&args[1..]),
+        Some("con-store") => cmd_con_store(&args[1..]),
         Some("npc-find") => cmd_npc_find(&args[1..]),
         Some("ltb-check") => cmd_ltb_check(&args[1..]),
         Some("icons-check") => cmd_icons_check(args.get(1)),
@@ -76,6 +77,11 @@ fn main() -> ExitCode {
             eprintln!(
                 "  quest-editor con-triggers <root> <con-file | npc-id>\n\
                  \x20                            list the quests an NPC's dialog offers (accept/turn-in)"
+            );
+            eprintln!(
+                "  quest-editor con-store <root> <npc_id> <key> [--text T] [--write]\n\
+                 \x20                            append an ungated shop option calling GF_openStore,\n\
+                 \x20                            for an NPC whose dialog never opens its tabs"
             );
             eprintln!(
                 "  quest-editor warp-triggers <root> [--template <file>] [--map <file>] [--write]\n\
@@ -781,6 +787,57 @@ fn cmd_con_warp(args: &[String]) -> Result<bool> {
     let report = quest_editor::write::append_warp_to_npc_dialog(
         &root, npc_id, key, trigger, &text, !write,
     )?;
+    report.print();
+    if report.dry_run {
+        println!("\n(re-run with --write to apply, then bake the VFS + restart)");
+    } else {
+        println!("\nnext: bake the VFS, restart servers + client, click npc {npc_id}.");
+    }
+    Ok(true)
+}
+
+fn cmd_con_store(args: &[String]) -> Result<bool> {
+    let write = args.iter().any(|a| a == "--write");
+    let flag = |name: &str| -> Option<String> {
+        args.iter()
+            .position(|a| a == name)
+            .and_then(|i| args.get(i + 1))
+            .cloned()
+    };
+    let pos: Vec<String> = {
+        let mut skip = false;
+        let mut out = Vec::new();
+        for a in args {
+            if skip {
+                skip = false;
+                continue;
+            }
+            if a == "--text" {
+                skip = true;
+                continue;
+            }
+            if a.starts_with("--") {
+                continue;
+            }
+            out.push(a.clone());
+        }
+        out
+    };
+    if pos.len() < 3 {
+        bail!(
+            "usage: con-store <root> <npc_id> <key> [--text T] [--write]\n\
+             \x20  appends an ungated shop option that calls GF_openStore, for an NPC\n\
+             \x20  that has LIST_NPC shop tabs but whose dialog never opens them.\n\
+             \x20  e.g. con-store ../data 4103 belfa --write"
+        );
+    }
+    let root = PathBuf::from(&pos[0]);
+    let npc_id: i32 = pos[1].parse().context("npc_id")?;
+    let key = &pos[2];
+    let text = flag("--text").unwrap_or_else(|| "Show me what you have for sale.".into());
+
+    let report =
+        quest_editor::write::append_store_to_npc_dialog(&root, npc_id, key, &text, !write)?;
     report.print();
     if report.dry_run {
         println!("\n(re-run with --write to apply, then bake the VFS + restart)");

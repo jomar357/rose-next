@@ -1530,6 +1530,97 @@ pub fn append_warp_to_npc_dialog(
     })
 }
 
+/// Append an ungated shop option to an NPC's existing dialog.
+///
+/// For an NPC that has shop tabs in `LIST_NPC` but whose conversation never
+/// calls `GF_openStore` — writing the tabs alone does nothing, because a shop
+/// needs a *reachable dialog node* as well as stock and a tab.
+pub fn append_store_to_npc_dialog(
+    root: &Path,
+    npc_id: i32,
+    key: &str,
+    option_text: &str,
+    dry_run: bool,
+) -> Result<WriteReport> {
+    if !key.chars().all(|c| c.is_ascii_alphanumeric()) || key.is_empty() {
+        bail!("key must be non-empty and alphanumeric (it becomes a Lua identifier): {key:?}");
+    }
+    let stb_dir = resolve_stb_dir(root)?;
+    let event_dir = stb_dir
+        .parent()
+        .ok_or_else(|| anyhow!("STB dir has no parent"))?
+        .join("EVENT");
+
+    let placements = crate::ifo::find_npc(root, npc_id)?;
+    if placements.is_empty() {
+        bail!("npc {npc_id} isn't placed in any zone .IFO");
+    }
+    let mut con_names: Vec<String> = placements
+        .iter()
+        .map(|p| p.conversation.trim().to_string())
+        .filter(|c| !c.is_empty())
+        .collect();
+    con_names.sort_by_key(|c| c.to_ascii_lowercase());
+    con_names.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+    if con_names.is_empty() {
+        bail!("npc {npc_id} has no conversation to append to");
+    }
+
+    let ltb_path = file_ci(&event_dir, "ulngtb_con.ltb")?;
+    let mut ltb = crate::ltb::LtbTable::read_file(&ltb_path)?;
+    let str_id = ltb.set_or_append(&format!("QS{key}_open"), option_text) as i32;
+
+    let mut changes = Vec::new();
+    let mut outputs: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+    for name in &con_names {
+        let path = file_ci(&event_dir, name)
+            .with_context(|| format!("npc {npc_id}'s conversation \"{name}\" not found"))?;
+        let mut con = crate::convo::ConFile::read_file(&path)?;
+        let refresh = crate::convo::store_option_keys(&con).iter().any(|k| k == key);
+        crate::convo::append_store_option(&mut con, key, str_id)?;
+        let bytes = con.rebuild();
+        crate::convo::ConFile::parse(&bytes).context("rebuilt .CON failed to self-parse")?;
+        changes.push(format!(
+            "{} store option \"{key}\" in {} (click → GF_openStore)",
+            if refresh { "REFRESH" } else { "APPEND" },
+            path.display()
+        ));
+        outputs.push((path, bytes));
+    }
+    changes.push(format!("UPSERT 1 dialog string into {}", ltb_path.display()));
+    changes.push(
+        "NOTE: appended options need the appendix-aware client (QEX1) — deploy client + data together"
+            .to_string(),
+    );
+
+    if dry_run {
+        return Ok(WriteReport {
+            dry_run: true,
+            changes,
+            backups: Vec::new(),
+        });
+    }
+
+    let mut backups = Vec::new();
+    for (path, bytes) in &outputs {
+        if let Some(b) = backup_once(path)? {
+            backups.push(b);
+        }
+        fs::write(path, bytes).with_context(|| format!("writing {}", path.display()))?;
+    }
+    if let Some(b) = backup_once(&ltb_path)? {
+        backups.push(b);
+    }
+    fs::write(&ltb_path, ltb.to_bytes())
+        .with_context(|| format!("writing {}", ltb_path.display()))?;
+
+    Ok(WriteReport {
+        dry_run: false,
+        changes,
+        backups,
+    })
+}
+
 /// The set of persistent character quest-switch numbers already referenced by any
 /// `COND_014` / `REWD_015` across every `.QSD` (retail + ours).
 pub fn used_switches(root: &Path) -> Result<BTreeSet<i32>> {

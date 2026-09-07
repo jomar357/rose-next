@@ -952,6 +952,83 @@ fn warp_option_lua(key: &str, trigger: &str) -> String {
     )
 }
 
+fn store_prefix(key: &str) -> String {
+    format!("QS{key}_")
+}
+
+/// Lua for a shop option. `E` is the CEvent handle the click passes in, and
+/// `QF_getEventOwner` turns it into the NPC's object index — the same pair
+/// every retail store node uses. The `0` is `bSpecialTab`: the client only
+/// draws the fourth shop tab for `1`, and nothing here wants that.
+fn store_option_lua(key: &str) -> String {
+    let p = store_prefix(key);
+    format!(
+        "function {p}OPEN(E)\n\
+         \tGF_openStore(QF_getEventOwner(E), 0)\n\
+         \treturn 1\n\
+         end\n"
+    )
+}
+
+/// Append an ungated "show me your wares" option to the root menu.
+///
+/// Simpler than [`append_warp_option`]: a shop needs no confirmation step, so
+/// this adds one `SC_MSG_CLOSE` item and no new menus. CLOSE is deliberate and
+/// matches how retail store nodes are built — `Click_ITEM` runs the click func
+/// and then `Conversation(-1)` returns 0, which closes the conversation window
+/// and leaves the shop dialog the click just opened on screen.
+///
+/// The option carries no check function, so it is always shown. That is the
+/// point: a shop that is gated on quest state is a shop nobody can reach.
+pub fn append_store_option(con: &mut ConFile, key: &str, str_id: i32) -> Result<()> {
+    if con.menus.is_empty() {
+        bail!(".CON has no menus — not an NPC conversation?");
+    }
+    remove_store_option(con, key);
+
+    let p = store_prefix(key);
+    con.menus[0]
+        .items
+        .push(menu_item(SC_MSG_CLOSE, -1, "", &format!("{p}OPEN"), str_id));
+
+    appendix_upsert_named(&mut con.appendix, &p, &store_option_lua(key));
+    Ok(())
+}
+
+/// Remove store option `key`: its menu items and its appendix section. No menu
+/// reaping is needed because the option's `child_menu` is always -1.
+pub fn remove_store_option(con: &mut ConFile, key: &str) -> bool {
+    let p = store_prefix(key);
+    let mut found = false;
+    for menu in con.menus.iter_mut() {
+        let before = menu.items.len();
+        menu.items
+            .retain(|it| !(it.check_func.starts_with(&p) || it.click_func.starts_with(&p)));
+        found |= menu.items.len() != before;
+    }
+    appendix_remove_named(&mut con.appendix, &p) || found
+}
+
+/// Keys of every store option currently appended to this conversation.
+pub fn store_option_keys(con: &ConFile) -> Vec<String> {
+    let mut out = Vec::new();
+    for menu in &con.menus {
+        for it in &menu.items {
+            for f in [&it.check_func, &it.click_func] {
+                if let Some(rest) = f.strip_prefix("QS") {
+                    if let Some((key, _)) = rest.split_once('_') {
+                        let key = key.to_string();
+                        if !out.contains(&key) {
+                            out.push(key);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Keys of every warp option currently appended to this conversation.
 pub fn warp_option_keys(con: &ConFile) -> Vec<String> {
     let mut out = Vec::new();
