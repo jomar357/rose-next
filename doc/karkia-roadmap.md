@@ -318,9 +318,59 @@ Two things §5 of the drops doc records that change what is possible:
 
 ### Stage 6 — NPCs
 
-32 rows, models, `LIST_EVENT` rows (all 32 `.CON`s are registered in Jrose's table, which is
-better than Oro where none were), and authored English dialog through the QEX1 appendix.
-Nine are shopkeepers whose 14 `LIST_SELL` tabs need stock written from scratch.
+Split into four, because only the first is mechanical.
+
+#### Stage 6a — place them  *(DONE, 2026-09-07)*
+
+`--stage 6`. 32 `LIST_NPC` rows with English names, 32 STL keys, 32 CHR entries,
+42 `PART_NPC` models (+17 meshes, +25 materials), 66 art files, 32 `LIST_EVENT`
+registrations, the 32 `.CON` dialogs, and the placements into the `.IFO` **MOB**
+lumps — NPCs are a fixed placement carrying an AI row and a `.CON` name, not a
+REGEN spawner. Ten in the Church, five in Spire Village, five at the Foot of the
+Tower; twelve more wait in Memories and the Garden.
+
+The dialogs came in **verbatim**, which is only safe because **none of the 32 offers
+a quest** — checked with `quest-editor con-triggers` across all of them rather than
+assumed, so nothing can dangle from the quest chain we deliberately skipped. They
+speak Japanese until 6c. One of them (`EM03-001`, the Storagekeeper) calls
+`GF_openBank`, so it works today.
+
+Three things worth carrying forward:
+
+- **Compare `.CON` references on the STEM.** The `.IFO` stores the reference *with*
+  the extension for the `EM86` family and *without* it for the rest, while
+  `LIST_EVENT` always holds a full path. Comparing basenames reported two thirds of
+  the set as missing — twice, once against the filesystem and once against the
+  table — and both were my error, not the data's.
+- **`EVENT_FILENAME` is column 3.** Column 1 is a type marker. Guessing it produced
+  a confident "none of these are registered", which was wrong.
+- **A CHR entry is addressed by NPC id**, and `import_characters` copies index to
+  index, so the nine remapped NPCs landed at their Jrose ids and had to be moved.
+  It also *skips occupied slots*, so nothing of ours could be overwritten — and all
+  nine were empty regardless, our own 1074 `[Wounded Traveler] Seth` having a
+  `LIST_NPC` row but no CHR entry.
+
+#### Stage 6b — the way back out
+
+The deferred item from §1: the Church has a gate in and none back. Now that its ten
+NPCs exist, this is one travel option on one of them, through the same
+`quest-editor con-warp` + QEX1 path stage 2b used for Jones and Nova.
+
+#### Stage 6c — English dialog
+
+Override the Japanese text through the QEX1 appendix, which appends without
+replacing the compiled Lua. 32 dialogs.
+
+#### Stage 6d — shops
+
+Seven `LIST_SELL` tabs need stock written (513, 514, 515, 584, 585, 593, 594). The
+other seven Karkia references resolve to **our existing tabs** — the Master Smith
+lands on One-hand/Two-hand/Bows, the Parel Caravan on Materials — which is a working
+shop for free, as long as nothing authors Karkia stock *into* those rows.
+
+This is also where the imported Jrose weapons go: `doc/project-drops.md` establishes
+they can never drop (item numbers above 999 are unaddressable in a drop cell), so a
+Karkia shop is their only home short of changing the encoding.
 
 ---
 
