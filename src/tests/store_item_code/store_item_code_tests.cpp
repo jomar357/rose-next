@@ -1,3 +1,4 @@
+#include "rose/common/drop_item_code.h"
 #include "rose/common/store_item_code.h"
 
 #include <cstdlib>
@@ -119,6 +120,74 @@ main() {
     expect_rejected((kMaxItemType + 1) * 1000 + 5, "a type past the 5-bit field");
     expect_rejected(kWideBase * (kMaxItemType + 1) + 5, "a wide type past the 5-bit field");
     expect_rejected(kWideBase * 8 + (kMaxItemNo + 1), "an id past the 11-bit field");
+
+    // ---- drop cells: same packing, different sentinels -----------------------
+    // rose/common/drop_item_code.h. Covered here rather than in a project of
+    // its own because the two headers share one encoding and must not drift.
+    {
+        using Rose::Drop::decode_drop_item;
+        using Rose::Drop::encode_drop_item;
+        using Rose::Drop::is_redirect_group;
+        using Rose::Drop::kMaxRedirectGroup;
+        using Rose::Drop::kMaxSentinel;
+        using Rose::Drop::redirect_column;
+
+        auto drop_decodes = [](int packed, int want_type, int want_no, const char* message) {
+            int type = -1, no = -1;
+            const bool ok = decode_drop_item(packed, type, no);
+            if (!ok || type != want_type || no != want_no) {
+                std::cerr << "FAILED: " << message << " -- decode_drop_item(" << packed
+                          << ") gave ok=" << ok << " type=" << type << " no=" << no
+                          << ", wanted type=" << want_type << " no=" << want_no << "\n";
+                std::exit(1);
+            }
+        };
+        auto drop_rejected = [](int packed, const char* message) {
+            int type = -1, no = -1;
+            if (decode_drop_item(packed, type, no)) {
+                std::cerr << "FAILED: " << message << " -- decode_drop_item(" << packed
+                          << ") unexpectedly succeeded\n";
+                std::exit(1);
+            }
+        };
+
+        // The packing is shared with shop slots, so every existing cell is unchanged.
+        drop_decodes(10001, 10, 1, "a legacy use-item cell");
+        drop_decodes(8006, 8, 6, "a legacy weapon cell");
+
+        // The whole point: ids above 999 become droppable. 1381 is the first
+        // imported Jrose weapon, which under the legacy packing alone would be
+        // 9381 -- type 9 id 381, a subweapon.
+        drop_decodes(encode_drop_item(8, 1381), 8, 1381, "a wide weapon cell");
+        expect(8 * 1000 + 1381 == 9381, "the collision this encoding avoids");
+        drop_decodes(encode_drop_item(8, kMaxItemNo), 8, kMaxItemNo, "the largest droppable id");
+
+        // Sentinels are the drop-only part and must never decode as items.
+        drop_rejected(0, "an empty drop cell");
+        for (int g = 1; g <= kMaxRedirectGroup; ++g) {
+            expect(is_redirect_group(g), "1..4 are redirect groups");
+            drop_rejected(g, "a redirect group is not an item");
+        }
+        expect(!is_redirect_group(0), "0 is empty, not a redirect group");
+        expect(!is_redirect_group(kMaxRedirectGroup + 1), "5 is junk, not a redirect group");
+        drop_rejected(5, "junk below the sentinel ceiling");
+        drop_rejected(kMaxSentinel, "the sentinel ceiling itself is not an item");
+        drop_decodes(kMaxSentinel + 1, 1, 1, "one past the ceiling is type 1 id 1");
+
+        // Redirect windows are contiguous and non-overlapping, and match the
+        // 26 + g*5 + rand(5) the callers use.
+        expect(redirect_column(1) == 31, "group 1 reads from column 31");
+        for (int g = 1; g < kMaxRedirectGroup; ++g) {
+            expect(redirect_column(g) + Rose::Drop::kRedirectGroupWidth == redirect_column(g + 1),
+                "redirect windows must be contiguous");
+        }
+
+        // A wide cell must not be mistaken for a sentinel at any type.
+        for (int type = 1; type <= kMaxItemType; ++type) {
+            expect(encode_drop_item(type, kLegacyMaxItemNo + 1) > kMaxSentinel,
+                "no wide cell may fall into the sentinel range");
+        }
+    }
 
     std::cout << "store_item_code_tests passed\n";
     return 0;

@@ -6,6 +6,7 @@
 
 #include "NET_Prototype.h"
 #include "calculation.h"
+#include "rose/common/drop_item_code.h"
 
 using namespace Rose;
 
@@ -176,28 +177,34 @@ CCal::Get_DropITEM(int level_difference,
 
     int iDropTblIDX = (iDrop_VAR > 30) ? RANDOM(30) : RANDOM(iDrop_VAR);
     int iDropITEM = DROPITEM_ITEMNO(iDropTBL, iDropTblIDX);
-    if (iDropITEM <= 1000) {
-        if (iDropITEM >= 1 && iDropITEM <= 4) {
+    if (iDropITEM <= Rose::Drop::kMaxSentinel) {
+        if (Rose::Drop::is_redirect_group(iDropITEM)) {
             // ´Ù½Ã °è»ê
-            iDropTblIDX = 26 + (iDropITEM * 5) + RANDOM(5);
+            iDropTblIDX = Rose::Drop::redirect_column(iDropITEM)
+                + RANDOM(Rose::Drop::kRedirectGroupWidth);
             if (iDropTblIDX >= g_TblDropITEM.col_count) {
                 // Å×ÀÌºí ÄÃ·³ °¹¼ö ÃÊ°ú...
                 return false;
             }
             iDropITEM = DROPITEM_ITEMNO(iDropTBL, iDropTblIDX);
-            if (iDropITEM <= 1000) {
-                // ¾ø´Ù !
-                return false;
-            }
         } else {
             // ¾ø´Ù !
             return false;
         }
     }
 
+    // Legacy `type * 1000 + id` or the wide `type * 100000 + id`; see
+    // rose/common/drop_item_code.h. Splitting this by hand is what capped
+    // droppable item ids at 999.
+    int iDropTYPE = 0, iDropNO = 0;
+    if (!Rose::Drop::decode_drop_item(iDropITEM, iDropTYPE, iDropNO)) {
+        // ¾ø´Ù !
+        return false;
+    }
+
     item.init();
-    item.m_cType = static_cast<BYTE>(iDropITEM / 1000);
-    item.m_nItemNo = iDropITEM % 1000;
+    item.m_cType = static_cast<BYTE>(iDropTYPE);
+    item.m_nItemNo = static_cast<WORD>(iDropNO);
 
     int iTEMP = 0;
     if (item.is_stackable() && !item.is_consumable()) {

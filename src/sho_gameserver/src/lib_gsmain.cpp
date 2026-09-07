@@ -20,6 +20,7 @@
 #include "ioDataPOOL.h"
 
 #include "rose/common/common_interface.h"
+#include "rose/common/drop_item_code.h"
 
 /// Zones from here up are treated as test rows and never served locally:
 /// InitLocalZone clears m_pCheckedLocalZONE for all of them, so InitZoneLIST
@@ -322,20 +323,14 @@ CLIB_GameSRV::CheckSTB_DropITEM() {
             if (iDropITEM <= 0)
                 continue;
 
-            sITEM.m_cType = (BYTE)(iDropITEM / 1000);
-            sITEM.m_nItemNo = iDropITEM % 1000;
-
-            if ((sITEM.m_cType < ITEM_TYPE_FACE_ITEM || sITEM.m_cType > ITEM_TYPE_RIDE_PART
-                    || sITEM.m_cType == ITEM_TYPE_QUEST)
-                && iDropITEM > 1000) {
-                SET_DROPITEM_ITEMNO(nI, nC, 0);
-                continue;
-            }
-
-            if (iDropITEM <= 1000) {
-                if (iDropITEM >= 1 && iDropITEM <= 4) {
+            // Sentinels first: this pass *zeroes* anything it cannot make sense
+            // of, so a decoder that does not understand the wide form would not
+            // merely ignore a wide cell, it would delete it at start-up.
+            if (iDropITEM <= Rose::Drop::kMaxSentinel) {
+                if (Rose::Drop::is_redirect_group(iDropITEM)) {
                     // 다시 계산
-                    int iDropTblIDX = 26 + (iDropITEM * 5) + 4 /*RANDOM(5)의 최대값 4 */;
+                    int iDropTblIDX = Rose::Drop::redirect_column(iDropITEM)
+                        + Rose::Drop::kRedirectGroupWidth - 1 /*RANDOM(5)의 최대값 4 */;
                     if (iDropTblIDX >= g_TblDropITEM.col_count) {
                         // 테이블 컬럼 갯수 초과...
                         g_LOG.CS_ODS(0xffff, "This drop item[ %d %d ] may be too big\n", nI, nC);
@@ -346,12 +341,27 @@ CLIB_GameSRV::CheckSTB_DropITEM() {
                 continue;
             }
 
+            int iDropTYPE = 0, iDropNO = 0;
+            if (!Rose::Drop::decode_drop_item(iDropITEM, iDropTYPE, iDropNO)) {
+                SET_DROPITEM_ITEMNO(nI, nC, 0);
+                continue;
+            }
+
+            sITEM.m_cType = (BYTE)iDropTYPE;
+            sITEM.m_nItemNo = (WORD)iDropNO;
+
+            if (sITEM.m_cType < ITEM_TYPE_FACE_ITEM || sITEM.m_cType > ITEM_TYPE_RIDE_PART
+                || sITEM.m_cType == ITEM_TYPE_QUEST) {
+                SET_DROPITEM_ITEMNO(nI, nC, 0);
+                continue;
+            }
+
             if (sITEM.m_nItemNo > g_pTblSTBs[sITEM.m_cType]->row_count) {
                 SET_DROPITEM_ITEMNO(nI, nC, 0);
                 continue;
             }
 
-            assert(DROPITEM_ITEMNO(nI, nC) > 1000);
+            assert(DROPITEM_ITEMNO(nI, nC) > Rose::Drop::kMaxSentinel);
         }
     }
     //	*/

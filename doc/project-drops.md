@@ -78,11 +78,30 @@ cell = ITEM_DROP[table][1 + rand(0..min(drop_var, 30))]
 
 ## 3. What we can and cannot drop
 
-| set | ids | droppable? |
-|---|---|---|
-| Jrose weapons (`project_jrose_weapon_import`) | 1381–1453 | **0 of 73** — all above 999 |
-| Jrose back items (`project_jrose_back_import`) | 957–1061 | 43 of 105 (957–999 only) |
-| Jrose shields (`project_jrose_subwpn_import`) | 308–342 | **35 of 35** |
+**Resolved 2026-09-08: everything is droppable now.** The table below was the state
+before the drop encoding was widened; it is kept because the *reason* still matters
+when reading old tables.
+
+| set | ids | droppable before | now |
+|---|---|---|---|
+| Jrose weapons (`project_jrose_weapon_import`) | 1381–1453 | **0 of 73** — all above 999 | **73 of 73** |
+| Jrose back items (`project_jrose_back_import`) | 957–1061 | 43 of 105 (957–999 only) | **105 of 105** |
+| Jrose shields (`project_jrose_subwpn_import`) | 308–342 | 35 of 35 | 35 of 35 |
+
+`src/common/include/rose/common/drop_item_code.h` gives drop cells the same wide form
+shops already had — `type * 100000 + id` above 999 — and the three readers now share
+it. The ranges cannot collide (legacy tops out at 31,999), and **all 10,421 non-zero
+cells in `ITEM_DROP.STB` decode bit-for-bit as before**; there were no wide cells and
+the 1,039 sentinels are all legitimate 1–4 redirect groups.
+
+The trap worth remembering: `CLIB_GameSRV::CheckSTB_DropITEM` runs at server start-up
+and **zeroes** any cell whose type it cannot make sense of. A decoder ignorant of the
+wide form would not merely skip a wide cell — it would delete it at load, so the table
+would look fine on disk and be empty in memory. That is why the sanitiser is one of
+the three sites, alongside `CCal::Get_DropITEM` and the Monster Inspector's list.
+
+Ceiling is now the wire format, not the packing: `tagBaseITEM` is 5 bits of type and
+**11** of item number, so ids up to 2047 drop.
 
 The imported Jrose weapon sets **cannot be loot** without changing the cell encoding.
 Options, in increasing order of cost: sell them from a Karkia NPC in stage 6 (free,
@@ -93,8 +112,8 @@ shop is the recommendation** — it also gives Karkia's NPCs a reason to exist.
 **Resolved by stage 6d, and better than expected.** `Rose::Store::encode_store_item`
 already has a **wide form** — `type * 100000 + no` for ids above 999 — supported by
 the client, the server *and* the shop editor. So the shop route needed no encoding
-work at all. Drops still cannot use it: `Get_DropITEM`'s cell is `type * 1000 +
-number` with no wide equivalent, so the 999 wall is a **drop-side** limit only.
+work at all. Drops have since been given the same form (§3), so the wall is gone on
+both sides.
 
 `scripts/add-karkia-shops.py` sells two of the tiers and **reserves three for
 drops**, chosen so Karkia never duplicates Oro (whose merchant Huzam sells 210 and
@@ -113,10 +132,9 @@ low oddments (1447–1453, levels 150–205) sit far below Karkia's 215–240 ba
 
 The lv240 set — Bahamut, Phoenix, Griffon, Unicorn, Albion, Quetzalcoatl, Aerie,
 Catoblepas, Oberon, Mermaid, Spriggan, Giranda, Hellhound — is the crown tier and
-belongs on the bosses (§4d). **But it cannot drop while it is numbered above 999.**
-That is the one thing here still blocked on the encoding, and it is worth solving:
-these are the most desirable items Karkia has. `add-karkia-shops.py --verify` proves
-none of the 34 reserved weapons has leaked into any shop tab.
+belongs on the bosses (§4d), and **as of 2026-09-08 it can drop** — that was the last
+thing blocked on the encoding. `add-karkia-shops.py --verify` proves none of the 34
+reserved weapons has leaked into any shop tab.
 
 ---
 

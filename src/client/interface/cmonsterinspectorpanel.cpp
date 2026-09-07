@@ -10,6 +10,7 @@
 #include "../GameCommon/StringManager.h"
 
 #include "rose/io/stb.h"
+#include "rose/common/drop_item_code.h"
 
 #include "CTDrawImpl.h"
 #include "IO_ImageRes.h"
@@ -176,8 +177,9 @@ CMonsterInspectorPanel::AppendDropTable(int iDropTBL, std::vector<DropEntry>& ou
 
         int iExpanded[6];
         int iCount = 0;
-        if (iValue >= 1 && iValue <= 4) {
-            for (int iG = 26 + iValue * 5; iG < 26 + iValue * 5 + 5; iG++) {
+        if (Rose::Drop::is_redirect_group(iValue)) {
+            const int iBase = Rose::Drop::redirect_column(iValue);
+            for (int iG = iBase; iG < iBase + Rose::Drop::kRedirectGroupWidth; iG++) {
                 if (1 + iG >= g_TblDropITEM.col_count)
                     break;
                 iExpanded[iCount++] = DROPITEM_ITEMNO(iDropTBL, iG);
@@ -187,12 +189,15 @@ CMonsterInspectorPanel::AppendDropTable(int iDropTBL, std::vector<DropEntry>& ou
         }
 
         for (int iE = 0; iE < iCount; iE++) {
-            int v = iExpanded[iE];
-            if (v <= 1000)
+            // Legacy or wide packing; must match CCal::Get_DropITEM exactly or
+            // the panel lists items the mob cannot drop. See
+            // rose/common/drop_item_code.h.
+            int iType = 0, iNo = 0;
+            if (!Rose::Drop::decode_drop_item(iExpanded[iE], iType, iNo))
                 continue;
 
-            short nType = (short)(v / 1000);
-            short nItemNo = (short)(v % 1000);
+            short nType = (short)iType;
+            short nItemNo = (short)iNo;
             if (nType < 1 || nType > ITEM_TYPE_RIDE_PART)
                 continue;
             if (g_pTblSTBs[nType] == NULL || nItemNo <= 0
