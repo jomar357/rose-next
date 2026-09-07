@@ -99,14 +99,26 @@ BOSS_MULTIPLIER = 1.2
 # reads to recognise a boss -- run in that order and the bosses silently get the
 # ordinary 1.0x budget instead of BOSS_MULTIPLIER. Its sidecar lists exactly which
 # rows are bosses, so consult it when present and fall back to the column when not.
-BOSS_SIDECAR = os.path.join(ROOT, "data", "3DDATA", "STB", "LIST_NPC.oro-bosses.json")
+#
+# A list, not one path: rebalance-karkia.py has the same problem and writes its own.
+# Karkia's *trash* sits well above the 1000 threshold (its Neg Golem is at 6,500),
+# so the column alone would promote ordinary monsters to boss DEF, while its real
+# bosses drop below the threshold once their HP is budgeted -- the heuristic fails
+# in both directions there, and only the explicit lists are trustworthy.
+BOSS_SIDECARS = [
+    os.path.join(ROOT, "data", "3DDATA", "STB", "LIST_NPC.oro-bosses.json"),
+    os.path.join(ROOT, "data", "3DDATA", "STB", "LIST_NPC.karkia-bosses.json"),
+]
 
 
 def boss_rows():
-    if not os.path.exists(BOSS_SIDECAR):
-        return set()
-    with open(BOSS_SIDECAR, encoding="utf-8") as fh:
-        return {int(k) for k in json.load(fh)}
+    out = set()
+    for path in BOSS_SIDECARS:
+        if not os.path.exists(path):
+            continue
+        with open(path, encoding="utf-8") as fh:
+            out |= {int(k) for k in json.load(fh)}
+    return out
 
 # Which stat to correct. Both break at the same level and for the same reason,
 # but they are separate knobs because they reach different players: DEF is the
