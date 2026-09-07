@@ -251,6 +251,53 @@ EFFECT_DIR = r"3DDATA\EFFECT"      # FILE_EFFECT names its .eft files bare
 # when the monster has no right-hand weapon*. A monster that equips a blank weapon
 # row therefore gets neither the weapon's presentation nor the NPC fallback --
 # damage numbers appear, and nothing else does.
+# ---------------------------------------------------------------- stage 6: NPCs
+# 32 conversation NPCs across five zones. Jrose places them in the .IFO LUMP_MOB
+# (a fixed placement carrying an AI row and a .CON name), not the REGEN lump.
+#
+# Nine sit at low ids that our table already reaches. Only 1074 is a live NPC of
+# ours ([Wounded Traveler] Seth) -- the other eight are rows with no name, which
+# the server skips at spawn (`if (!NPC_NAME(iObjID)) continue`). All nine are
+# remapped anyway, into the band just past Karkia's own, so this stage writes no
+# row that existed before it. The placements are remapped with them.
+NPC_ID_REMAP = {1047: 4138, 1048: 4139, 1074: 4140, 1076: 4141, 1077: 4142,
+                1078: 4143, 1079: 4144, 1080: 4145, 1190: 4146}
+
+# our id -> English name. Authored from the bracketed Japanese role titles, which
+# are legible even when the names are not: [神父] is a priest, [教会の衛士] a church
+# guard, [スピール戦士] a Spire warrior. Four of the Church names come from Jrose's
+# own LIST_EVENT rows rather than LIST_NPC, which give a proper name where the NPC
+# table only has a placeholder ("Kシャーマン" is [巫女] ネモ, the shrine maiden).
+# ASCII only: Stb.set encodes latin-1.
+KARKIA_NPCS = {
+    # The Abandoned Church (86)
+    4138: "[Priest] Fritz",              4139: "[Archaeologist] Garnia",
+    4140: "[Church Guard] Fumo",         4141: "[Church Guard] Ragi",
+    4142: "[Shrine Maiden] Nemo",        4143: "[Plague Doctor] Jenner",
+    4144: "[Priest] Brown",              4145: "[Church Guard] Kashi",
+    4146: "[Explorer] Petri",            4094: "[Mage of Dreams] Ragia",
+    # Spire Village (88)
+    4016: "[Spire Captain] Blago",       4017: "[Spire Warrior] Sulfa",
+    4018: "[Spire Warrior] Dinos",       4019: "[Spire Warrior] Gelt",
+    4085: "[Field Medic] Emil",
+    # Memories of Karkia (133) -- placed now, reachable when we write that quest
+    4088: "[Storagekeeper] Ash",         4089: "[General Store] Ginias",
+    4090: "[Naturalist] Pormello",       4091: "[Lovelorn] Miranda",
+    4092: "[At Prayer] Beluga",          4093: "[Gatewarden] Lowe",
+    4095: "[Mage of Mists] Magia",       4096: "[Mage of the Endless] Nagia",
+    4097: "[High Priest] Bordeaux",      4108: "[Starsteel Armourer] Astraea",
+    # Foot of the Tower (135)
+    4101: "[Gate Registrar] Lombert",    4102: "[Warrant Officer] Holk",
+    4103: "[Master Smith] Belfa",        4104: "[Parel Caravan] Orentark",
+    4105: "[Artificer] Physalis",
+    # Garden of Karkia (144)
+    4136: "[Planet Surveyor] Nitraria",  4137: "[Planet Surveyor] Steinia",
+}
+NPC_STRID_PREFIX = "LKNPC"         # our own STL keys; Jrose's are its own numbering
+EVENT_STB_REL = r"3DDATA\STB\LIST_EVENT.STB"
+EVENT_FILE_COL = 3                 # EVENT_FILENAME; 0 is the editor name
+EVENT_DIR = r"3DDATA\EVENT"
+
 PRESENTATION_COLS = {38: "LIST_EFFECT", 39: "LIST_EFFECT", 40: "FILE_SOUND",
                      41: "FILE_SOUND", 42: "LIST_HITSOUND"}
 # Repairs, applied only to weapon rows no pre-existing monster equips.
@@ -1738,6 +1785,186 @@ def stage3(ours, src, src_index, dry):
     print("    Jelly Bean; that is Jrose's authoring, not a broken import.")
 
 
+# ------------------------------------------------------- stage 6: the NPCs
+def mob_con_name(extra):
+    """The .CON a LUMP_MOB placement names: int AI, then a pascal string.
+
+    Read the way zonefile.cpp reads it. Note the reference is stored WITH the
+    extension for the EM86 family and WITHOUT it for the rest, while LIST_EVENT
+    always holds a full path -- so every comparison here is on the stem.
+    """
+    ln = extra[4]
+    return extra[5:5 + ln].split(b"\0")[0].decode("latin-1", "replace")
+
+
+def stem(p):
+    if isinstance(p, bytes):
+        p = p.decode("latin-1", "replace")
+    return os.path.splitext(os.path.basename(p.replace("\\", "/")))[0].upper()
+
+
+def stage6(ours, src, src_index, dry):
+    """NPC rows, models, dialog registrations and the placements themselves."""
+    print("\nstage 6 -- the NPCs")
+    S = lambda rel: oro.Stb(os.path.join(src, rel.replace("\\", "/")))
+    O = lambda rel: oro.Stb(os.path.join(ours, rel.replace("\\", "/")))
+    src_maps = os.path.join(src, MAPS_REL.replace("\\", "/"))
+    dst_maps = os.path.join(ours, MAPS_REL.replace("\\", "/"))
+
+    # --- 6a. collect the placements, remapping the nine colliding ids
+    placements, cons = {}, {}
+    for row, folder, label, _k in ZONES:
+        d = os.path.join(src_maps, folder)
+        if not os.path.isdir(d):
+            continue
+        for name in sorted(os.listdir(d)):
+            if not name.lower().endswith(".ifo"):
+                continue
+            buf, bounds = oro.read_ifo(os.path.join(d, name))
+            objs, trailing = oro.read_lump(buf, bounds, oro.LUMP_MOB)
+            if not objs:
+                continue
+            for o in objs:
+                o["obj_id"] = NPC_ID_REMAP.get(o["obj_id"], o["obj_id"])
+                fixed = bytearray(o["fixed"])       # parse_object_lump hands back bytes
+                struct.pack_into("<i", fixed, 8, o["obj_id"])
+                o["fixed"] = bytes(fixed)
+                cons[o["obj_id"]] = mob_con_name(o["extra"])
+            placements[(folder, name)] = (objs, trailing)
+    ids = sorted({o["obj_id"] for objs, _t in placements.values() for o in objs})
+    unknown = [i for i in ids if i not in KARKIA_NPCS]
+    if unknown:
+        raise SystemExit(f"placements name NPCs with no English name: {unknown}")
+    print(f"    {'placements':26s} {sum(len(o) for o, _t in placements.values())} "
+          f"across {len(placements)} .IFO files, {len(ids)} distinct NPCs")
+
+    # --- 6b. LIST_NPC rows. Copied from the source at the source id, written at
+    # ours, with an English name and a fresh STL key of our own numbering.
+    src_npc, our_npc = S(NPC_STB_REL), O(NPC_STB_REL)
+    back = {v: k for k, v in NPC_ID_REMAP.items()}
+    our_npc.grow_to(max(ids) + 1)
+    written, kept = [], []
+    for i in ids:
+        s = back.get(i, i)
+        if our_npc.occupied(i) and our_npc.get(i, 0).decode("latin-1") == KARKIA_NPCS[i]:
+            kept.append(i)
+            continue
+        if s >= src_npc.rows or not src_npc.occupied(s):
+            raise SystemExit(f"NPC {s} is not in the source LIST_NPC")
+        for c in range(min(our_npc.cols, src_npc.cols)):
+            our_npc.set(i, c, src_npc.get(s, c))
+        our_npc.set(i, 0, KARKIA_NPCS[i])
+        our_npc.set(i, oro.NPC_STRID_COL, f"{NPC_STRID_PREFIX}{i}")
+        written.append(i)
+    print(f"    {'LIST_NPC.STB':26s} {len(written)} rows written, "
+          f"{len(kept)} already ours")
+
+    our_stl = oro.Stl(os.path.join(ours, NPC_STL_REL.replace("\\", "/")))
+    nnames = 0
+    for i in ids:
+        key = our_npc.get(i, oro.NPC_STRID_COL).decode("latin-1").strip()
+        if key and not our_stl.has(key):
+            our_stl.append(key, i, KARKIA_NPCS[i])
+            nnames += 1
+    print(f"    {'LIST_NPC_S.STL':26s} +{nnames} keys (now {len(our_stl.keys)})")
+
+    # --- 6c. dialog. Every .CON exists and is registered in Jrose's LIST_EVENT,
+    # and none of the 32 offers a quest (checked with quest-editor con-triggers),
+    # so they come in verbatim: no dangling trigger can follow them. The text is
+    # Japanese until it is overridden through the QEX1 appendix -- a working
+    # bank/shop NPC that speaks the wrong language beats a mute one.
+    src_ev, our_ev = S(EVENT_STB_REL), O(EVENT_STB_REL)
+    have = {stem(our_ev.get(r, EVENT_FILE_COL)): r for r in range(our_ev.rows)
+            if our_ev.get(r, EVENT_FILE_COL).strip()}
+    src_by_stem = {stem(src_ev.get(r, EVENT_FILE_COL)): r for r in range(src_ev.rows)
+                   if src_ev.get(r, EVENT_FILE_COL).strip()}
+    free = (r for r in range(1, our_ev.rows)
+            if not our_ev.get(r, EVENT_FILE_COL).strip())
+    ev_rows, con_files, ev_written = {}, set(), []
+    for i in ids:
+        st = stem(cons.get(i, ""))
+        if not st:
+            continue
+        if st in have:
+            ev_rows[i] = have[st]
+            continue
+        s = src_by_stem.get(st)
+        if s is None:
+            raise SystemExit(f"NPC {i}: .CON {st} is in no LIST_EVENT row")
+        r = next(free)
+        for c in range(min(our_ev.cols, src_ev.cols)):
+            our_ev.set(r, c, src_ev.get(s, c))
+        our_ev.set(r, 0, KARKIA_NPCS[i])          # editor label, ours is readable
+        have[st] = ev_rows[i] = r
+        ev_written.append(r)
+        con_files.add(src_ev.get(s, EVENT_FILE_COL).decode("latin-1").strip())
+    print(f"    {'LIST_EVENT.STB':26s} +{len(ev_written)} rows "
+          f"{ev_written[:6]}{'...' if len(ev_written) > 6 else ''}")
+    copy_new(con_files, src_index, ours, dry, ".CON dialogs")
+
+    our_npc.save(dry)
+    our_ev.save(dry)
+    if nnames:
+        our_stl.save(dry)
+
+    # --- 6d. models, skeletons and motions, with the full index remap. The rows
+    # were written under OUR ids, so import_characters is asked for those and the
+    # source entry is fetched from the pre-remap id.
+    oro.import_characters([back.get(i, i) for i in ids], ours, src, dry, "NPC")
+
+    # A CHR entry is addressed by NPC id and import_characters copies index to
+    # index, so the nine remapped NPCs land at their *Jrose* ids and have to be
+    # moved to ours. All nine of those slots were empty on our side beforehand --
+    # our own 1074 [Wounded Traveler] Seth has a LIST_NPC row but no CHR entry --
+    # so the move carries nothing off with it and the vacated slot goes back to
+    # None. Idempotent: a slot already moved is None and is skipped.
+    moved = []
+    if not dry:
+        our_chr = oro.Chr(os.path.join(ours, NPC_CHR_REL.replace("\\", "/")))
+        if max(ids) >= len(our_chr.chars):
+            our_chr.chars.extend([None] * (max(ids) + 1 - len(our_chr.chars)))
+        for s, d in sorted(NPC_ID_REMAP.items()):
+            if our_chr.chars[d] is not None:
+                continue                                  # already done
+            if our_chr.chars[s] is None:
+                raise SystemExit(f"CHR entry {s} missing -- cannot place NPC {d}")
+            our_chr.chars[d], our_chr.chars[s] = our_chr.chars[s], None
+            moved.append(f"{s}->{d}")
+        if moved:
+            our_chr.save(dry)
+    print(f"    {'CHR entries remapped':26s} {len(moved)} "
+          f"{moved if moved else '(none needed)' if not dry else '(dry run)'}")
+
+    # --- 6e. the placements themselves, last, so a half-written run leaves no NPC
+    # pointing at a row or a model that is not there yet.
+    files, n = 0, 0
+    for (folder, name), (objs, trailing) in sorted(placements.items()):
+        dp = os.path.join(dst_maps, folder, name)
+        if not os.path.isfile(dp):
+            raise SystemExit(f"{dp}: run --stage 1 first")
+        dbuf, dbounds = oro.read_ifo(dp)
+        doff, dend = oro.lump_block(dbounds, oro.LUMP_MOB)
+        if doff is None:
+            raise SystemExit(f"{dp}: no MOB lump to fill")
+        blob = oro.build_object_lump(objs, trailing)
+        if dbuf[doff:dend] == blob:
+            continue
+        out = oro.build_ifo(dbounds, dbuf, {oro.LUMP_MOB: blob})
+        files += 1
+        n += len(objs)
+        if not dry:
+            with open(dp, "wb") as fh:
+                fh.write(out)
+            vbuf, vbounds = oro.read_ifo(dp)
+            voff, vend = oro.lump_block(vbounds, oro.LUMP_MOB)
+            if vbuf[voff:vend] != blob:
+                raise SystemExit(f"VERIFY FAILED: {dp} MOB lump mismatch")
+    print(f"    {'IFO mob lumps':26s} {n} NPCs into {files} files")
+    print("\n    They speak Japanese until stage 6c overrides the text through the")
+    print("    QEX1 appendix, and the Church still has no way back out -- that is")
+    print("    one travel option on one of these, now that they exist.")
+
+
 def verify(ours):
     """Re-derive the result from what is on disk, after the fact."""
     print("verify -- reading back what is in data/")
@@ -1779,7 +2006,9 @@ def verify(ours):
                 if off is None:
                     continue
                 counts[LUMP_STAGE[lt]] += struct.unpack_from("<i", b2, off)[0]
-        early = [k for k in ("npcs", "events") if counts[k]]
+        # "npcs" left this list when stage 6 started filling LUMP_MOB. Only
+        # LUMP_EVENT_OBJECT still has no stage that refills it.
+        early = [k for k in ("events",) if counts[k]]
         flag = ""
         if eo is None or early:
             flag = f"   <-- CHECK {early}" if early else "   <-- CHECK"
@@ -1911,7 +2140,7 @@ def verify(ours):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--stage", type=int, choices=(1, 2, 3), action="append",
+    ap.add_argument("--stage", type=int, choices=(1, 2, 3, 6), action="append",
                     help="stage to run (repeatable); omit to run them all")
     ap.add_argument("--dry-run", action="store_true", help="preview without writing")
     ap.add_argument("--selftest", action="store_true",
@@ -1944,8 +2173,8 @@ def main():
         return 0
 
     print()
-    for s in sorted(set(args.stage or (1, 2, 3))):
-        {1: stage1, 2: stage2, 3: stage3}[s](ours, src, src_index, args.dry_run)
+    for s in sorted(set(args.stage or (1, 2, 3, 6))):
+        {1: stage1, 2: stage2, 3: stage3, 6: stage6}[s](ours, src, src_index, args.dry_run)
         print()
 
     if args.dry_run:
