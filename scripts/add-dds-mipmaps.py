@@ -54,6 +54,17 @@ RUNS ON RECORD (data/ is gitignored, so this list is the only committed history)
   they are 32-512 px and cost ~1.0 s in total.
   Undo exactly this run with
   `--subdir 3DDATA/MAPS/KARKIA --restore-excluded`.
+- 2026-09-08, full pass: **31 files**, all that remained in data/ without a chain.
+  29 are NPC textures that arrived *after* the original pass (the Karkia and Oro
+  imports: karkia, dark_drake, stony, orobaba, oro_seto, ronwea_black, dark_ent,
+  LICH01/02, MUMMY_FEMALE02, zorg_egg, KUPER) plus one avatar cap and one
+  particle texture. Every entry in a fresh in-game log with `src_mips=1` is in
+  this set. **What is left in that log is not fixable this way**: the 2048 px
+  Karkia lightmaps already carry `src_mips=3 req_mips=3` and are simply large,
+  and `LUNAR/Sky02/DAY01.DDS` + `NIGHT01.DDS` are 1024x1024 **uncompressed** with a full
+  11-level chain -- 5.5 MB each, so their cost is raw size, not mip generation.
+  Compressing a smooth sky gradient to DXT is exactly where banding shows, and
+  they load once per zone, so they were left alone deliberately.
 
 Uses thirdparty/directxtex-2020.9.30/texconv.exe, which was already vendored in
 this repo and used by nothing at all.

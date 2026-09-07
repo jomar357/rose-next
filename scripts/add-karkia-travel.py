@@ -22,6 +22,7 @@ in the Portal Room rather than the Wasteland.
 And the way back, added once stage 6a placed the Church's NPCs:
 
     [Explorer] Petri, the Abandoned Church (npc 4146)  --> zone 2, Junon Polis
+    [Church Guard] Kashi, the Abandoned Church (4145)  --> zone 87, the Cemetery
 
 Jrose gave the Church a gate in and none back, so this is the only exit that is
 not a Return scroll. Petri is the Church's own traveller, which is the same
@@ -58,8 +59,11 @@ QSD = os.path.join(DATA, "3DDATA", "QUESTDATA", "QP401.QSD")
 
 ZONE_CHURCH = 86
 ZONE_HOME = 2                       # City of Junon Polis, LIST_ZONE row 2
+ZONE_CEMETERY = 87                  # The Desolate Cemetery, Karkia's field
 CHURCH_ZON = os.path.join(DATA, "3DDATA", "MAPS", "KARKIA", "KCHURCH", "KCHURCH.ZON")
 HOME_ZON = os.path.join(DATA, "3DDATA", "MAPS", "JUNON", "JPT01", "JPT01.ZON")
+CEMETERY_ZON = os.path.join(DATA, "3DDATA", "MAPS", "KARKIA", "KCEMETERY",
+                            "KCEMETERY.ZON")
 
 # (pattern, trigger, destination zone, the .ZON to read the landing spot from).
 # Two patterns rather than two triggers in one, so each leg can be added on its
@@ -67,6 +71,12 @@ HOME_ZON = os.path.join(DATA, "3DDATA", "MAPS", "JUNON", "JPT01", "JPT01.ZON")
 LEGS = [
     ("KarkiaTravel", "Karkia-TravelToChurch", ZONE_CHURCH, CHURCH_ZON),
     ("KarkiaReturn", "Karkia-TravelHome", ZONE_HOME, HOME_ZON),
+    # The way *into* Karkia proper. The Church has **no warp trigger at all** --
+    # gate 191 runs Cemetery -> Church and there is nothing going back -- so
+    # until this leg existed a player who took the trip landed in the Church and
+    # could only leave by Petri's teleport home. The whole planet was
+    # unreachable on foot from its own arrival point.
+    ("KarkiaOutward", "Karkia-TravelToCemetery", ZONE_CEMETERY, CEMETERY_ZON),
 ]
 TRIGGER = LEGS[0][1]                # kept for the message at the end
 
@@ -79,6 +89,10 @@ HOSTS = [
     # resolves (EM86-009.con, LIST_EVENT 90), which nine of the ten Church NPCs do
     # and one does not.
     (4146, "[Explorer] Petri",            "The Abandoned Church (86)",  LEGS[1][1]),
+    # The way out into the field. [Church Guard] Kashi is the right casting: his
+    # greeting already reads "It's dangerous out there. Still going?", which is
+    # a gate guard's line and needs no new writing.
+    (4145, "[Church Guard] Kashi",        "The Abandoned Church (86)",  LEGS[2][1]),
 ]
 
 REWD_007 = 0x01000000 | 7

@@ -163,16 +163,53 @@ existing travel NPCs through the QEX1 appendix:
 The Church rather than the Cemetery because it is Karkia's town: no monsters, and ten NPCs
 once stage 6 places them. The Cemetery is a 7×7 field of level-211+ monsters.
 
-**Known gap: the Church has no way out.** Jrose gave it a gate in (191, from the Cemetery)
-and none back, and its NPCs are not placed until stage 6 — so a player who takes the trip is
-standing in an empty 2×2 map and leaves by Return scroll. Closing it needs either a second
-warp option ("Karkia: the Cemetery") on the same two NPCs, which is ten minutes, or the
-Church's own NPCs at stage 6. Deliberately left open rather than decided here.
+**Known gap: the Church has no way out.** *(CLOSED 2026-09-08 — see stage 2c.)* Jrose gave
+it a gate in (191, from the Cemetery) and none back, and its NPCs are not placed until
+stage 6.
 
 **Acceptance:** walk every gate in both directions, then teleport to all nine zones and back
 out to Junon. No `IS_HACKING` disconnects — that is what a destination event position
 resolving to NULL looks like, and it is why the Oro importer verifies every destination
 byte-for-byte before writing.
+
+#### Stage 2c — the way *into* Karkia  *(DONE, 2026-09-08)*
+
+**This was a live bug, not a nicety, and it made the whole planet unreachable.** The
+Abandoned Church has **zero warp triggers**:
+
+| zone | warp triggers placed |
+|---|---|
+| **86 Abandoned Church** | **0** |
+| 87 Desolate Cemetery | 3 (→88, →131, →86) |
+| 88 Spire Village | 3 |
+| 136 Tower of Despair | 0 (empty arena, by design) |
+
+Gate 191 runs Cemetery → Church one-way. So a player took Jones' trip, landed in the
+Church, and could reach **nothing** — not the Cemetery, not Spire Village, not any of the
+content in stages 3–6. The only exit was Petri's teleport home. Everything built since
+stage 3 was reachable only by GM teleport, which is exactly why it went unnoticed.
+
+Fixed as a third leg in `add-karkia-travel.py` (`Karkia-TravelToCemetery`, landing on
+zone 87's own `start` event at 5620,4725) plus a `con-warp` option on **[Church Guard]
+Kashi (4145)**.
+
+Kashi is the right host by more than casting: decoding his `.CON` shows Jrose *already*
+built him as the Cemetery gate guard — he carries `TA_Goto_Cemetery`, `AT_Goto_Cemetery`
+and a `Kakia-gotocemetery` trigger, all gated behind a `chk-churchout-qsw` quest switch
+we never imported. His greeting is already "It's dangerous out there. Still going?". We
+are re-opening a door the original design put there, not inventing one.
+
+Note his root also carries `TA_CanNotExit_Church` — a **default-state** gate of exactly
+the shape that broke Holk and Brown ([[stage 6e]]). It is harmless only because the
+trigger it checks does not exist, and a *missing* trigger returns `QST_RESULT_INVALID`
+(0). A trigger that exists and *fails* returns 2, which is truthy. Do not import
+`chk-churchout-qsw` without re-checking this NPC.
+
+Simulated result:
+
+> "It's dangerous out there. Still going?"
+> 1. I'll come back later.
+> 2. **Let me out to the Cemetery.** → "Out there? It's crawling with the dead, and they don't stay down. You're sure?" → [I'm sure. Open the gate.] / [On second thought, no.]
 
 ### Stage 3 — monsters, un-tuned  *(DONE, 2026-09-07)*
 
