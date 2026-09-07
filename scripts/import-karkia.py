@@ -341,6 +341,27 @@ CHR_MOTION_FILL = {
 }
 MOB_ANI_MAX = 11                   # MAX_MOB_ANI; the client indexes with no bound check
 
+# Fraction of a zone's regen points to KEEP. 1.0 (or absent) ships Jrose's layout.
+#
+# Karkia is authored as a carpet where our zones are clumps: one monster per regen
+# point, points ~5 m apart, against our 5-10 per point 20-45 m apart. Spire Village
+# packs 1111 monsters into 18 chunks, and measured at the radius the client
+# actually holds (~200 m, calibrated against an in-game HUD reading of Mob:659 at
+# Pos[515829, 506346]) that is 485 monsters and 964 mesh draws around a typical
+# standing spot -- 2.6x the bodies and 4x the mesh draws of Junon JG07, our densest
+# field zone. It measured 35 fps on a 5060, with render 11.5 ms + scnupd 7.0 +
+# shadow 4.1 of a 26.8 ms frame, all three of which scale with object count.
+#
+# 0.25 puts it just under JG07 on both bodies (122 vs 186) and mesh draws (230 vs
+# 239). 0.35 would match JG07 on bodies but still run 57% over on draws, because
+# Karkia's roster is multi-part humanoids where Junon's low-level field is jelly
+# beans -- same headcount, roughly double the per-frame work. Tune here and re-run
+# --stage 3; nothing else needs to change.
+#
+# The Cemetery is deliberately absent: at 98 typical / 221 draws it already sits
+# inside what our own zones run, and it reads as a field rather than a brawl.
+SPAWN_THINNING = {"KSPIREVIL": 0.25}
+
 # Where a synthetic LUMP_ECONOMY comes from. Any of our zones would do -- 50 of our
 # 55 carry the identical 74-byte block -- but a populated Junon field zone gives
 # sane non-zero town figures rather than the all-zero ones some Oro zones carry.
@@ -918,6 +939,72 @@ def aip_repoint(path, remap, dry):
     return changed
 
 
+REGEN_POS_OFF = 2 + 2 + 4 + 4 + 4 + 4 + 16   # into the 60-byte fixed object header
+
+
+def thin_regen(per_file, keep):
+    """Drop regen points until `keep` of them remain, most crowded first.
+
+    Takes {(folder, name): [objects]} for one whole zone and returns the same
+    shape with points removed. Zone-wide rather than per-file on purpose: the
+    positions share one coordinate space (the server adds a single constant bias
+    at load), so a chunk-local decision would thin each chunk's interior while
+    leaving the seams between chunks as dense as ever.
+
+    Greedy by nearest-neighbour distance: repeatedly remove whichever surviving
+    point sits closest to another survivor. That opens walkable corridors and
+    preserves the outline of the layout, where taking every Nth point would thin
+    uniformly and keep the "no gaps anywhere" property that is the actual problem.
+    Deterministic -- ties break on file order -- so a re-run reproduces it exactly.
+    """
+    pts = []
+    for key, objs in sorted(per_file.items()):
+        for i, o in enumerate(objs):
+            x, y, _z = struct.unpack_from("<fff", o["fixed"], REGEN_POS_OFF)
+            pts.append([key, i, x, y, True])
+
+    target = max(1, int(round(len(pts) * keep)))
+    alive = len(pts)
+    if alive <= target:
+        return per_file, 0
+
+    def nearest(idx):
+        x, y = pts[idx][2], pts[idx][3]
+        best = None
+        for j, q in enumerate(pts):
+            if j == idx or not q[4]:
+                continue
+            d = (q[2] - x) ** 2 + (q[3] - y) ** 2
+            if best is None or d < best:
+                best = d
+        return best if best is not None else float("inf")
+
+    # Recomputing every distance after each removal is O(n^3) and Spire Village has
+    # 1111 points, so keep a cached nearest-distance per point and refresh lazily:
+    # a removal can only ever *increase* a survivor's nearest distance, so a cached
+    # value is a lower bound and is safe to re-check on pop.
+    import heapq
+    heap = [(nearest(i), i) for i in range(len(pts)) if pts[i][4]]
+    heapq.heapify(heap)
+    while alive > target and heap:
+        d, i = heapq.heappop(heap)
+        if not pts[i][4]:
+            continue
+        cur = nearest(i)
+        if cur > d:                      # stale lower bound -- re-insert and retry
+            heapq.heappush(heap, (cur, i))
+            continue
+        pts[i][4] = False
+        alive -= 1
+
+    out, removed = {}, 0
+    for key, objs in per_file.items():
+        drop = {p[1] for p in pts if p[0] == key and not p[4]}
+        out[key] = [o for i, o in enumerate(objs) if i not in drop]
+        removed += len(drop)
+    return out, removed
+
+
 def aip_skill_motions(ours, npc_stb, ai_stb, ids):
     """{npc: {(skill, nMotion)}} for every AIACT_24 the given monsters can run."""
     out = {}
@@ -1471,6 +1558,31 @@ def stage3(ours, src, src_index, dry):
         if still:
             raise SystemExit(f"VERIFY FAILED: {len(still)} skill actions still have "
                              f"no animation: {still}")
+
+    # --- 3k. spawn thinning. Applied here, at the point the lump is written,
+    # rather than as a separate script: this stage rebuilds every REGEN lump from
+    # Jrose's source on each run, so an after-the-fact edit would be silently
+    # undone by the next --stage 3. Doing it here makes it idempotent and makes
+    # SPAWN_THINNING the single record of what the zone actually ships.
+    thinned = {}
+    for folder in {f for _r, f, _n, _k in ZONES}:
+        keep = SPAWN_THINNING.get(folder.upper(), 1.0)
+        files_here = {k: v for k, v in regen_src.items() if k[0] == folder}
+        if keep >= 1.0 or not files_here:
+            continue
+        per_file = {}
+        for key, blob in files_here.items():
+            objs, trailing = oro.parse_object_lump(blob, 0, len(blob),
+                                                   oro.LUMP_REGEN, exact=False)
+            per_file[key] = objs
+            thinned.setdefault("trailing", {})[key] = trailing
+        before = sum(len(v) for v in per_file.values())
+        kept, removed = thin_regen(per_file, keep)
+        for key, objs in kept.items():
+            regen_src[key] = oro.build_object_lump(
+                objs, thinned["trailing"].get(key, b""))
+        print(f"    {'spawn thinning':26s} {folder}: {before} -> {before - removed} "
+              f"points (keep {keep:.0%})")
 
     # --- 3g. the spawn lumps, last, so a half-written run leaves no live spawns
     # pointing at rows that do not exist yet.

@@ -392,17 +392,47 @@ Karkia is **a carpet**: one monster per point, points 5 m apart, 10th-percentile
 contact range of something. Only EZ01 is authored the same way here, and it is a
 low-level zone with harmless monsters.
 
-**Do not act on this before stage 4.** The stats are still Jrose's, so every one of
-those 1111 monsters currently takes ~4,200 swings and kills a player in three hits;
-*any* density is hell under that. Their density was authored for their power curve,
-not ours — the same mismatch the DEF numbers show. Re-test after the balance pass and
-only then decide.
+**Done, 2026-09-07: Spire Village thinned to 25%** (`SPAWN_THINNING` in
+`scripts/import-karkia.py`, applied when stage 3 writes the REGEN lump so a re-run
+cannot undo it). 1111 points -> 278.
 
-If it is still too much afterwards, the lever is thinning, not tuning: `limit` is
-already 1, so it cannot go lower, and the knob is deleting a fraction of the regen
-points. Dropping ~55% of Spire Village's would put it at a ~10 m gap (EZ01-like);
-dropping ~75% gives ~15 m, between EZ01 and JG07. Stage 3 already rewrites REGEN
-lumps, so it is the same machinery.
+The first version of this analysis used a 60 m radius and concluded Spire Village
+was only ~14% busier than Junon JG07. That was wrong, and an in-game screenshot
+disproved it: the HUD read **Mob:659** at Pos[515829, 506346] with a 26.8 ms frame
+(render 11.5, scnupd 7.0, shadow 4.1 -- all three scale with object count) on a
+5060. Matching that reading puts the client's real neighbourhood at **~200 m**, and
+at that radius the comparison inverts:
+
+| zone | typical bodies | worst | mesh draws |
+|---|---:|---:|---:|
+| Spire Village *(before)* | 485 | 736 | 964 |
+| **Spire Village *(after)*** | **116** | **174** | **225** |
+| Junon JG07 (our densest) | 186 | 286 | 239 |
+| Oro Gates of Muris | 160 | 221 | 340 |
+| Karkia Cemetery | 98 | 229 | 221 |
+| Eldeon EZ01 | 523 | 830 | 1233 |
+
+Not 14% over JG07 — **2.6x the bodies and 4x the mesh draws**, because Karkia's
+roster is multi-part humanoids where Junon's low-level field is jelly beans: same
+headcount, roughly double the per-frame work. **Measure density at the radius the
+client actually loads, and weight it by mesh count.** A monster count alone, or a
+radius picked for convenience, gives the wrong answer confidently.
+
+Thinning is spatial, not every-Nth: it removes whichever surviving point is closest
+to another survivor, so it eats the tight clusters and leaves the layout's outline.
+That shows in the result — the median gap went 5.0 -> 15.8 m but the 10th
+percentile went 2.5 -> 12.7 m, a 5x improvement against the median's 3.2x. Uniform
+sampling would have kept the worst clumps intact, which is what made the zone a
+brawl rather than a field.
+
+The Cemetery is deliberately untouched: 98 typical / 221 draws already sits inside
+what our own zones run.
+
+**Eldeon EZ01 is worse than Spire Village ever was** (523 typical, 1233 draws) and
+is ours, not an import. Its monsters are low level and simple, so it may not bite
+the same way, but it is worth a look on its own.
+
+### The summon chain needs its own pass
 
 Karkia's monsters summon adds constantly, and two of those summons are boss-tier:
 
