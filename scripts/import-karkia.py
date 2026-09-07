@@ -310,6 +310,36 @@ SKILL_STB_REL = r"3DDATA\STB\LIST_SKILL.STB"
 SKILL_COPY_COLS = 86               # 0-85; 86 is our STL key, theirs is not
 AIACT_USE_SKILL = 25               # AIACT_24 as stored (file ids are 1-based)
 AIACT24_SKILL_OFF = 10             # dwSize(4) Type(4) btTarget(1) pad(1) nSkill
+AIACT24_MOTION_OFF = 12            # ...then nMotion
+
+# A monster's skill animation does NOT come from the skill table. CObjMOB stores
+# the .aip record's nMotion and hands out GetANI_Casting() == nMotion and
+# GetANI_Skill() == nMotion + 1 (cobjnpc.h), indexing MOB_ANI_* in datatype.h:
+#   0 STOP  1 MOVE  2 ATTACK  3 HIT  4 DIE  5 RUN
+#   6 CASTION01  7 SKILL_ACTION01  8 CASTION02  9 SKILL_ACTION02  10 ETC
+# So the only meaningful nMotion values are 6 and 8 -- they name a casting slot,
+# and the skill lands on that slot's action anim. Both halves must exist in
+# LIST_NPC.CHR or the presentation is silently skipped: CCharMODEL::GetMOTION
+# returns NULL for an unmapped type and Chg_CurMOTION(NULL) is a no-op, so the
+# monster keeps whatever clip it was already playing while the skill still fires
+# and still deals damage. That is the "took damage, saw no animation" report.
+#
+# Auditing every AIACT_24 across all 38 monsters found exactly one model at
+# fault, and it is a Jrose defect, not an import one -- their CHR carries the
+# same six anims. The sordmaster/warrior1 set has no casting or skill clip
+# anywhere in either dump, so the two slots are filled from the six that exist:
+# warring (2.17 s, the alert pose) telegraphs the cast, attack (1.97 s) releases
+# it. Note warring doubles as this model's idle, so a cast begun from a standing
+# idle will not visibly restart -- the skill frame always changes, which is the
+# half that was missing.
+CHR_MOTION_FILL = {
+    # npc -> {anim type: motion pool path}
+    2692: {6: r"3Ddata\MOTION\NPC\warrior1\warrior1_warring_01.ZMO",
+           7: r"3Ddata\MOTION\NPC\warrior1\warrior1_attack_01.ZMO"},
+    2703: {6: r"3Ddata\MOTION\NPC\warrior1\warrior1_warring_01.ZMO",
+           7: r"3Ddata\MOTION\NPC\warrior1\warrior1_attack_01.ZMO"},
+}
+MOB_ANI_MAX = 11                   # MAX_MOB_ANI; the client indexes with no bound check
 
 # Where a synthetic LUMP_ECONOMY comes from. Any of our zones would do -- 50 of our
 # 55 carry the identical 74-byte block -- but a populated Junon field zone gives
@@ -888,6 +918,75 @@ def aip_repoint(path, remap, dry):
     return changed
 
 
+def aip_skill_motions(ours, npc_stb, ai_stb, ids):
+    """{npc: {(skill, nMotion)}} for every AIACT_24 the given monsters can run."""
+    out = {}
+    for i in ids:
+        a = npc_stb.get(i, oro.NPC_AI_COL).strip()
+        if not a.isdigit() or not int(a):
+            continue
+        p = dest_of(ours, ai_stb.get(int(a), 0).decode("latin-1").strip())
+        if not os.path.isfile(p):
+            continue
+        blob = open(p, "rb").read()
+        for off in aip_walk_skill_actions(blob):
+            sk, = struct.unpack_from("<h", blob, off)
+            mo, = struct.unpack_from("<h", blob,
+                                     off - AIACT24_SKILL_OFF + AIACT24_MOTION_OFF)
+            out.setdefault(i, set()).add((sk, mo))
+    return out
+
+
+def chr_anim_audit(chr_, wanted):
+    """[(npc, skill, motion, missing_types)] for pairs the CHR cannot animate.
+
+    `wanted` is what aip_skill_motions returned. An anim type above MAX_MOB_ANI is
+    ignored: our own CHR carries 112 entries of 0xCDCD MSVC heap fill, which both
+    loaders read as a negative int16 and skip.
+    """
+    bad = []
+    for npc in sorted(wanted):
+        entry = chr_.chars[npc] if npc < len(chr_.chars) else None
+        have = {t for t, _ in entry["anims"] if t < MOB_ANI_MAX} if entry else set()
+        for skill, motion in sorted(wanted[npc]):
+            missing = [t for t in (motion, motion + 1) if t not in have]
+            if missing or motion not in (6, 8):
+                bad.append((npc, skill, motion, missing))
+    return bad
+
+
+def chr_fill_motions(chr_, dry):
+    """Give the monsters in CHR_MOTION_FILL the casting/skill anims they lack.
+
+    Matched against the motion pool by path rather than by index, so a re-import
+    that renumbers the pool cannot silently point a monster at another model's
+    clip. Idempotent: an anim type already present is never rewritten.
+    """
+    def norm(b):
+        return b.decode("latin-1").replace("/", "\\").lower()
+
+    pool = {norm(m): i for i, m in enumerate(chr_.motions)}
+    added = []
+    for npc, fills in sorted(CHR_MOTION_FILL.items()):
+        entry = chr_.chars[npc] if npc < len(chr_.chars) else None
+        if entry is None:
+            raise SystemExit(f"CHR_MOTION_FILL: npc {npc} has no CHR entry -- "
+                             f"run --stage 3 first")
+        have = {t for t, _ in entry["anims"]}
+        for typ, path in sorted(fills.items()):
+            if typ in have:
+                continue
+            idx = pool.get(path.replace("/", "\\").lower())
+            if idx is None:
+                raise SystemExit(f"CHR_MOTION_FILL: {path} is not in the motion "
+                                 f"pool -- it must already be interned by a model")
+            entry["anims"].append((typ, idx))
+            added.append(f"{npc} type {typ} -> {os.path.basename(path)}")
+    if added and not dry:
+        chr_.save(dry)
+    return added
+
+
 # ------------------------------------------------- stage 2a: the warp gates
 def collect_gates(src, src_maps):
     """{source warp id: (dest zone, dest event name, [(folder, ifo), ...])}.
@@ -1357,6 +1456,22 @@ def stage3(ours, src, src_index, dry):
     print(f"    {'.aip skill re-points':26s} {sum(patched.values())} records "
           f"{dict(patched) if patched else '(already done)'}")
 
+    # --- 3j. skill animations. Every AIACT_24 names a casting slot; both halves
+    # of the pair have to exist in the CHR or the cast presents nothing at all.
+    # Audited across all 38 monsters rather than fixed where a report landed --
+    # the Tornado report was one of four faults on the same model, and the other
+    # three (its Berserk, and both on the Alpha) would not have been noticed.
+    our_chr = oro.Chr(os.path.join(ours, NPC_CHR_REL.replace("\\", "/")))
+    added = chr_fill_motions(our_chr, dry)
+    print(f"    {'CHR skill animations':26s} {len(added)} filled "
+          f"{added if added else '(already done)'}")
+    if not dry:
+        after = oro.Chr(os.path.join(ours, NPC_CHR_REL.replace("\\", "/")))
+        still = chr_anim_audit(after, aip_skill_motions(ours, our_npc, our_ai, ids))
+        if still:
+            raise SystemExit(f"VERIFY FAILED: {len(still)} skill actions still have "
+                             f"no animation: {still}")
+
     # --- 3g. the spawn lumps, last, so a half-written run leaves no live spawns
     # pointing at rows that do not exist yet.
     files, points = 0, 0
@@ -1537,6 +1652,17 @@ def verify(ours):
         lv = sorted(npc.get(i, 7).decode("latin-1").strip() or "0" for i in ids)
         print(f"    monsters {len(ids)} rows, {len(nstl.keys)} STL keys total, "
               f"CHR {len(chr_.chars)} entries, levels {lv[0]}-{lv[-1]}, all .aip present")
+        # Every skill the AI can cast must resolve to a casting/skill anim pair,
+        # or it fires invisibly (see CHR_MOTION_FILL).
+        acts = aip_skill_motions(ours, npc, ai, ids)
+        silent = chr_anim_audit(chr_, acts)
+        if silent:
+            bad += 1
+            print(f"    !! {len(silent)} skill actions have no animation: "
+                  f"{[(n, s, m) for n, s, m, _ in silent[:6]]}")
+        else:
+            print(f"    skill animations {sum(len(v) for v in acts.values())} "
+                  f"AIACT_24 records across {len(acts)} monsters, all animate")
 
     sky = oro.Stb(os.path.join(ours, SKY_STB_REL.replace("\\", "/")))
     if sky.rows <= SKY_ROW or not sky.occupied(SKY_ROW):
