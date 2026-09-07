@@ -451,6 +451,36 @@ The only two click functions anywhere in the exposed subtrees are
 `AT_GotoJunon` (left gated, on a branch we do not expose) and `AT_Q547_02`
 (neutered). Nothing un-gates a quest grant or a turn-in.
 
+**Two survived that first pass, and the reason is worth keeping.** Holk and Brown
+were still mute. `Conversation` does **not** stop at the first root node that
+passes — it runs all of them, and each NPCSAY calls `Del_ClickITEMS()` +
+`CloseQueryDlg()` *before* the empty-string test. So the **last** match wins, and
+a later node that passes its check but has no LTB text silently closes the window
+an earlier one opened.
+
+Their final root node is gated on a **default-state** predicate — `TA_Normal`
+(Brown) and `TA_Yuusha_inventoryfull` (Holk) — true precisely *because* no quest
+is active, and both have empty text. Every other Karkia NPC's last gate is a
+positive quest check (`_Yet`, `_End`, `_Check`, `_Finish`), false for us, which is
+why 18 of 20 worked. Note the tempting predictor is wrong: "last root node has
+empty text" describes **17 of the 20**, including every working one.
+
+Also note `QST_RESULT_INVALID = 0` but `QST_RESULT_FAILED = 2` and `STOPPED = 3`.
+`Conversation` tests `iResult < 1`, so a *missing* trigger is correctly false but
+a trigger that exists and **fails** is truthy and shows its node.
+
+The fix for those two moves the good greeting to the **end** of the root offset
+table, so it wins whatever the gates do — no Lua evaluation required. Order comes
+purely from `pMenuColl->m_SubMenuMMT[j]`, so it permutes four-byte entries and
+moves no node body; still no size change. Verified against the pessimistic bound
+"assume every gate is true", under which both now speak. Trade-off, deliberate:
+if Karkia quests are ever imported, this default overrides their greetings and
+the two `PROMOTE` entries should be dropped.
+
+Addressing gotcha: `TARGETS` names nodes by **`str_id`, never item index** —
+promotion permutes the table, so an index would name a different node afterwards.
+That is how the first `--verify` broke.
+
 Knock-on: `translate-karkia-dialog.py` now reads conversation nodes from **our**
 `data/3DDATA/EVENT`, not the Jrose originals. It skips gated nodes, so a node
 this script exposes has to be collectable from the files we actually ship or its

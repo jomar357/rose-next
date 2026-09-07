@@ -58,6 +58,16 @@ Nothing here un-gates a turn-in line or a quest grant: the only two click
 functions anywhere in the exposed subtrees are AT_GotoJunon (left gated, on a
 branch we do not expose) and AT_Q547_02 (neutered).
 
+**Blanking a check is not always enough** -- see PROMOTE below. `Conversation`
+runs *every* root node that passes, and each NPCSAY calls CloseQueryDlg() before
+the empty-string test, so the LAST match wins and a later passing node with no
+text silently closes the window an earlier one opened. Holk (untouched by the
+unlock) and Brown were still mute after the first pass for exactly that reason:
+their final root node is gated on a **default-state** predicate that is true
+precisely because no quest is active. Those two get their greeting moved to the
+end of the root offset table instead, which needs no knowledge of Lua truth
+values.
+
 Run `translate-karkia-dialog.py` afterwards -- these nodes were skipped by its
 collector while they were gated, so their English has to be written in.
 
@@ -80,23 +90,63 @@ SIDECAR = os.path.join(ROOT, "build", "karkia-idle-dialog.json")
 
 CHECK_OFF, CLICK_OFF, FUNC_LEN = 12, 44, 32
 
-# (con, who, [(menu, item, field, expected current name)])
+# Root nodes whose greeting must win outright, as (con, who, menu, str_id).
+#
+# Blanking a check function is not enough on its own. `CEvent::Conversation`
+# does NOT stop at the first node that passes -- it runs every one of them, and
+# each SC_MSG_NPCSAY calls Del_ClickITEMS() + CloseQueryDlg() *before* the
+# empty-string test. So the **last** matching root node wins, and a later node
+# that passes its check but has no LTB text silently closes the window that an
+# earlier one opened.
+#
+# That is what kept Holk and Brown mute after the first pass. Their last root
+# node is gated on a **default-state** predicate -- `TA_Normal` (Brown) and
+# `TA_Yuusha_inventoryfull` (Holk) -- which is true precisely because no quest
+# is active, and both have empty text. Every other Karkia NPC's last gate is a
+# positive quest check (`_Yet`, `_End`, `_Check`, `_Finish`) that is false for
+# us, which is why 18 of 20 worked. Note "last node has empty text" is NOT the
+# predictor: 17 of the 20 look like that.
+#
+# Rather than depend on Lua truth values that cannot be evaluated from the data,
+# move the good greeting to the END of the root menu so it wins no matter which
+# gates pass. Order comes purely from the sub-menu offset table
+# (`pMenuColl->m_SubMenuMMT[j]`, cevent.cpp), so this permutes four-byte entries
+# and moves no node body -- still no size change.
+#
+# Trade-off, deliberate: if Karkia quests are ever imported, this default will
+# override their greetings and these two entries should be dropped.
+PROMOTE = [
+    ("EM02-112.CON", "[Warrant Officer] Holk", 0, 30749),
+    ("EM86-003.CON", "[Priest] Brown", 0, 21289),
+]
+
+# (con, who, [(menu, str_id, field, expected current name)])
 # field is "check" to expose a node, "click" to neuter a quest action.
+#
+# Nodes are addressed by **str_id, never by item index**: PROMOTE permutes the
+# offset table, so an index recorded here would name a different node after a
+# promotion -- which is exactly how the first attempt's --verify broke.
 TARGETS = [
     ("EM86-010.CON", "[Spire Captain] Blago",
-     [(0, 1, "check", "AT_Kakia_EpisodeQ527_Before_01")]),
+     [(0, 26040, "check", "AT_Kakia_EpisodeQ527_Before_01")]),
     ("EM02-108.CON", "[Field Medic] Emil",
-     [(0, 1, "check", "TA_MainQ_Q5504_01")]),
+     [(0, 29129, "check", "TA_MainQ_Q5504_01")]),
     ("EM03-007.CON", "[Mage of Dreams] Ragia",
-     [(0, 1, "check", "TA_Normal01")]),
+     [(0, 30011, "check", "TA_Normal01")]),
     ("EM86-002.CON", "[Plague Doctor] Jenner",
-     [(0, 1, "check", "TA_SicknessUntoDeath_Start")]),
+     [(0, 21252, "check", "TA_SicknessUntoDeath_Start")]),
     ("EM86-003.CON", "[Priest] Brown",
-     [(0, 1, "check", "TA_KakiaVoyage_Talk")]),
+     [(0, 21289, "check", "TA_KakiaVoyage_Talk")]),
     ("EM02-115.CON", "[Artificer] Physalis",
-     [(0, 1, "check", "TA_Q547_01"),
-      (2, 0, "click", "AT_Q547_02")]),
+     [(0, 31024, "check", "TA_Q547_01"),
+      (2, 31025, "click", "AT_Q547_02")]),
 ]
+
+
+def all_cons():
+    """Every .CON this script touches, in order, without duplicates."""
+    return list(dict.fromkeys([c for c, _w, _e in TARGETS]
+                              + [c for c, _w, _m, _s in PROMOTE]))
 
 
 def _cstr(b, o, n):
@@ -146,17 +196,20 @@ def apply_to(blob, edits, who, con, report):
     """Blank the named fields. Returns the new bytes, or None if already done."""
     b = bytearray(blob)
     changed = 0
-    for menu, item, field, expect in edits:
+    for menu, str_id, field, expect in edits:
         off, length, key = menu_span(b, menu)
         coll = decode(b, off, length, key)
+        item, _num = find_item(coll, str_id)
+        if item is None:
+            raise SystemExit(f"{con} menu{menu}: no node with str_id {str_id}")
         o = item_off(coll, item)
         cur = read_func(coll, o, field)
         if cur == "":
-            report.append(f"   {con} menu{menu}[{item}] {field}: already blank")
+            report.append(f"   {con} menu{menu} str_id {str_id} {field}: already blank")
             continue
         if cur != expect:
             raise SystemExit(
-                f"{con} menu{menu}[{item}] {field}: expected {expect!r}, "
+                f"{con} menu{menu} str_id {str_id} {field}: expected {expect!r}, "
                 f"found {cur!r} -- refusing to edit an unrecognised node")
         base = CHECK_OFF if field == "check" else CLICK_OFF
         # XOR is its own inverse and the key depends only on num_sub/length,
@@ -165,17 +218,62 @@ def apply_to(blob, edits, who, con, report):
             b[off + o + base + k] = key
         changed += 1
         verb = "exposed" if field == "check" else "neutered"
-        report.append(f"   {con} menu{menu}[{item}] {verb} {cur}")
+        report.append(f"   {con} menu{menu} str_id {str_id}: {verb} {cur}")
     if len(b) != len(blob):
         raise SystemExit(f"{con}: size changed -- refusing to write")
     return bytes(b) if changed else None
 
 
+def find_item(coll, str_id):
+    """Index of the item in `coll` carrying `str_id`, or None."""
+    num_sub, = struct.unpack_from("<i", coll, 4)
+    for j in range(max(0, num_sub)):
+        o, = struct.unpack_from("<I", coll, 8 + j * 4)
+        if o + 80 > len(coll):
+            break
+        if struct.unpack_from("<i", coll, o + 76)[0] == str_id:
+            return j, num_sub
+    return None, num_sub
+
+
+def promote_last(blob, menu, str_id, con, report):
+    """Move the node carrying `str_id` to the end of the menu's offset table."""
+    b = bytearray(blob)
+    off, length, key = menu_span(b, menu)
+    coll = decode(b, off, length, key)
+    j, num_sub = find_item(coll, str_id)
+    if j is None:
+        raise SystemExit(f"{con} menu{menu}: no node with str_id {str_id}")
+    if j == num_sub - 1:
+        report.append(f"   {con} menu{menu}: str_id {str_id} already last")
+        return None
+    table = [struct.unpack_from("<I", coll, 8 + k * 4)[0] for k in range(num_sub)]
+    table.append(table.pop(j))
+    for k, v in enumerate(table):
+        struct.pack_into("<I", coll, 8 + k * 4, v)
+    for k in range(8, len(coll)):          # re-encode; key is content-independent
+        coll[k] ^= key
+    b[off:off + length] = coll
+    if len(b) != len(blob):
+        raise SystemExit(f"{con}: size changed -- refusing to write")
+    report.append(f"   {con} menu{menu}: str_id {str_id} moved {j} -> {num_sub - 1}"
+                  f" (of {num_sub}), now wins the root loop")
+    return bytes(b)
+
+
+def promote_applied(blob, menu, str_id):
+    off, length, key = menu_span(blob, menu)
+    coll = decode(blob, off, length, key)
+    j, num_sub = find_item(coll, str_id)
+    return j is not None and j == num_sub - 1
+
+
 def check_applied(blob, edits):
-    for menu, item, field, _expect in edits:
+    for menu, str_id, field, _expect in edits:
         off, length, key = menu_span(blob, menu)
         coll = decode(blob, off, length, key)
-        if read_func(coll, item_off(coll, item), field) != "":
+        item, _num = find_item(coll, str_id)
+        if item is None or read_func(coll, item_off(coll, item), field) != "":
             return False
     return True
 
@@ -191,7 +289,7 @@ def main():
         if not os.path.isdir(BACKUP):
             sys.exit("no backup -- nothing to restore")
         n = 0
-        for con, _who, _edits in TARGETS:
+        for con in all_cons():
             src = os.path.join(BACKUP, con)
             if not os.path.isfile(src):
                 continue
@@ -211,12 +309,18 @@ def main():
             with open(os.path.join(EVENT, con), "rb") as fh:
                 blob = fh.read()
             if not check_applied(blob, edits):
-                bad.append(f"{con} ({who})")
-        print(f"{len(TARGETS)} conversations; "
-              f"{len(bad)} not unlocked" + (f": {bad}" if bad else ""))
+                bad.append(f"{con} ({who}) not unlocked")
+        for con, who, menu, str_id in PROMOTE:
+            with open(os.path.join(EVENT, con), "rb") as fh:
+                blob = fh.read()
+            if not promote_applied(blob, menu, str_id):
+                bad.append(f"{con} ({who}) greeting not last")
+        print(f"{len(TARGETS)} unlocks + {len(PROMOTE)} promotions; "
+              f"{len(bad)} wrong" + (f": {bad}" if bad else ""))
         return 1 if bad else 0
 
     report, written = [], []
+    pending = {}
     for con, who, edits in TARGETS:
         path = os.path.join(EVENT, con)
         if not os.path.isfile(path):
@@ -226,10 +330,22 @@ def main():
         report.append(f"{who}  {con}")
         out = apply_to(blob, edits, who, con, report)
         if out is not None:
-            written.append((path, con, blob, out))
+            pending[con] = (path, blob, out)
+
+    for con, who, menu, str_id in PROMOTE:
+        path = os.path.join(EVENT, con)
+        orig, cur = (pending[con][1], pending[con][2]) if con in pending else (
+            open(path, "rb").read(),) * 2
+        if con not in pending:
+            report.append(f"{who}  {con}")
+        out = promote_last(cur, menu, str_id, con, report)
+        if out is not None:
+            pending[con] = (path, orig, out)
+
+    written = [(p, con, o, n) for con, (p, o, n) in pending.items()]
 
     print("\n".join(report))
-    print(f"\n{len(written)} of {len(TARGETS)} conversations need a change")
+    print(f"\n{len(written)} of {len(all_cons())} conversations need a change")
     if args.dry_run:
         print("dry run: nothing written")
         return 0
@@ -251,9 +367,12 @@ def main():
     for path, con, _blob, _out in written:
         with open(path, "rb") as fh:
             blob = fh.read()
-        edits = next(e for c, _w, e in TARGETS if c == con)
-        if not check_applied(blob, edits):
+        edits = next((e for c, _w, e in TARGETS if c == con), None)
+        if edits and not check_applied(blob, edits):
             sys.exit(f"verify failed for {con}")
+        for c, _w, menu, str_id in PROMOTE:
+            if c == con and not promote_applied(blob, menu, str_id):
+                sys.exit(f"promotion verify failed for {con}")
     print(f"wrote {len(written)} .CON files, backups in "
           f"{os.path.relpath(BACKUP, ROOT)}")
     return 0
