@@ -809,6 +809,37 @@ F_AICOND_29(stCondHead* pConDATA, t_AIPARAM* pAIParam) {
 }
 
 //-------------------------------------------------------------------------------------------------
+// 소환된 케릭이 몇초 이상 살아 있는가 ?
+bool
+F_AICOND_30(stCondHead* pConDATA, t_AIPARAM* pAIParam) {
+#ifndef __SERVER
+    return false;
+#else
+    AICOND30* pCond = (AICOND30*)pConDATA;
+
+    // Player summons are deliberately exempt. They run the same idle pattern as
+    // any other mob, so implementing this condition would otherwise start
+    // expiring BoneFire at 60-120 s and Elemental/Wolf at 300 s — a gameplay
+    // change nobody asked for, and one those skills no longer expect (we removed
+    // the summon HP-drain in status_effects.cpp). A player's summon is already
+    // bounded by the summon gauge; a monster's summon is bounded by nothing,
+    // which is the accumulation this condition exists to stop.
+    //
+    // CObjSUMMON overrides GetCallerObjIDX() to return the owning *user*, so its
+    // inherited Get_CALLER() resolves to an avatar, while a monster-summoned pet
+    // resolves to a mob or to NULL.
+    CAI_OBJ* pCaller = pAIParam->m_pSourCHAR->Get_CALLER();
+    if (pCaller && OBJ_AVATAR == pCaller->Get_ObjTYPE())
+        return false;
+
+    int iLiveSEC = pAIParam->m_pSourCHAR->Get_LiveSECONDS(::timeGetTime());
+    if (iLiveSEC < 0)
+        return false; // never stamped: age unknown, never "old enough"
+
+    return (iLiveSEC >= pCond->iSeconds);
+#endif
+}
+
 bool
 F_AICOND_NULL(stCondHead* pConDATA, t_AIPARAM* pAIParam) {
     return false;
@@ -855,7 +886,8 @@ tagConditionFUNC g_FuncCOND[] = {
 
     {F_AICOND_29},
 
-    {F_AICOND_NULL},
+    {F_AICOND_30}, // 0x00000001F -- was dead here until 2026-09-07
+
     {F_AICOND_NULL},
     {F_AICOND_NULL},
     {F_AICOND_NULL},

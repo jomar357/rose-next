@@ -409,6 +409,20 @@ struct AICOND29 {
     BYTE btTargetType; // 0 : 공격자, 1 : 공격타겟
 };
 
+// 소환된 케릭이 몇초 이상 살아 있는가 ?
+// Reconstructed from the data, not from an original header — we shipped no
+// AICOND30 and no F_AICOND_30, so every use of it was silently dead.
+// 33 of its 35 uses across our .aip files gate AIACT_23 (suicide) from the idle
+// pattern, and the value follows the rank ladder of three separate summon
+// families (manaflame/murthflame/sur_fire all run 60, 90, 120 by rank), which is
+// what identifies it as a lifetime in seconds. See doc/karkia-roadmap.md §7.
+struct AICOND30 {
+    DWORD dwSize;
+    AITYPE Type;
+
+    int iSeconds; // true once the object has existed at least this long
+};
+
 struct stCondHead {
     DWORD dwSize;
     AITYPE Type;

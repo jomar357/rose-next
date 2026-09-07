@@ -538,18 +538,47 @@ fixed in `a86dbbff`. Every boss animates.
 
 ### Two things worth knowing before tuning them
 
-**The despawn rule is dead, so summoned bosses are permanent.** All four carry the same
-idle event: *if `<condition 31>` and no player within 40 → kill itself*
-(`F_AIACT23` is `Add_DAMAGE(HP + 1)`). Our server has no `F_AICOND_30`; the id falls on
+**The despawn rule was dead, so summoned bosses were permanent — now fixed.** All four
+carry the same idle event: *if `<condition 31>` and no player within 40 → kill itself*
+(`F_AIACT23` is `Add_DAMAGE(HP + 1)`). We had no `F_AICOND_30`; the id fell on
 `F_AICOND_NULL`, which returns **false** on the server (the client's returns *true* —
-they disagree), so the event never runs and the boss never cleans itself up. The only
-other lifetime path does not apply either: `CObjCHAR::Create_PET` attaches
+they disagree), so the event never ran and the boss never cleaned itself up. The only
+other lifetime path did not apply either: `CObjCHAR::Create_PET` attaches
 `FLAG_ING_DEC_LIFE_TIME` **only if the summoner already had it**, which a field-spawned
-trash mob does not.
+trash mob does not — and our `status_effects.cpp` no longer drains on that flag anyway.
 
-This is **not** an import defect and not Karkia-specific — our own 466 `.aip` files use
-condition 31 twenty-nine times, so it has always been dead here. It only starts to
-matter now because Karkia summons far more than our existing content does.
+This was **not** an import defect and not Karkia-specific — our own 466 `.aip` files use
+condition 31 twenty-nine times, so it had always been dead here. Karkia is just the first
+content that summons enough for it to show.
+
+Condition 31 is now implemented as `F_AICOND_30`, "has been alive at least N seconds".
+Nothing documented it — the meaning was reconstructed from how the data uses it. 33 of
+its 35 uses gate suicide from the idle pattern, and the value follows the rank ladder of
+three independent summon families:
+
+| | rank 1 | rank 2 | rank 3 |
+|---|---:|---:|---:|
+| `manaflame` | 60 s | 90 s | 120 s |
+| `murthflame` | 60 s | 90 s | 120 s |
+| `sur_fire` (BoneFire) | 60 s | 90 s | 120 s |
+
+which is what identifies it as a lifetime in seconds rather than a distance or a count.
+Karkia's `-1200` is a disabled timer — always true — leaving the bosses' rule as pure
+"no player within 40 → despawn".
+
+Two things about the implementation:
+
+- **Player summons are deliberately exempt.** They run the same idle pattern, so a
+  faithful implementation would have started expiring BoneFire at 60–120 s and
+  Elemental/Wolf at 300 s — a change to existing gameplay nobody asked for, and one
+  those skills no longer expect since we removed the summon HP-drain. A player's summon
+  is bounded by the summon gauge; a monster's summon is bounded by nothing, which is the
+  accumulation this condition exists to stop. `CObjSUMMON` overrides `GetCallerObjIDX()`
+  to return the owning *user*, so its `Get_CALLER()` resolves to an avatar while a
+  monster-summoned pet resolves to a mob or to NULL — that is the discriminator.
+- **No field monster is affected.** Every one of the 40-odd rows carrying a suicide
+  timer is summon-only; none appears in any map REGEN lump. Checked before shipping,
+  because a field monster on a 60 s timer would vanish and respawn forever.
 
 **The summon chain is worse than §5 recorded.** §5 has trash summoning the Golem. It
 does not have what the Golem does on *its* death:

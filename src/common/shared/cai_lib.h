@@ -10,11 +10,35 @@ public:
 private:
     ULONG m_ulAICheckTIME[2];
 
+    /// When this object entered the world, for AICOND_30 ("alive at least N
+    /// seconds"), which is how spawned adds and summons are authored to expire.
+    /// Plain member with non-virtual accessors, deliberately: adding a virtual
+    /// here would change the vtable of every character object on both sides.
+    /// 0 means never stamped, which reads as "age unknown" rather than "age 0" —
+    /// an unstamped object must not look infinitely old and kill itself.
+    DWORD m_dwSpawnTIME;
+
 public:
-    CAI_OBJ() { ::ZeroMemory(m_ulAICheckTIME, sizeof(ULONG) * 2); }
+    CAI_OBJ() {
+        ::ZeroMemory(m_ulAICheckTIME, sizeof(ULONG) * 2);
+        m_dwSpawnTIME = 0;
+    }
 
     unsigned long Get_AICheckTIME(int iIDX) { return m_ulAICheckTIME[iIDX]; }
     void Set_AICheckTIME(int iIDX, unsigned long lCheckTIME) { m_ulAICheckTIME[iIDX] = lCheckTIME; }
+
+    /// Stamp at spawn, not at construction — these objects are pooled, so a
+    /// recycled slot would otherwise carry the previous occupant's age.
+    void Set_SpawnTIME(DWORD dwNow) { m_dwSpawnTIME = dwNow ? dwNow : 1; }
+    DWORD Get_SpawnTIME() { return m_dwSpawnTIME; }
+
+    /// Seconds since Set_SpawnTIME, or -1 if it was never stamped. Unsigned
+    /// subtraction, so the 49.7-day timeGetTime rollover is handled.
+    int Get_LiveSECONDS(DWORD dwNow) {
+        if (!m_dwSpawnTIME)
+            return -1;
+        return (int)((dwNow - m_dwSpawnTIME) / 1000);
+    }
 
     virtual float Get_CurXPOS() = 0 { *(int*)0 = 10; } ///< 현재 X축 위치
     virtual float Get_CurYPOS() = 0 { *(int*)0 = 10; } ///< 현재 Y축 위치

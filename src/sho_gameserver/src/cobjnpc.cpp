@@ -39,6 +39,11 @@ CObjMOB::Init(CZoneTHREAD* pZONE,
     m_PosCUR = m_PosBORN;
     m_nPosZ = 0;
 
+    // Age is measured from here rather than from the constructor: these objects
+    // are pooled, so a recycled slot would inherit its predecessor's spawn time
+    // and could expire the instant it appeared. See AICOND_30.
+    this->Set_SpawnTIME(::timeGetTime());
+
     m_fRunAniSPEED = 1.0f;
 
     m_nCritical = (short)(NPC_LEVEL(m_nCharIdx) * 0.6f);
