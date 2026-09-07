@@ -381,6 +381,11 @@ Trash summoning a boss is not something coordination can answer, so 2687 and 268
 hard. 2704 D=Seed is a stationary spawner (ATK 10 — it never attacks) at 215,000 authored
 HP; bring it to ~40,000 so clearing it is a real objective rather than an endurance test.
 
+**This table is incomplete — read §7 before tuning any of it.** Decoding the AI found a
+second link it does not show: the Corroded Golem has a 15% chance *each* of summoning both
+Hebarn Executives when it dies, so the chain runs trash → Golem → 6.5 M HP raid boss with
+no boss kill in it. And none of these summons can despawn on our server.
+
 EXP is 133x ours across the board; `scripts/rebalance-exp-rewards.py` owns that.
 
 ---
@@ -397,6 +402,18 @@ picture is far better than that:
 | **same skill, different numbers** | 5 — 2910, 2911, 2913, 2941, 2954 | right effect, our duration and magnitude (mostly *stronger*: 2941 is rate 15 / 35 s here against rate 7 / 15 s there). 2910/2911/2913 have no casting or action motion on our side, so the effect lands with no animation |
 | **blank on our side** | 4 — 716, 3613, 3616, 3627 | the monster spends an AI action doing nothing. `CObjAI::SetCMD_Skill2OBJ` does not validate the row, so an empty skill executes as an empty skill — no crash |
 | **genuinely different** | 2 — 846, 3685 | see below |
+
+**Settled as of stage 3b: all of them work.** Re-walked from `LIST_NPC` col 16 across
+all 38 monsters (the 23 above came from a hand-listed set of `.aip` filenames that
+covered only the spawned ones), the AI casts **36** distinct skills and **zero** of them
+are dead on our server. The four "blank" rows were filled by the port; the five the
+bosses cast that this table never saw — 2914, 3594, 3596, 3597, 3598 — turn out to be
+present and **cell-for-cell identical to Jrose** across all 50 mechanical columns.
+
+Careful with that check: those five have an **empty name in column 0** and a fully
+populated row behind it. Column 0 is an editor label the server never reads, so testing
+it reports a working skill as blank — which is exactly the false alarm this note exists
+to stop. Test `SKILL_TYPE` (col 5) and the mechanical columns, never the name.
 
 Those two are the only real losses, and neither is harmful:
 
@@ -470,7 +487,93 @@ a silence plus a stun is most of what makes the Evil Eye and Murillo interesting
 
 ---
 
-## 7. Still open
+## 7. The bosses, decoded
+
+Vouched for from the data rather than in game, since summon-only bosses are awkward to
+reach. Everything below was read out of the `.aip` bytes against
+`src/sho_gameserver/src/ai_lib/` — the **structs** in `cai_file.h`, not the comments
+above the functions, which name fields the code does not use (`AICOND27`'s comment says
+`cChrType`; the code reads `btIsAllied`, and the two `short`s after it are 2-byte
+aligned, so a naive offset reads the padding and prints nonsense level ranges).
+
+Dispatch is `g_FuncCOND[Type & 0xff]` / `g_FuncACTION[Type & 0xff]` on tables that start
+at index 1, so a file's `Type` *t* is `F_AICOND_(t-1)` / `F_AIACT(t-1)`.
+
+**Max HP is `level × col 8`** (`m_iOriMaxHP = NPC_LEVEL * NPC_HP`), which is why the
+table below reads 26,000 where §5 quotes 6,500,000.
+
+| | level | col 8 | effective HP | ATK | DEF | RES |
+|---|---:|---:|---:|---:|---:|---:|
+| 2699 Deadly Drake α | 250 | 6,759 | 1,689,750 | 4,526 | 1,281 | 3,120 |
+| 2685 Pazugenti | 250 | 26,000 | 6,500,000 | 4,323 | 1,250 | 2,600 |
+| 2686 Scylla Mira | 250 | 26,000 | 6,500,000 | 4,323 | 1,250 | 2,600 |
+| 2687 Corroded Golem | 245 | 11,400 | 2,793,000 | 3,380 | 600 | 1,500 |
+| 2688 Revived Veteran | 240 | 2,800 | 672,000 | 2,980 | 600 | 1,500 |
+
+### What they actually do
+
+A hit only runs the damaged pattern some of the time — 40% for the Drake α and the
+Golem, 30% for the rest — and *then* each event rolls its own chance, so the rates below
+compound. The officers hold an AI variable that acts as a cooldown counter: casting adds
+to it, an idle event decays it, and the cast is gated on it staying under a ceiling.
+
+- **2685 Pazugenti** — 40% Ferdinand Stun (AoE r4000, 200 power, 4 s) on the target,
+  above 5% HP; 30% self-buffs 3596 when the target has a buff up, 30% self-buffs 3597
+  when the target has no debuff. Flees home if dragged 80 from spawn. On death, at
+  night only, five Ghost Seeds.
+- **2686 Scylla Mira** — identical, with Duke Vlad Counter (AoE r5000, power 10) in
+  place of the stun.
+- **2687 Corroded Golem** — the busiest. Idle: 25% KS Defence Down (AoE r1800, 300, 60 s)
+  when two or more players are within 17. Damaged: 5% self-buff 2912, 20% self-buff 2914
+  after a hit ≥ 100 damage, 20% Defence Down, 10% KS Stun (AoE r1500, 250, 5 s), and
+  below 30% HP a 10% chance to summon a Revived Veteran. Below 40% HP it calls a nearby
+  idle ally onto its target 60% of the time.
+- **2688 Revived Veteran** — 50% KS Poison (single target, 350, 30 s) on a target with
+  no debuff, twice over; 30% self-buff 3598; the same two officer self-buffs.
+- **2699 Deadly Drake α** — no skills at all. It is a stat check and a summoner.
+
+Motion is clean: 76 of the 80 `AIACT_24` records already resolved to a complete
+casting/skill anim pair, and the four that did not were the Revived Quarantine Officer,
+fixed in `a86dbbff`. Every boss animates.
+
+### Two things worth knowing before tuning them
+
+**The despawn rule is dead, so summoned bosses are permanent.** All four carry the same
+idle event: *if `<condition 31>` and no player within 40 → kill itself*
+(`F_AIACT23` is `Add_DAMAGE(HP + 1)`). Our server has no `F_AICOND_30`; the id falls on
+`F_AICOND_NULL`, which returns **false** on the server (the client's returns *true* —
+they disagree), so the event never runs and the boss never cleans itself up. The only
+other lifetime path does not apply either: `CObjCHAR::Create_PET` attaches
+`FLAG_ING_DEC_LIFE_TIME` **only if the summoner already had it**, which a field-spawned
+trash mob does not.
+
+This is **not** an import defect and not Karkia-specific — our own 466 `.aip` files use
+condition 31 twenty-nine times, so it has always been dead here. It only starts to
+matter now because Karkia summons far more than our existing content does.
+
+**The summon chain is worse than §5 recorded.** §5 has trash summoning the Golem. It
+does not have what the Golem does on *its* death:
+
+| on death | chance | summons |
+|---|---:|---|
+| 2687 Corroded Golem | **15% each** | 2685 Pazugenti **and** 2686 Scylla Mira |
+| 2688 Revived Veteran | 1% each | the same two |
+| 2699 Deadly Drake α | 4% each | the same two |
+
+So the live chain is *trash → Corroded Golem → 15% → a level-250, 6.5 M HP raid boss
+that cannot despawn*, with no boss kill anywhere in it. That is the strongest argument
+yet for §5's "bring 2687 and 2688 down hard", and it wants a decision on the officer
+summons themselves — drop the rate, gate them behind the Drake α, or cut them from the
+trash-fed rows.
+
+**Some events are dead in Jrose too.** Several are gated on a `0%` roll
+(`Get_RANDOM(100) < 0` is never true): both officers' low-HP self-heal 3594 and their
+"call for help". That is their authoring, not our import — leave it or author over it,
+but do not go looking for a bug.
+
+---
+
+## 8. Still open
 
 Small, and none of them blocks starting.
 
@@ -486,7 +589,7 @@ Small, and none of them blocks starting.
 
 ---
 
-## 8. Effort shape
+## 9. Effort shape
 
 Rough, for sequencing rather than scheduling. The engineering is small and the authoring is
 most of it.
@@ -503,7 +606,7 @@ most of it.
 No server or client code change is required by anything above. The six skill references in §6 are
 data too, so that stays true.
 
-## 9. Before the first line of code
+## 10. Before the first line of code
 
 - Re-read [doc/jrose-survey.md](jrose-survey.md) §2 — all three silent-failure traps apply.
 - Re-read §5 — the balance targets are a floor from a pessimistic model, not a spec.
