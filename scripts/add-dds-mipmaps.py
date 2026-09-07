@@ -38,6 +38,23 @@ Rewrites every DDS under data/ that has no mip chain, adding a full one and
 keeping the pixel format, the dimensions and the legacy DX9 header. Files that
 already have a chain are skipped, so re-running is a no-op and safe.
 
+Object lightmaps are excluded by default (see is_excluded). `--lightmaps` opts
+them in, capped at LIGHTMAP_MIPS levels; `--selftest` measures whether the filter
+can bleed across an atlas cell boundary before any data is touched.
+
+RUNS ON RECORD (data/ is gitignored, so this list is the only committed history)
+-------------------------------------------------------------------------------
+- The original pass: 419 non-lightmap textures across data/.
+- 2026-09-07, `--subdir 3DDATA/MAPS/KARKIA --lightmaps`: 282 Karkia lightmaps,
+  42.7 -> 56.1 MB (+13.3 MB, +31%). Karkia's lightmaps are the only ones in the
+  game that reach 2048 px, at 100.6 ms each to build at load; they were 8,711 ms
+  of the 8,747 ms of slow texture creates Karkia logged. Its *other* textures were
+  already fine from the original pass -- only 33 ms remained. Oro's 354 lightmaps
+  were left alone on purpose, to keep the first lightmap run easy to clean up;
+  they are 32-512 px and cost ~1.0 s in total.
+  Undo exactly this run with
+  `--subdir 3DDATA/MAPS/KARKIA --restore-excluded`.
+
 Uses thirdparty/directxtex-2020.9.30/texconv.exe, which was already vendored in
 this repo and used by nothing at all.
 
@@ -75,6 +92,18 @@ TRAPS
   recompressed, so the result is not bit-identical to the original. BC1/2/3
   endpoint selection is near-idempotent in practice, but this is why --restore
   exists.
+- **The lightmap exclusion rested on a filter claim, and the claim is testable.**
+  It named texconv's *default FANT filter, whose support reaches past one texel*
+  -- but this script has passed `-if BOX` since the WIC fix. `--selftest` measures
+  it on the worst geometry we ship (2048 px atlas, 8x8 grid of 256 px cells):
+  BOX 0/255, FANT 0/255, TRIANGLE 36/255. A strict 2x2 box cannot cross a cell
+  boundary while the cell stays even (256 -> 128 -> 64). Note also that the
+  symptom which prompted the exclusion -- a dark wash at distance that clears as
+  you walk in -- is the same symptom the -nowic trap above describes, and -nowic
+  is what fixed that one. Lightmaps stay off by default anyway; the cap at
+  LIGHTMAP_MIPS is what makes opting in safe rather than merely untested, since
+  it leaves no level deeper than the engine loads for display quality 3-4 to
+  reach.
 - **A full chain is roughly a third larger.** The no-mip files total ~194 MB, so
   expect ~65 MB of growth. rose.vfs has a hard 2 GB limit whose failure mode is
   silent and extremely confusing (see the root CLAUDE.md), so re-check the
@@ -88,12 +117,18 @@ import collections
 import pathlib
 import struct
 import subprocess
+import tempfile
 import sys
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 DATA = REPO / "data"
 TEXCONV = REPO / "thirdparty" / "directxtex-2020.9.30" / "texconv.exe"
 BACKUP = REPO / "build" / "dds-mipmap-backup"
+
+# INIT.LUA's setMipmapLevel(3) is what the engine loads, so this is every level a
+# lightmap can ever need. Writing more would only create levels small enough to
+# bleed across the gutterless atlas, reachable at display quality 3-4.
+LIGHTMAP_MIPS = 3
 
 DDSD_MIPMAPCOUNT = 0x20000
 DDPF_FOURCC = 0x4
@@ -161,7 +196,7 @@ def is_pow2(v):
     return v > 0 and (v & (v - 1)) == 0
 
 
-def is_excluded(path):
+def is_excluded(path, allow_lightmaps=False):
     """Textures that must never be given a mip chain, with the reason.
 
     Object lightmaps are a **gutterless atlas**: each map-object part owns one
@@ -170,24 +205,41 @@ def is_excluded(path):
     grid blends a part's lighting into its neighbours'. The root CLAUDE.md spells
     this out and says a full chain is unsafe for them.
 
-    Shipping a chain makes that reachable in a way it was not before. The engine
-    caps loads at 3 levels (INIT.LUA setMipmapLevel(3)), but the levels now come
-    from texconv's default FANT filter, whose support reaches past one texel,
-    rather than from D3DX's strict 2x2 box -- so more of the neighbouring cell
-    bleeds in. A lightmap multiplies into object colour, so the symptom is a dark
-    wash that appears at distance and vanishes as you walk in. Which is exactly
-    what was reported after the first run of this script.
+    That was the original reasoning, and it named texconv's *default FANT filter,
+    whose support reaches past one texel*. This script has passed `-if BOX` since
+    the WIC fix, and --selftest measures the actual claim on the worst geometry we
+    ship (a 2048 px atlas of 256 px cells): BOX and FANT both bleed **0/255** at
+    the 3 levels the engine loads, while TRIANGLE bleeds 36/255. A strict 2x2 box
+    cannot cross a cell boundary, because every block it averages lies wholly
+    inside one cell as long as the cell stays even -- 256 -> 128 -> 64 here.
 
-    These are 32-512 px textures and contribute almost nothing to load cost, so
-    there is no reason to take the risk.
+    Worth knowing when weighing this: the symptom that prompted the exclusion (a
+    dark wash at distance that clears as you walk in) is the same symptom the
+    -nowic trap above describes, and -nowic is what fixed that one. The exclusion
+    may have been treating a bug that a different flag had already solved.
+
+    So lightmaps are still excluded by default -- the conservative choice, and it
+    keeps --restore-excluded working as a one-command undo for exactly this set --
+    but --lightmaps opts them in, capped at LIGHTMAP_MIPS levels so nothing deeper
+    than the engine loads even exists to be reached by a higher quality setting.
+
+    The premise that made the blanket exclusion cheap was "these are 32-512 px
+    textures and contribute almost nothing to load cost". That held for Junon and
+    Oro. It does not hold for Karkia, whose lightmaps run to 2048 px -- 16x the
+    area -- at 100.6 ms each to build at load, and which account for 8,711 ms of
+    Karkia's 8,747 ms of logged slow texture creates.
     """
     u = str(path).upper()
-    if "LIGHTMAP" in u:
+    if "LIGHTMAP" in u and not allow_lightmaps:
         return "object lightmap atlas (gutterless, must not be mipped)"
     return None
 
 
-def collect(root):
+def is_lightmap(path):
+    return "LIGHTMAP" in str(path).upper()
+
+
+def collect(root, allow_lightmaps=False):
     """Every DDS under root with no mip chain, plus a tally of what was skipped."""
     todo = []
     skipped = collections.Counter()
@@ -201,7 +253,7 @@ def collect(root):
         if h.mips > 1:
             skipped["already has mips"] += 1
             continue
-        why = is_excluded(p)
+        why = is_excluded(p, allow_lightmaps)
         if why:
             skipped[why] += 1
             continue
@@ -230,17 +282,25 @@ def collect(root):
 
 
 def convert(todo, dry_run):
-    """Run texconv, batched by (output directory, format) to avoid 1200 spawns."""
+    """Run texconv, batched by (output directory, format, levels) to avoid 1200 spawns."""
     groups = collections.defaultdict(list)
     for p, _h, fmt in todo:
-        groups[(p.parent, fmt)].append(p)
+        # Lightmaps get exactly the levels the engine loads and no more. A full
+        # chain would put levels 4+ on disk where nothing normally reads them --
+        # until setDisplayQualityLevel 3 or 4 asks for the file's own chain
+        # (mipmap_level = -1), at which point the cells are small enough to bleed.
+        # Capping is what makes opting them in safe rather than merely untested.
+        levels = str(LIGHTMAP_MIPS) if is_lightmap(p) else "0"
+        groups[(p.parent, fmt, levels)].append(p)
 
     converted = 0
     failed = []
-    for (out_dir, fmt), paths in sorted(groups.items()):
+    for (out_dir, fmt, levels), paths in sorted(groups.items()):
         rel = out_dir.relative_to(DATA)
         if dry_run:
-            print("  would convert %3d file(s) -> %-16s %s" % (len(paths), fmt, rel))
+            print("  would convert %3d file(s) -> %-16s %-7s %s"
+                  % (len(paths), fmt, "%s lvl" % (levels if levels != "0" else "full"),
+                     rel))
             converted += len(paths)
             continue
 
@@ -265,7 +325,7 @@ def convert(todo, dry_run):
         #           of this, so it keeps the visual result as close to the old
         #           behaviour as possible. This is a load-time fix, not a
         #           re-authoring.
-        cmd = [str(TEXCONV), "-nologo", "-y", "-dx9", "-m", "0", "-nowic",
+        cmd = [str(TEXCONV), "-nologo", "-y", "-dx9", "-m", levels, "-nowic",
                "-if", "BOX", "-f", fmt, "-o", str(out_dir)] + [str(p) for p in paths]
         proc = subprocess.run(cmd, capture_output=True, text=True)
         if proc.returncode != 0:
@@ -364,16 +424,101 @@ def verify_converted(touched):
                         % (h.width, h.height, h2.width, h2.height)))
         elif (h2.pf_flags & DDPF_FOURCC) and h2.fourcc == b"DX10":
             bad.append((p, "written with a DX10 header (client cannot read it)"))
+        elif is_lightmap(p) and h2.mips > LIGHTMAP_MIPS:
+            # The cap is the safety property, so assert it rather than trust the
+            # flag: a lightmap with a deeper chain has levels whose cells are
+            # small enough to bleed, reachable at display quality 3-4.
+            bad.append((p, "lightmap has %d mip levels, cap is %d"
+                        % (h2.mips, LIGHTMAP_MIPS)))
     return bad
 
 
-def restore(only_excluded=False):
+def selftest():
+    """Measure the claim the lightmap exclusion rests on, before touching data.
+
+    Builds a synthetic atlas with the geometry of the worst lightmap we ship
+    (2048 px, an 8x8 grid of 256 px cells, each a flat contrasting colour) and
+    runs it through the real texconv invocation. If the filter stays inside cells,
+    every texel of every generated level is still exactly its own cell's colour;
+    anything else is bleeding, measured rather than argued.
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        print("selftest needs Pillow (pip install Pillow)")
+        return 1
+
+    size, cell = 2048, 256
+    grid = size // cell
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="ddsmip-selftest"))
+    src = tmp / "atlas.png"
+    img = Image.new("RGB", (size, size))
+    px = img.load()
+    colours = {}
+    for cy in range(grid):
+        for cx in range(grid):
+            c = (((cx * 37) % 8) * 31 + 8, ((cy * 53) % 8) * 31 + 8,
+                 (((cx + cy) * 71) % 8) * 31 + 8)
+            colours[(cx, cy)] = c
+            for y in range(cy * cell, (cy + 1) * cell):
+                for x in range(cx * cell, (cx + 1) * cell):
+                    px[x, y] = c
+    img.save(src)
+
+    rc = 0
+    for filt in ("BOX", "FANT", "TRIANGLE"):
+        out = tmp / filt
+        out.mkdir(exist_ok=True)
+        # uncompressed on purpose: DXT endpoint error must not be mistaken for
+        # filter bleed
+        proc = subprocess.run(
+            [str(TEXCONV), "-nologo", "-y", "-dx9", "-m", str(LIGHTMAP_MIPS),
+             "-nowic", "-if", filt, "-f", "R8G8B8A8_UNORM", "-o", str(out), str(src)],
+            capture_output=True, text=True)
+        if proc.returncode != 0:
+            print("  %-9s texconv failed: %s"
+                  % (filt, ((proc.stdout or "") + (proc.stderr or "")).strip()[:120]))
+            rc = 1
+            continue
+        d = (out / "atlas.dds").read_bytes()
+        hsize, = struct.unpack_from("<I", d, 4)
+        height, width = struct.unpack_from("<II", d, 12)
+        mips, = struct.unpack_from("<I", d, 28)
+        off, worst = 4 + hsize, 0
+        for lvl in range(mips):
+            w, h, c = width >> lvl, height >> lvl, cell >> lvl
+            plane = d[off:off + w * h * 4]
+            off += w * h * 4
+            for cy in range(grid):
+                for cx in range(grid):
+                    want = colours[(cx, cy)]
+                    for dy in (0, c // 2, c - 1):
+                        for dx in (0, 1, c - 2, c - 1):
+                            i = ((cy * c + dy) * w + cx * c + dx) * 4
+                            worst = max(worst, max(abs(a - b) for a, b in
+                                                   zip(plane[i:i + 3], want)))
+        verdict = "clean" if worst == 0 else "BLEEDS"
+        print("  %-9s %d levels  worst deviation on a cell edge %3d/255  %s"
+              % (filt, mips, worst, verdict))
+        if filt == "BOX" and worst != 0:
+            rc = 1
+    print("\n%s" % ("BOX is a strict 2x2 and cannot cross a cell boundary -- "
+                    "lightmaps are safe to mip at this depth" if rc == 0 else
+                    "FAIL: BOX bled; do not use --lightmaps"))
+    return rc
+
+
+def restore(only_excluded=False, subdir=None):
     """Put originals back. only_excluded limits it to files the current rules say
     should never have been converted, which is how a bad exclusion is corrected
-    without undoing the whole pass."""
+    without undoing the whole pass. subdir narrows it further, so a run that was
+    deliberately scoped small can be undone equally small -- the backup tree keeps
+    every original this script has ever replaced, including sets that were already
+    rolled back once, and rewriting those is a no-op that still muddies a diff."""
     if not BACKUP.is_dir():
         print("no backups at %s" % BACKUP)
         return 1
+    root = (DATA / subdir).resolve() if subdir else None
     n = 0
     for b in BACKUP.rglob("*"):
         if not b.is_file():
@@ -381,10 +526,13 @@ def restore(only_excluded=False):
         target = DATA / b.relative_to(BACKUP)
         if only_excluded and not is_excluded(target):
             continue
+        if root is not None and root not in target.resolve().parents:
+            continue
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(b.read_bytes())
         n += 1
     scope = "excluded " if only_excluded else ""
+    scope += "" if subdir is None else "under %s " % subdir
     print("restored %d %sfile(s) from %s" % (n, scope, BACKUP))
     if only_excluded and n:
         print("re-bake the VFS for this to reach the client")
@@ -402,13 +550,32 @@ def main():
                     help="put every pre-conversion original back")
     ap.add_argument("--restore-excluded", action="store_true",
                     help="put back only the files the current exclusion rules say "
-                         "should never have been converted")
+                         "should never have been converted; combine with --subdir "
+                         "to undo one scoped run (e.g. --subdir 3DDATA/MAPS/KARKIA "
+                         "--restore-excluded)")
     ap.add_argument("--subdir", default=None,
                     help="limit to a subtree of data/, e.g. 3DDATA/TERRAIN")
+    ap.add_argument("--lightmaps", action="store_true",
+                    help="also mip object lightmaps, capped at %d levels. Off by "
+                         "default: they are a gutterless atlas (see is_excluded). "
+                         "Run --selftest first, and prefer --subdir to keep the "
+                         "blast radius small; --restore-excluded undoes exactly "
+                         "this set." % LIGHTMAP_MIPS)
+    ap.add_argument("--selftest", action="store_true",
+                    help="measure whether the mip filter bleeds across atlas cell "
+                         "boundaries, on the worst geometry we ship. Touches no data.")
     args = ap.parse_args()
 
+    if args.selftest:
+        if not TEXCONV.is_file():
+            print("texconv.exe not found at %s" % TEXCONV)
+            return 1
+        print("filter bleed on a 2048 px atlas of 256 px cells, %d levels:"
+              % LIGHTMAP_MIPS)
+        return selftest()
+
     if args.restore or args.restore_excluded:
-        return restore(only_excluded=args.restore_excluded)
+        return restore(only_excluded=args.restore_excluded, subdir=args.subdir)
 
     if not DATA.is_dir():
         print("no data/ directory at %s" % DATA)
@@ -422,7 +589,7 @@ def main():
         print("no such subtree: %s" % root)
         return 1
 
-    todo, skipped = collect(root)
+    todo, skipped = collect(root, args.lightmaps)
     total_bytes = sum(p.stat().st_size for p, _h, _f in todo)
 
     print("scanned %s" % root)
