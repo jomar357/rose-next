@@ -212,8 +212,21 @@ def main():
             for r in rows:
                 if gi(npc, r, COL_DROP_TYPE) != int(saved["moved"][old]):
                     bad.append(("user not repointed", r, old))
-        # Karkia must no longer fall back onto a live legacy table
-        leak = [z for z in sorted(karkia_zones) if row_is_live(drop, z)]
+        # Karkia must no longer fall back onto a live *legacy* table. This used
+        # to be "the row is live", which was right while the zone rows were meant
+        # to stay empty and is wrong now: stage 6e (add-karkia-drops.py) mirrors
+        # Karkia's own tables into these exact rows on purpose, so a live row is
+        # the intended end state. What still counts as a leak is the *legacy
+        # content* sitting there -- compare against the cells the sidecar
+        # recorded before the move.
+        leak = []
+        for z in sorted(karkia_zones):
+            was = saved["drop"].get(str(z))
+            if was is None:
+                continue
+            was = [c.encode() if isinstance(c, str) else c for c in was]
+            if row_is_live(drop, z) and row_cells(drop, z) == was:
+                leak.append(z)
         print(f"{len(bad)} problem(s)" + (f": {bad[:8]}" if bad else ""))
         print(f"Karkia zone rows still holding legacy loot: {leak or 'none'}")
         sys.exit(1 if bad or leak else 0)

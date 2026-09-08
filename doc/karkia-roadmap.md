@@ -746,6 +746,62 @@ bake into the `.vfs`. They are moved to `build/data-bak-archive/` after every ru
 
 ---
 
+### Stage 8 — materials  *(DONE, 2026-09-08)*
+
+Twenty-five Jrose materials at `LIST_NATURAL` rows **740–764**, by
+`scripts/import-karkia-materials.py`. The selection is not a sample of what the
+source has: **every one is already named in dialog we translated in stage 6c**, so
+each one turns a line that referred to nothing into a line that refers to an item.
+Belfa explains Graphistone is the forging reagent; Astraea's price lists ask for
+Starlight, the four Tomes, Arcane Sigils, Black Iron Gears, the four Latin colour
+cores, Stella Libra and Sol Niger Horns; Nagia's seal chain runs on Phil Tempest's
+Magic Stones and seven Sacred Demon Crystals; Lowe pays in Starlight.
+
+Flavour now, craft inputs later. Two tool changes were needed first, and both are
+about ceilings rather than convenience:
+
+- **`import-item.py --target-row`.** A packed item code is `type * 1000 + no` in
+  three places — drop cells (`Get_DropITEM`), QSD rewards (`REWD_001` →
+  `tagBaseITEM::Init(int)`) and recipe inputs (`PRODUCT_NEED_ITEM_NO`) — so an item
+  numbered **above 999 can be neither dropped, granted by a quest, nor used in a
+  craft**. The wide form added in stage 6e reaches drops and shops, not these three.
+  `LIST_NATURAL` is 981 rows, so appending leaves 19 usable slots and then walks
+  past the ceiling. In-place writing into the table's blank middle is the only way
+  these can ever be craft inputs, which is the whole point of importing them.
+- **`--price`.** `--art-only` is mandatory here (Jrose's `LIST_NATURAL_S.STL` is the
+  legacy `I_NUM` dialect our strict reader rejects) and it clones *every* stat
+  column from one template — so without this every material would cost the same.
+  For a material the price is most of what distinguishes it: Graphistone is 50,000z
+  against a Black Iron Gear's 100z.
+
+**A blank STB row is not a free row.** The first placement was 460–484, which is
+blank in `LIST_NATURAL.STB` — and still *named* in `LIST_NATURAL_S.STL` ("Yellow
+petals", "Big green herb", "Perfect green herb"). Those are retail materials whose
+STB rows were lost in our dump, and writing over them would have destroyed the only
+surviving record of what they were, then displayed Graphistone under a key reading
+Yellow petals. The free test is blank in the STB **and** unnamed in the STL **and**
+unreferenced by any drop cell, shop slot or recipe input: 478 rows pass, 735–899 is
+the largest clean run, and 740–764 is taken from its middle.
+
+**Two bugs found by running it**, both worth keeping in mind for the next in-place
+import:
+
+- `import-item.py`'s post-write verification was **append-shaped** —
+  `assert vrows - 1 == new_id + 1` — so it fired on every one of the 25 rows *after
+  writing them correctly*. The row count is the wrong invariant for an in-place
+  write; it now asserts the table did **not** change size instead. `--target-row` is
+  also refused outright for a type with a model ZSC, since `zsc_build_append` can
+  only append and the object would land at the end of the ZSC rather than at the
+  target row.
+- That aborted run left **25 orphaned atlas cells** (8808–8832): it allocated icons
+  before dying, and rolling back the STB/STL did not roll back `ITEM1.TSI`. The
+  clean re-run then took 25 *fresh* cells holding byte-identical art. Reclaimed by
+  repointing the rows down and trimming the 25 trailing sprites, so the data now
+  matches what a clean run of the committed script produces. **An import that fails
+  is not an import that did nothing** — the atlas is written before the tables are.
+
+---
+
 ## 4. Decisions taken
 
 Settled 2026-09-06.

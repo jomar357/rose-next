@@ -143,6 +143,25 @@ def stb_append_row(path, row_cells, dry):
             fh.write(out)
     return new_id
 
+def stb_write_row(path, row, row_cells, dry):
+    """Overwrite an existing (blank) row's cells in place.
+
+    The counterpart to stb_append_row, for --target-row. Same rebuild as
+    stb_set_cell: the header, its column titles and every row name are preserved
+    verbatim, and the table's row count does not change.
+    """
+    d, offset, rows, cols, data = stb_read(path)
+    if not 0 <= row < rows - 1:
+        sys.exit("stb_write_row: row %d out of range (%d rows)" % (row, rows - 1))
+    if len(row_cells) != cols - 1:
+        sys.exit("stb_write_row: %d cells for %d columns" % (len(row_cells), cols - 1))
+    data[row] = list(row_cells)
+    body = b"".join(struct.pack("<H", len(c)) + c for r in data for c in r)
+    if not dry:
+        with open(path, "wb") as fh:
+            fh.write(d[:offset] + body)
+    return row
+
 def stb_set_cell(path, row, col, value, dry):
     """Overwrite one cell in place. Rebuilds the data section; the header (column
     titles + row names) is preserved verbatim, so editors still read the file."""
@@ -628,6 +647,10 @@ def main():
                     help="override DEFENCE (col 31). Evo-era gear is scaled ~4x ours -- "
                          "importing source stats verbatim trivialises our existing content")
     ap.add_argument("--res", type=int, help="override RESISTENCE (col 32)")
+    ap.add_argument("--price", type=int,
+                    help="override BASE_PRICE (col 5). Mostly for materials under "
+                         "--art-only, where every other column comes from one template "
+                         "and the price is what tells two materials apart")
     ap.add_argument("--req-level", type=int,
                     help="override the required character level (NEED_DATA pair with type 31)")
     ap.add_argument("--atk", type=int,
@@ -659,6 +682,17 @@ def main():
     ap.add_argument("--allow-placeholder", action="store_true",
                     help="import even if the source model is degenerate geometry (it will "
                          "equip and show nothing); normally such a row is refused")
+    ap.add_argument("--target-row", type=int,
+                    help="write into this existing blank row instead of appending. "
+                         "The point is the 999 ceiling: a packed item code is "
+                         "type*1000+no in drop cells (Get_DropITEM), in QSD rewards "
+                         "(tagBaseITEM::Init) and in recipe inputs "
+                         "(PRODUCT_NEED_ITEM_NO), so an item numbered above 999 can be "
+                         "neither dropped, granted by a quest, nor used in a craft. "
+                         "Appending walks straight past that once a table is near it -- "
+                         "LIST_NATURAL is 981 rows, leaving 19 usable slots -- while the "
+                         "table itself has hundreds of blank rows lower down. Refuses a "
+                         "row that already carries a name.")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -691,9 +725,25 @@ def main():
         if scols != ocols:
             print("note: source has %d data cols to our %d; the extra trailing columns are dropped"
                   % (scols - 1, ocols - 1))
-    new_id = orows - 1
+    if args.target_row is not None:
+        new_id = args.target_row
+        if ZSC_RELS:
+            sys.exit("--target-row is not supported for %s: its model table is indexed "
+                     "1:1 with the STB and zsc_build_append can only append, so the "
+                     "object would land at the end of the ZSC instead of at row %d. Only "
+                     "the model-less types can be written in place." % (args.type, new_id))
+        if not 0 <= new_id < orows - 1:
+            sys.exit("--target-row %d out of range (%d rows)" % (new_id, orows - 1))
+        if odata[new_id][0].strip():
+            sys.exit("--target-row %d is occupied by %r -- refusing to overwrite"
+                     % (new_id, odata[new_id][0].decode("latin-1", "replace")))
+    else:
+        new_id = orows - 1
     if new_id > 2047:
         sys.exit("new ID %d exceeds the 11-bit item number limit (2047)" % new_id)
+    if new_id > 999:
+        print("WARNING: id %d is above 999, so this item can never be dropped, granted "
+              "by a quest, or used as a recipe input -- see --target-row" % new_id)
 
     # Every model table must already be in step with the STB, or the new object
     # would not land on the new item number. Checked on both sides: a source
@@ -792,6 +842,13 @@ def main():
     # is scaled roughly 4x ours (their entry lv200 plate set totals 1915 DEF to
     # our Jabberwock's 491), so importing verbatim drops our existing monsters to
     # the damage floor.
+    if args.price is not None:
+        # Column 5 (ITEM_BASE_PRICE). Worth its own flag for materials: --art-only
+        # clones every stat from one template, and for a material the price *is*
+        # most of what distinguishes it -- Graphistone is 50,000z where a Black
+        # Iron Gear is 100z.
+        print("PRICE: %s -> %d" % (row[5].decode() or "0", args.price))
+        row[5] = str(args.price).encode("ascii")
     if args.defence is not None:
         print("DEFENCE: source %s -> %d" % (row[31].decode() or "0", args.defence))
         row[31] = str(args.defence).encode("ascii")
@@ -978,13 +1035,25 @@ def main():
             row[10] = str(field_id).encode("ascii")
             print("field model: ported source object %d as our %d" % (src_fm, field_id))
 
-    stb_append_row(os.path.join(OURS, STB_REL), row, args.dry_run)
+    if args.target_row is not None:
+        stb_write_row(os.path.join(OURS, STB_REL), new_id, row, args.dry_run)
+    else:
+        stb_append_row(os.path.join(OURS, STB_REL), row, args.dry_run)
     stl_append(os.path.join(OURS, STL_REL), new_key, new_id, name, desc, args.dry_run)
 
     # verify
     if not args.dry_run:
         _, _, vrows, vcols, vdata = stb_read(os.path.join(OURS, STB_REL))
-        assert vrows - 1 == new_id + 1 and vdata[new_id][vcols - 2] == new_key
+        # An append lands on the last row and grows the table by one; an in-place
+        # --target-row write does neither, so the row count is the wrong invariant
+        # for it -- assert that the table did NOT move instead.
+        if args.target_row is None:
+            assert vrows - 1 == new_id + 1, (
+                "table has %d rows, expected %d" % (vrows - 1, new_id + 1))
+        else:
+            assert vrows == orows, (
+                "in-place write changed the row count: %d -> %d" % (orows, vrows))
+        assert vdata[new_id][vcols - 2] == new_key
         for rel in ZSC_RELS:
             vz = Zsc(os.path.join(OURS, rel))
             # The object count is the invariant that actually matters; a model
