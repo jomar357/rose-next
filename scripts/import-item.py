@@ -351,8 +351,51 @@ def effect_dependencies(source, eft_rel):
             queue.append(_collapse_seps(m.group()))
     return out
 
-def zsc_build_append(ours_path, src_zsc, src_obj_idx, source=None, copy_effects=False):
-    """Return (new_object_index, assets_needed, new_file_bytes) -- writes nothing.
+def zsc_serialize_object(o):
+    """One object record, exactly as Zsc.__init__ parsed it.
+
+    A zero-part object ends after its count -- no dummy list and no bounding box
+    follow -- which is what the game writes for an unused row and what the
+    parser expects to read back.
+    """
+    cyl, parts, dummies, bb = o
+    out = [cyl, struct.pack("<H", len(parts))]
+    if not parts:
+        return b"".join(out)
+    for mid, tid, props in parts:
+        out.append(struct.pack("<HH", mid, tid))
+        out.append(props)
+    out.append(struct.pack("<H", len(dummies)))
+    for a, props in dummies:
+        out += [a, props]
+    out.append(bb)
+    return b"".join(out)
+
+
+def zsc_selftest(paths):
+    """Re-serialising every object must reproduce the section byte for byte.
+
+    Writing at an index rebuilds the whole object section instead of splicing
+    onto the end, so this is the guarantee that untouched objects survive it.
+    Proved across all 57 ZSCs we ship before --target-row was allowed near them.
+    """
+    bad = []
+    for path in paths:
+        z = Zsc(path)
+        original = z.d[z.objcnt_pos + 2:z.obj_end]
+        if b"".join(zsc_serialize_object(o) for o in z.objects) != original:
+            bad.append(path)
+    return bad
+
+
+def zsc_build_append(ours_path, src_zsc, src_obj_idx, source=None, copy_effects=False,
+                     target=None):
+    """Return (object_index, assets_needed, new_file_bytes) -- writes nothing.
+
+    `target` writes the object **at that index** instead of appending, for
+    --target-row. The row's existing object must be empty; the caller checks
+    that. Everything about remapping meshes, materials and effects is identical
+    either way -- only the final assembly differs.
 
     Callers write only once *every* table for this item has been built, so a
     failure part-way cannot leave the STB and the per-sex ZSCs at different
@@ -369,11 +412,19 @@ def zsc_build_append(ours_path, src_zsc, src_obj_idx, source=None, copy_effects=
         print("WARNING: source object %d in %s has no model -- appending an empty object "
               "(the item will not show on this sex)"
               % (src_obj_idx, os.path.basename(ours_path)))
+        empty = cyl + struct.pack("<H", 0)
+        if target is None:
+            out = [ours.d[:ours.objcnt_pos],
+                   struct.pack("<H", len(ours.objects) + 1),
+                   ours.d[ours.objcnt_pos + 2:ours.obj_end],
+                   empty]
+            return len(ours.objects), [], b"".join(out)
+        body = [empty if i == target else zsc_serialize_object(o)
+                for i, o in enumerate(ours.objects)]
         out = [ours.d[:ours.objcnt_pos],
-               struct.pack("<H", len(ours.objects) + 1),
-               ours.d[ours.objcnt_pos + 2:ours.obj_end],
-               cyl, struct.pack("<H", 0)]
-        return len(ours.objects), [], b"".join(out)
+               struct.pack("<H", len(ours.objects)),
+               b"".join(body)]
+        return target, [], b"".join(out)
 
     our_mesh_idx = {norm(m): i for i, m in enumerate(ours.meshes)}
     our_mat_idx = {norm(p): i for i, (p, _) in enumerate(ours.materials)}
@@ -457,13 +508,21 @@ def zsc_build_append(ours_path, src_zsc, src_obj_idx, source=None, copy_effects=
     out += [struct.pack("<H", len(ours.effects) + len(new_effects)),
             ours.d[ours.mat_end + 2:ours.objcnt_pos]]
     out += [e + b"\x00" for e in new_effects]
-    out += [struct.pack("<H", len(ours.objects) + 1),
-            ours.d[ours.objcnt_pos + 2:ours.obj_end],
-            b"".join(obj)]
+    obj_bytes = b"".join(obj)
+    if target is None:
+        out += [struct.pack("<H", len(ours.objects) + 1),
+                ours.d[ours.objcnt_pos + 2:ours.obj_end],
+                obj_bytes]
+        index = len(ours.objects)
+    else:
+        body = [obj_bytes if i == target else zsc_serialize_object(o)
+                for i, o in enumerate(ours.objects)]
+        out += [struct.pack("<H", len(ours.objects)), b"".join(body)]
+        index = target
     files_needed = [m for m in new_meshes] + [p for p, _ in new_mats]
     for eft in effect_files:
         files_needed += effect_dependencies(source, eft)
-    return len(ours.objects), files_needed, b"".join(out)
+    return index, files_needed, b"".join(out)
 
 # ---------------------------------------------------------------- STL
 def read_varint(f):
@@ -623,8 +682,10 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--type", default="weapon", choices=sorted(TYPES),
                     help="item type to import (default: weapon)")
-    ap.add_argument("--source", required=True, help="path to the source data directory")
-    ap.add_argument("--source-row", type=int, required=True,
+    # not required=True: --selftest needs neither, and argparse would reject the
+    # run before main() could dispatch to it
+    ap.add_argument("--source", help="path to the source data directory")
+    ap.add_argument("--source-row", type=int,
                     help="row in the source table for this type")
     ap.add_argument("--name", help="override item name (default: from source STL)")
     ap.add_argument("--desc", help="override item description (default: from source STL)")
@@ -694,7 +755,25 @@ def main():
                          "table itself has hundreds of blank rows lower down. Refuses a "
                          "row that already carries a name.")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--selftest", action="store_true",
+                    help="prove that re-serialising every ZSC we ship reproduces its "
+                         "object section byte for byte -- the guarantee --target-row "
+                         "rests on, since writing at an index rebuilds that section")
     args = ap.parse_args()
+
+    if args.selftest:
+        import glob as _glob
+        paths = sorted(_glob.glob(os.path.join(OURS, "3DDATA", "**", "*.ZSC"),
+                                  recursive=True))
+        bad = zsc_selftest(paths)
+        names = ", ".join(os.path.basename(b) for b in bad)
+        print("%d ZSC file(s) scanned, %d did not round-trip%s"
+              % (len(paths), len(bad), (": " + names) if bad else ""))
+        return 1 if bad else 0
+
+    for req in ("source", "source_row"):
+        if getattr(args, req) is None:
+            ap.error("the following arguments are required: --%s" % req.replace("_", "-"))
 
     if not os.path.isdir(os.path.join(OURS, "3DDATA")):
         sys.exit("run from the repo root (data/3DDATA not found)")
@@ -727,11 +806,22 @@ def main():
                   % (scols - 1, ocols - 1))
     if args.target_row is not None:
         new_id = args.target_row
-        if ZSC_RELS:
-            sys.exit("--target-row is not supported for %s: its model table is indexed "
-                     "1:1 with the STB and zsc_build_append can only append, so the "
-                     "object would land at the end of the ZSC instead of at row %d. Only "
-                     "the model-less types can be written in place." % (args.type, new_id))
+        # A model table is indexed 1:1 with the STB, so writing in place is only
+        # safe when that row's object is genuinely unused -- otherwise we would
+        # overwrite another item's art. Every blank row in our tables does have an
+        # empty object (checked across all 595 blank LIST_CAP rows), but check
+        # rather than trust: the cost of being wrong is a silently reskinned item.
+        for rel in ZSC_RELS:
+            z = Zsc(os.path.join(OURS, rel))
+            if new_id >= len(z.objects):
+                sys.exit("--target-row %d is past the end of %s (%d objects); the model "
+                         "table would need padding first"
+                         % (new_id, os.path.basename(rel), len(z.objects)))
+            if z.objects[new_id][1]:
+                sys.exit("--target-row %d already carries %d model part(s) in %s -- that "
+                         "is another item's art, even though the STB row reads blank. "
+                         "Pick a row that is empty in both."
+                         % (new_id, len(z.objects[new_id][1]), os.path.basename(rel)))
         if not 0 <= new_id < orows - 1:
             sys.exit("--target-row %d out of range (%d rows)" % (new_id, orows - 1))
         if odata[new_id][0].strip():
@@ -748,12 +838,17 @@ def main():
     # Every model table must already be in step with the STB, or the new object
     # would not land on the new item number. Checked on both sides: a source
     # table that is short means the row we are copying has no model there.
+    # The invariant is against the STB's ROW COUNT, not against new_id. Those are
+    # the same number when appending (new_id == orows - 1) and are not when
+    # --target-row aims at a blank row in the middle, where comparing to new_id
+    # reports every healthy table as corrupt.
+    stb_rows = orows - 1
     for rel in ZSC_RELS:
         have = len(Zsc(os.path.join(OURS, rel)).objects)
-        if have != new_id:
+        if have != stb_rows:
             sys.exit("our %s holds %d objects but %s has %d rows -- the tables are already "
                      "out of step, fix that before importing"
-                     % (os.path.basename(rel), have, os.path.basename(STB_REL), new_id))
+                     % (os.path.basename(rel), have, os.path.basename(STB_REL), stb_rows))
         scount = len(Zsc(os.path.join(args.source, rel)).objects)
         if args.source_row >= scount:
             sys.exit("source %s has only %d objects, no object %d for this row"
@@ -984,6 +1079,8 @@ def main():
     # cannot leave the first already extended.
     pending = []
     empty_models = set()
+    zsc_counts_before = {rel: len(Zsc(os.path.join(OURS, rel)).objects)
+                         for rel in ZSC_RELS}
     for rel in ZSC_RELS:
         src_zsc = Zsc(os.path.join(args.source, rel))
         if not src_zsc.objects[args.source_row][1]:
@@ -998,7 +1095,7 @@ def main():
                      % (args.source_row, os.path.basename(rel)))
         obj_id, files_needed, blob = zsc_build_append(
             os.path.join(OURS, rel), src_zsc, args.source_row,
-            args.source, args.copy_effects)
+            args.source, args.copy_effects, target=args.target_row)
         if obj_id != new_id:
             sys.exit("STB/ZSC index drift in %s: row %d vs object %d"
                      % (os.path.basename(rel), new_id, obj_id))
@@ -1059,8 +1156,16 @@ def main():
             # The object count is the invariant that actually matters; a model
             # may legitimately be empty (the source has no art for that sex), in
             # which case the placeholder we appended has no parts by design.
-            assert len(vz.objects) == new_id + 1, (
-                "%s ended with %d objects, expected %d" % (rel, len(vz.objects), new_id + 1))
+            if args.target_row is None:
+                assert len(vz.objects) == new_id + 1, (
+                    "%s ended with %d objects, expected %d"
+                    % (rel, len(vz.objects), new_id + 1))
+            else:
+                # in place: the table must NOT have grown, and the row we aimed
+                # at is the one that changed
+                assert len(vz.objects) == zsc_counts_before[rel], (
+                    "%s changed size on an in-place write: %d -> %d"
+                    % (rel, zsc_counts_before[rel], len(vz.objects)))
             if rel not in empty_models:
                 assert vz.objects[new_id][1], "%s object %d has no parts" % (rel, new_id)
             # Every index we wrote must be in range for the list it points into.
