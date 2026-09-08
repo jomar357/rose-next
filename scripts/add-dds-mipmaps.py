@@ -66,6 +66,24 @@ RUNS ON RECORD (data/ is gitignored, so this list is the only committed history)
   Compressing a smooth sky gradient to DXT is exactly where banding shows, and
   they load once per zone, so they were left alone deliberately.
 
+- 2026-09-08, `--subdir 3DDATA/AVATAR/{CAP,BODY,ARMS,FOOT}`: **106 files**, every
+  texture the four armour imports of that day brought in (Egyptian lv240, Steam
+  lv220, Refined Steam lv225, Unit Core lv230). 3.85 -> 4.59 MB (+0.74 MB, +19%).
+  A fresh in-game log had 14 distinct `src_mips=1` armour textures at ~3 ms each;
+  the other colours are the same files and would have logged the same on first
+  wear. Scoped per folder rather than run whole because the ask was to touch only
+  the armour -- though a check first proved the two sets were identical: every DDS
+  under `AVATAR/{ARMS,BODY,CAP,FOOT}` without a chain came from those imports, and
+  nothing else in `data/` was left un-mipped.
+
+  Verified independently of this script's own check, by decoding pixels with
+  Pillow and comparing against the pre-conversion backups: worst mip-0 deviation
+  **1.69/255** (DXT1 re-encode noise, unavoidable and invisible) and worst
+  generated-mip deviation **0.00/255** against a BOX resize computed outside
+  texconv, over 120 files. For scale, the WIC darkening `-nowic` exists to prevent
+  measured 36% and 71%, i.e. ~92 and ~181 out of 255. The black-band failure mode
+  is three orders of magnitude away, measured rather than argued.
+
 Uses thirdparty/directxtex-2020.9.30/texconv.exe, which was already vendored in
 this repo and used by nothing at all.
 
@@ -240,9 +258,27 @@ def is_excluded(path, allow_lightmaps=False):
     area -- at 100.6 ms each to build at load, and which account for 8,711 ms of
     Karkia's 8,747 ms of logged slow texture creates.
     """
-    u = str(path).upper()
+    u = str(path).upper().replace("/", chr(92))
     if "LIGHTMAP" in u and not allow_lightmaps:
         return "object lightmap atlas (gutterless, must not be mipped)"
+    if chr(92) + "CONTROL" + chr(92) + "RES" + chr(92) in u:
+        # UI resources, drawn at 1:1, and the engine forces miplevels=1 for image
+        # textures anyway (download_texture -> tex->get_for_image()), so a chain
+        # here is never sampled -- it is only file size. Most of this folder is
+        # already skipped as non-power-of-two for an unrelated reason; the item and
+        # skill icon atlases are 512x512 and slip through that branch.
+        #
+        # They are also the same gutterless-atlas shape as a lightmap: a 13x13 grid
+        # of 40x40 cells with no padding. At the 3 levels the engine loads a cell
+        # stays 10 px so nothing would actually bleed, but there is no upside to
+        # weigh against it -- and a mip chain here has broken tooling before. When
+        # icon51.dds came back from an unrelated pass with a 10-level chain it
+        # tripped add-item-icon.py's total-file-length assert and blocked *every*
+        # new icon until that script was taught to read only the top mip.
+        #
+        # icon51/52 still carry that chain and are left alone; this rule stops new
+        # sheets acquiring one, it does not undo the old ones.
+        return "UI resource (drawn 1:1, engine forces miplevels=1)"
     return None
 
 
