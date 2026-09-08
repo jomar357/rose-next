@@ -1277,10 +1277,18 @@ This section was written before any code and has been trimmed as its questions w
 answered in the build. What is left is one item, and it is art, not engineering.
 
 - **Whether the α set gets re-themed** — *narrowed to art only, 2026-09-08.* 10 of Karkia's
-  31 monsters are the Cemetery roster again at higher level with an α suffix, and column 1
-  confirms the worst of it: the **model file is identical** to the base in every case
-  (`karkiawolf.mon` is `karkiawolf.mon`), so Spire Village shows the same creatures with the
-  same art, ~13 levels up.
+  31 monsters are the Cemetery roster again at higher level with an α suffix, and they are
+  **the same art**, proved at the binding rather than at the label: `LIST_NPC` carries no
+  model column at all (the `.mon` text in col 1 is vestigial, exactly as it is for weapons —
+  only 3 of these 10 even have a folder by that name). A monster's appearance comes from its
+  own record in `LIST_NPC.CHR`, indexed by the row id. Each α row *has* its own record, and
+  every one of the ten lists **the same `PART_NPC.ZSC` part indices as its base** — 797, 802,
+  `[803, 804]`, `[808, 809]` and so on, identical in all ten cases. So Spire Village shows
+  the same creatures, ~13 levels up.
+
+  That also sizes the fix: no new CHR records are needed, because the α rows already have
+  their own. It is new ZSC part objects pointing at recoloured textures, and then repointing
+  each α record's `models` list at them.
 
   The **names, however, are not ours to change.** The source rows carry only dev placeholders
   (`KSヴィクティムf`), but the dialog names the creatures outright — `D=ヴィクティムα`,
