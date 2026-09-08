@@ -812,7 +812,7 @@ fn cmd_con_store(args: &[String]) -> Result<bool> {
                 skip = false;
                 continue;
             }
-            if a == "--text" {
+            if a == "--text" || a == "--service" {
                 skip = true;
                 continue;
             }
@@ -825,19 +825,26 @@ fn cmd_con_store(args: &[String]) -> Result<bool> {
     };
     if pos.len() < 3 {
         bail!(
-            "usage: con-store <root> <npc_id> <key> [--text T] [--write]\n\
-             \x20  appends an ungated shop option that calls GF_openStore, for an NPC\n\
-             \x20  that has LIST_NPC shop tabs but whose dialog never opens them.\n\
-             \x20  e.g. con-store ../data 4103 belfa --write"
+            "usage: con-store <root> <npc_id> <key> [--service S] [--text T] [--write]\n\
+             \x20  appends an ungated service option to an NPC's dialog. S is one of\n\
+             \x20  store (default) | bank | repair | upgrade -- all four are registered\n\
+             \x20  client functions used by shipped retail conversations.\n\
+             \x20  e.g. con-store ../data 4103 belfa --write\n\
+             \x20       con-store ../data 4103 belfaref --service upgrade --write"
         );
     }
     let root = PathBuf::from(&pos[0]);
     let npc_id: i32 = pos[1].parse().context("npc_id")?;
     let key = &pos[2];
-    let text = flag("--text").unwrap_or_else(|| "Show me what you have for sale.".into());
+    let service_name = flag("--service").unwrap_or_else(|| "store".into());
+    let service = quest_editor::convo::NpcService::parse(&service_name).with_context(|| {
+        format!("unknown --service {service_name:?} (store|bank|repair|upgrade)")
+    })?;
+    let text = flag("--text").unwrap_or_else(|| service.default_text().to_string());
 
-    let report =
-        quest_editor::write::append_store_to_npc_dialog(&root, npc_id, key, &text, !write)?;
+    let report = quest_editor::write::append_store_to_npc_dialog(
+        &root, npc_id, key, service, &text, !write,
+    )?;
     report.print();
     if report.dry_run {
         println!("\n(re-run with --write to apply, then bake the VFS + restart)");

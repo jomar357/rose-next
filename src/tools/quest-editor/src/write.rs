@@ -1539,6 +1539,7 @@ pub fn append_store_to_npc_dialog(
     root: &Path,
     npc_id: i32,
     key: &str,
+    service: crate::convo::NpcService,
     option_text: &str,
     dry_run: bool,
 ) -> Result<WriteReport> {
@@ -1577,11 +1578,11 @@ pub fn append_store_to_npc_dialog(
             .with_context(|| format!("npc {npc_id}'s conversation \"{name}\" not found"))?;
         let mut con = crate::convo::ConFile::read_file(&path)?;
         let refresh = crate::convo::store_option_keys(&con).iter().any(|k| k == key);
-        crate::convo::append_store_option(&mut con, key, str_id)?;
+        crate::convo::append_store_option(&mut con, key, service, str_id)?;
         let bytes = con.rebuild();
         crate::convo::ConFile::parse(&bytes).context("rebuilt .CON failed to self-parse")?;
         changes.push(format!(
-            "{} store option \"{key}\" in {} (click → GF_openStore)",
+            "{} {service:?} option \"{key}\" in {}",
             if refresh { "REFRESH" } else { "APPEND" },
             path.display()
         ));

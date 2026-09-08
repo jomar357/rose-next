@@ -648,6 +648,12 @@ Two changes, because a shop needs **three** things and he had none of them right
    the staging zone, and gear should be buyable where you prepare rather than
    only in the deep field. Crune keeps 478–481 untouched.
 
+**He also offers refining** (`--service upgrade`, 2026-09-08). Karkia's own forge is
+*not* revivable — see §8 — but our ordinary refine system is, and Belfa is the right
+NPC for it. `con-store` now takes `--service store|bank|repair|upgrade`; all four are
+registered client functions used by shipped retail conversations, differing only in one
+Lua line.
+
 Verified the rebuild preserved everything: the main Lua blob is **byte-identical**
 (30,323 bytes, still valid Lua 4 bytecode, the exchange functions intact), nodes
 went 264 → 265 exactly, every original `str_id` survives, and the forging-info

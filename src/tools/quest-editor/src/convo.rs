@@ -956,17 +956,59 @@ fn store_prefix(key: &str) -> String {
     format!("QS{key}_")
 }
 
-/// Lua for a shop option. `E` is the CEvent handle the click passes in, and
-/// `QF_getEventOwner` turns it into the NPC's object index — the same pair
-/// every retail store node uses. The `0` is `bSpecialTab`: the client only
-/// draws the fourth shop tab for `1`, and nothing here wants that.
-fn store_option_lua(key: &str) -> String {
+/// The NPC services a dialog option can open. All four are registered in the
+/// client's `game_func_reg.inc` and used by shipped retail conversations, so
+/// none of this is new machinery — it is only unreachable on some NPCs.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NpcService {
+    Store,
+    Bank,
+    Repair,
+    Upgrade,
+}
+
+impl NpcService {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "store" | "shop" => Some(Self::Store),
+            "bank" | "storage" => Some(Self::Bank),
+            "repair" => Some(Self::Repair),
+            "upgrade" | "refine" => Some(Self::Upgrade),
+            _ => None,
+        }
+    }
+
+    /// The call itself. `E` is the CEvent handle the click passes in, and
+    /// `QF_getEventOwner` turns it into the NPC's object index — the pair every
+    /// retail service node uses. `GF_openStore`'s `0` is `bSpecialTab`: the
+    /// client only draws the fourth shop tab for `1`, and nothing wants that.
+    fn call(self) -> &'static str {
+        match self {
+            Self::Store => "GF_openStore(QF_getEventOwner(E), 0)",
+            Self::Bank => "GF_openBank(QF_getEventOwner(E))",
+            Self::Repair => "GF_repair(QF_getEventOwner(E))",
+            Self::Upgrade => "GF_openUpgrade(QF_getEventOwner(E))",
+        }
+    }
+
+    pub fn default_text(self) -> &'static str {
+        match self {
+            Self::Store => "Show me what you have for sale.",
+            Self::Bank => "I'll use the storage.",
+            Self::Repair => "I'd like a repair.",
+            Self::Upgrade => "I'd like something refined.",
+        }
+    }
+}
+
+fn store_option_lua(key: &str, service: NpcService) -> String {
     let p = store_prefix(key);
     format!(
         "function {p}OPEN(E)\n\
-         \tGF_openStore(QF_getEventOwner(E), 0)\n\
+         \t{}\n\
          \treturn 1\n\
-         end\n"
+         end\n",
+        service.call()
     )
 }
 
@@ -980,7 +1022,12 @@ fn store_option_lua(key: &str) -> String {
 ///
 /// The option carries no check function, so it is always shown. That is the
 /// point: a shop that is gated on quest state is a shop nobody can reach.
-pub fn append_store_option(con: &mut ConFile, key: &str, str_id: i32) -> Result<()> {
+pub fn append_store_option(
+    con: &mut ConFile,
+    key: &str,
+    service: NpcService,
+    str_id: i32,
+) -> Result<()> {
     if con.menus.is_empty() {
         bail!(".CON has no menus — not an NPC conversation?");
     }
@@ -991,7 +1038,7 @@ pub fn append_store_option(con: &mut ConFile, key: &str, str_id: i32) -> Result<
         .items
         .push(menu_item(SC_MSG_CLOSE, -1, "", &format!("{p}OPEN"), str_id));
 
-    appendix_upsert_named(&mut con.appendix, &p, &store_option_lua(key));
+    appendix_upsert_named(&mut con.appendix, &p, &store_option_lua(key, service));
     Ok(())
 }
 
