@@ -1273,14 +1273,9 @@ but do not go looking for a bug.
 
 ## 8. Still open
 
-Small, and none of them blocks starting.
+This section was written before any code and has been trimmed as its questions were
+answered in the build. What is left is one item, and it is art, not engineering.
 
-- **Where the entrance NPC stands.** Proposal: **Muris**, since Karkia is an Oro-tier
-  alternative and Muris is where a player stands when choosing what to do next — which makes
-  reaching Oro a light, natural gate. Junon Polis instead would make Karkia bypass Oro
-  entirely. Return leg goes back to Muris either way, free, like Oro's.
-- **A level requirement on the warp**, or none. Oro deliberately has none — the real gate
-  there is the monsters. Same logic probably applies.
 - **Whether the α set gets re-themed** — *narrowed to art only, 2026-09-08.* 10 of Karkia's
   31 monsters are the Cemetery roster again at higher level with an α suffix, and column 1
   confirms the worst of it: the **model file is identical** to the base in every case
@@ -1298,6 +1293,18 @@ Small, and none of them blocks starting.
   as-is stays honest ("the same horrors, worse") and free.
 
   Renaming them *did* surface a real bug — see the `D=` prefix note under stage 3.
+
+### Settled since this section was written
+
+Kept as a record of what was decided, and where the decision actually lives.
+
+- **Where the entrance NPC stands** — the proposal here was Muris. It shipped as
+  **[Historian] Jones** in Junon Polis and **[Interplanetary Guide] Nova** at the Orlean
+  Portal Temple, with **[Explorer] Petri** in the Church as the way home
+  (`add-karkia-travel.py`, `HOSTS`). Muris was passed over because both of those NPCs are
+  already the game's established "take me somewhere" casting and needed no new writing.
+- **A level requirement on the warp** — **none**, for exactly the reason Oro has none: the
+  real gate is the monsters. Recorded at `add-karkia-travel.py:45`.
 
 ---
 
@@ -1318,11 +1325,17 @@ most of it.
 No server or client code change is required by anything above. The six skill references in §6 are
 data too, so that stays true.
 
-## 10. Before the first line of code
+## 10. Standing notes
+
+Written as a pre-start checklist; still the things to remember on every pass.
 
 - Re-read [doc/jrose-survey.md](jrose-survey.md) §2 — all three silent-failure traps apply.
 - Re-read §5 — the balance targets are a floor from a pessimistic model, not a spec.
-- `rose.vfs` is 1.99 GB and Karkia adds ~105 MB, so no rollover concern
-  (`reference_vfs_offset_limit`), but bake with `scripts/pack.ps1` so the archive self-verifies.
+- **No rollover concern, and the margin is wider than this line used to say.** The ceiling
+  moved from 2 GB to **4 GB** on 2026-08-29 when `FileEntry::lFileOffset` stopped being
+  signed (`reference_vfs_offset_limit`), and `pack.rs` now splits to `rose_2.vfs` at 4.2 GB
+  on its own. Bake with `scripts/pack.ps1` regardless: it prefers the freshly built packer
+  over the stale copy in `Exes/`, self-verifies the archive, and since 2026-09-08 refuses to
+  bake at all if a `.bak` is sitting under `data/`.
 - Servers cache STBs at startup — restart them after every stage, and rebake + redeploy the
   client for anything that touches `data/`.
