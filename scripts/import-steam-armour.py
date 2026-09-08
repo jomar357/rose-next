@@ -193,6 +193,10 @@ def verify():
               % (len(drift), (":\n  " + "\n  ".join(drift[:8])) if drift else
                  " -- every object outside rows %s is byte-identical"
                  % sorted(set(TARGET.values()))))
+    elif os.path.exists(SIDECAR + ".verified"):
+        print("drift check: already passed at import time (%s); the baseline is "
+              "retired, since later imports into other rows would fail it for no "
+              "reason" % os.path.basename(SIDECAR + ".verified"))
     else:
         print("no pre-write fingerprint on disk, so the drift check was skipped")
     return 1 if bad or drift else 0
@@ -229,7 +233,17 @@ def main():
                                   len(failed)))
     if failed:
         return 1
-    return 0 if args.dry_run else verify()
+    if args.dry_run:
+        return 0
+    rc = verify()
+    # The fingerprint proves THIS write left its neighbours alone. That proof is
+    # only meaningful at write time: keep the baseline afterwards and the next
+    # legitimate import into other rows reports every one of them as drift. So
+    # retire it on success, and leave it in place on failure for diagnosis.
+    if rc == 0 and os.path.exists(SIDECAR):
+        os.replace(SIDECAR, SIDECAR + ".verified")
+        print("drift baseline retired to %s" % os.path.basename(SIDECAR + ".verified"))
+    return rc
 
 
 if __name__ == "__main__":
