@@ -1,26 +1,51 @@
-"""Stage 6d: give Karkia its two working shops.
+"""Stage 6d: give Karkia working shops.
 
-Karkia shipped four NPCs with shop tabs, and none of them sold anything useful:
+Karkia shipped six NPCs with shop tabs, and none of them sold anything useful:
 
   Gelt      4019  Spire Village      tab 585 -- past the end of LIST_SELL.STB
   Nemo      4142  Abandoned Church   tab 584 -- past the end of LIST_SELL.STB
   Belfa     4103  Foot of the Tower  tabs 478-481, shared with Crune
   Orentark  4104  Foot of the Tower  tabs 245/248, shared -- Materials, Dealer Skill
+  Ginias    4089  Memories           tab 593 -- past the end of LIST_SELL.STB
+  Astraea   4108  Memories           tab 594 -- past the end, *and* union-gated
 
 Two findings shaped what this script does, both from reading the client rather
 than from the tables:
 
 **A shop only exists if the NPC's .CON calls `GF_openStore`.** Exactly three
-reachable Karkia conversations do: EM86-001 (Nemo), EM86-013 (Gelt) and
-EM02-114 (Orentark). **Belfa does not**, so his four tabs can never open no
-matter what is written into them -- which is why this script leaves him alone
-and the roadmap's "a working shop for free" claim needed correcting. Fixing
-Belfa means editing compiled Lua (a QEX1 appendix or a .CON rebuild), which is
-a separate job.
+Karkia conversations do it in the shipped data: EM86-001 (Nemo), EM86-013
+(Gelt), EM02-114 (Orentark), EM03-002 (Ginias) and EM03-011 (Astraea). Belfa
+did **not**, and was given one by `quest-editor con-store` (a QEX1 appendix)
+in a later pass; his tabs are wired here.
+
+The two that still have no store call are recorded so nobody re-investigates
+them:
+
+  Ash        4088  EM03-001  calls only GF_openBank -- he is the Memories
+                             *storagekeeper*, so a bank and no shop is correct.
+                             He carries no tab and needs none.
+  Bordeaux   4097  EM03-010  calls nothing at all. His four tabs (512-515) are
+                             therefore inert exactly as Belfa's were: 512 is a
+                             "Skill Book" row shared with Olleck, and 513-515
+                             have no STL key and no stock. Giving him a shop
+                             means a con-store append first; left alone
+                             deliberately.
 
 All three call `GF_openStore(owner, 0)`, and the client only draws the fourth
 tab for `bSpecialTab = 1`. So **only LIST_NPC cols 21-23 are usable**; col 24
 is written as 0.
+
+**A shop NPC's union number lives in the drop-chance column.**
+`NPC_UNION_NO(I)` is `#define`d to `NPC_DROP_ITEM(I)` -- game col 20, the same
+cell that means "roll my own drop table" on a monster. Both `CStore::ChangeStore`
+and the server's trade handler refuse the shop when that value is non-zero and
+does not equal the player's union. Astraea shipped with **20**, and
+`CObjAVT::SetCur_UNION` rejects anything `>= MAX_UNION_COUNT` (10) while the DB
+column defaults to 0 -- so no player can ever hold union 20 and her shop was
+shut for everyone, whatever her tab pointed at. She is the only Karkia NPC with
+a non-zero union; this script clears it. Note only tabs 0-2 (cols 21-23) are
+gated by nothing else: `ChangeStore` always draws them and reads col 24 only
+for `openStore(npc, 1)`.
 
 **A dangling tab row is safe but blank.** `STBDATA::value` bounds-checks the
 flat index and returns a default, so rows 584/585 read as empty rather than
@@ -57,8 +82,11 @@ Unicorn, Albion, Quetzalcoatl, ...) and is deliberately left for drops, as are
 Requirements are on our own scale, not inflated -- our level-230 Viper weapons
 already ask STR 335-365, and the level-215 tier here asks 277-321.
 
-Armour is deliberately not stocked; Karkia's armourer (Astraea) is in Memories,
-which is unreachable, and there is no armour import yet.
+Armour is deliberately not stocked -- there is no armour import yet. Astraea,
+Karkia's armourer, sells **materials** instead: Memories became reachable in
+stage 7a, and stage 8 imported the 25 materials her own dialog asks for, so she
+is the one NPC in the game for whom that stock is already written into her
+lines.
 
 Idempotent. `--dry-run` / `--verify` / `--restore`. Backups go to build/, never
 beside the data: src/pipeline/src/pack.rs walks the data tree filtering only
@@ -95,6 +123,12 @@ T_WEAPON, T_USE, T_NATURAL = 8, 10, 12
 # only for openStore(npc, 1); every Karkia seller passes 0, so it stays empty.
 TAB_COLS = (21, 22, 23, 24)
 
+# NPC_UNION_NO is #defined to NPC_DROP_ITEM -- game col 20. Non-zero means
+# "union shop"; MAX_UNION_COUNT is 10 and SetCur_UNION rejects anything at or
+# above it, so any value >= 10 is a shop no player can ever open.
+COL_UNION = 20
+MAX_UNION_COUNT = 10        # datatype.h
+
 # The imported Jrose weapons, by level tier. Complete coverage of all 13 weapon
 # types in each of the two tiers we sell.
 ARMS_215 = [1381, 1384, 1387, 1390, 1393, 1396, 1399, 1402, 1405, 1408, 1411,
@@ -110,6 +144,31 @@ DROP_ONLY = (
     [1383, 1386, 1389, 1392, 1395, 1398, 1401, 1404, 1407, 1410, 1413,
      1416, 1419]                                                           # 240
 )
+
+# The 25 materials imported in stage 8 (LIST_NATURAL 740-764). Astraea sells
+# them because they are what *her own translated dialog* asks for -- Starlight,
+# the Tomes, the Arcane Sigil, Black Iron Gears, the colour cores, Stella Libra,
+# Sol Niger Horns. Until stage 8 those were names with nothing behind them.
+#
+# Split on the same principle as the weapon tiers above: the ordinary reagents
+# are bought over a counter, and the ones the dialog treats as hard to come by
+# are not for sale at any price. Graphistone is "found only in the Tower of
+# Despair"; Starlight is what the Starsteel armourers demand you bring *them*;
+# the Tomes are asked for fifty at a time; the Sacred Demon Crystals break
+# Nagia's seal. Selling those would contradict the lines that make them worth
+# having, so they wait for drops or a craft.
+MATERIALS_SOLD = [742,                    # Black Iron Gear
+                  743, 744, 745, 746,     # the four lesser Scrolls
+                  751,                    # Talisman of Enchantment
+                  753, 754, 755, 756,     # the four Latin colour cores
+                  757,                    # Stella Libra
+                  763]                    # Tamahagane
+MATERIALS_RESERVED = [740, 741,           # Graphistone, Starlight
+                      747, 748, 749, 750, # the four Tomes
+                      752,                # Arcane Sigil of Enchantment
+                      758,                # Sol Niger Horn
+                      759, 760, 761, 762, # Nagia's seal chain, Fafnir's stone
+                      764]                # Stardust Lantern
 
 ARROWS = [301, 302, 303, 304, 305, 306, 311, 312, 313, 314, 315, 316, 317]
 BULLETS = [321, 322, 323, 324, 325, 326, 327, 331, 332, 333]
@@ -139,6 +198,7 @@ NEW_TABS = [
     (564, "Ammo/Arrows",
      [(T_NATURAL, n) for n in ARROWS + BULLETS + SHELLS]
      + [(T_USE, REPAIR_HAMMER)]),
+    (565, "Karkia Materials", [(T_NATURAL, n) for n in MATERIALS_SOLD]),
 ]
 
 # npc row -> the three drawable tabs, in order
@@ -154,9 +214,20 @@ NPC_TABS = {
     4019: (561, 562, 564),   # [Spire Warrior] Gelt  -- arms and ammunition
     4103: (561, 562, 564),   # [Master Smith] Belfa  -- the Tower staging shop
     4142: (563, 0, 0),       # [Shrine Maiden] Nemo  -- "short of supplies"
+    # Memories, reachable since stage 7a. Ginias is the General Store, so he
+    # carries the church's consumables and the ammunition -- both rows already
+    # exist, so he costs no new stock. Astraea is the armourer and sells the
+    # reagents she talks about; armour when there is armour to sell.
+    4089: (563, 564, 0),     # [General Store] Ginias
+    4108: (565, 0, 0),       # [Starsteel Armourer] Astraea
 }
+
+# Sellers whose union column must be cleared, or the shop refuses to open for
+# every player alive. See the union note in the module docstring.
+CLEAR_UNION = {4108}
 NPC_NAMES = {4019: "[Spire Warrior] Gelt", 4103: "[Master Smith] Belfa",
-             4142: "[Shrine Maiden] Nemo"}
+             4142: "[Shrine Maiden] Nemo", 4089: "[General Store] Ginias",
+             4108: "[Starsteel Armourer] Astraea"}
 
 # STB tables an item type is validated against, for the don't-sell / range check
 TYPE_TABLE = {T_WEAPON: "LIST_WEAPON.STB", T_USE: "LIST_USEITEM.STB",
@@ -225,6 +296,13 @@ def check_stock(rd):
               if ty == T_WEAPON and n in DROP_ONLY]
     if leaked:
         bad.append(f"drop-only weapons leaked into a shop: {leaked}")
+    held = [n for _r, _nm, items in NEW_TABS for ty, n in items
+            if ty == T_NATURAL and n in MATERIALS_RESERVED]
+    if held:
+        bad.append(f"reserved materials leaked into a shop: {held}")
+    overlap = sorted(set(MATERIALS_SOLD) & set(MATERIALS_RESERVED))
+    if overlap:
+        bad.append(f"materials both sold and reserved: {overlap}")
     return bad
 
 
@@ -264,6 +342,10 @@ def apply(oro, dry):
             npc.set(nid, c, str(v).encode("latin-1") if v else b"0")
         after = [npc.get(nid, c).decode("latin-1") for c in TAB_COLS]
         report.append(f"  npc {nid} {NPC_NAMES[nid]}: {before} -> {after}")
+        if nid in CLEAR_UNION:
+            was = npc.get(nid, COL_UNION).decode("latin-1") or "0"
+            npc.set(nid, COL_UNION, b"0")
+            report.append(f"    union {was} -> 0 (was an unopenable union shop)")
 
     if dry:
         return report, None
@@ -303,6 +385,14 @@ def verify(oro, rd):
                       else (v // 1000, v % 1000))
             if ty == T_WEAPON and no in DROP_ONLY:
                 bad.append(f"row {row} slot {s}: drop-only weapon {no} on sale")
+            if ty == T_NATURAL and no in MATERIALS_RESERVED:
+                bad.append(f"row {row} slot {s}: reserved material {no} on sale")
+    # a seller whose union no player can hold has a permanently closed shop
+    for nid in NPC_TABS:
+        u = int(npc.get(nid, COL_UNION) or 0)
+        if u >= MAX_UNION_COUNT:
+            bad.append(f"npc {nid} {NPC_NAMES[nid]}: union {u} >= "
+                       f"MAX_UNION_COUNT ({MAX_UNION_COUNT}), shop cannot open")
     return bad
 
 

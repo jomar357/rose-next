@@ -623,9 +623,9 @@ Knock-on: `translate-karkia-dialog.py` now reads conversation nodes from **our**
 this script exposes has to be collectable from the files we actually ship or its
 line stays Japanese. That added 9 strings (1,131 → 1,140).
 
-#### Stage 6d — shops  *(DONE, 2026-09-07)*
+#### Stage 6d — shops  *(DONE, 2026-09-07; Memories sellers added 2026-09-08)*
 
-`scripts/add-karkia-shops.py`. Two working shops, 4 tabs, 72 items.
+`scripts/add-karkia-shops.py`. Five working shops, 5 tabs, 84 items.
 
 **This section's original plan was wrong in two ways, both found by reading the
 client rather than the tables.**
@@ -670,11 +670,43 @@ The weapon tiers are picked so Karkia never duplicates Oro, whose merchant Huzam
 level-240 mythical set (Bahamut, Phoenix, Griffon, …) is deliberately held back for
 loot, and `--verify` proves none of the 34 reserved weapons leaked into a shop.
 
-Armour is deliberately unstocked — Karkia's armourer (Astraea) is in Memories, which
-is unreachable, and there is no armour import yet.
+**The Memories sellers, 2026-09-08.** Memories became reachable in 7a and stage 8
+imported the materials its NPCs talk about, so the three remaining dangling tabs were
+resolved. Reading each `.CON`'s Lua constant table settled who could have a shop at
+all:
 
-Still dangling, all on **unreachable** Memories NPCs: 513–515 (Bordeaux), 593
-(Ginias), 594 (Astraea). Blank tabs, no crash.
+| npc | `.CON` | calls | outcome |
+|---|---|---|---|
+| Ginias 4089 | EM03-002 | `openStore`, `repair`, `openUpgradeNormal/Durability` | repointed 593 → **563 + 564** |
+| Astraea 4108 | EM03-011 | `openStore`, `SwapItem` | repointed 594 → **565**, union cleared |
+| Ash 4088 | EM03-001 | `openBank` only | correct as-is — he is the storagekeeper, a bank and no shop |
+| Bordeaux 4097 | EM03-010 | **nothing** | tabs 512–515 are inert exactly as Belfa's were; left alone |
+
+**Astraea was broken twice, and the second one is the interesting one.**
+`NPC_UNION_NO(I)` is `#define`d to `NPC_DROP_ITEM(I)` — game col 20, *the same cell
+that means "roll my own drop table" on a monster*. Both `CStore::ChangeStore` and the
+server's trade handler refuse a shop whose union is non-zero and not the player's.
+Astraea shipped with **20**, while `CObjAVT::SetCur_UNION` rejects anything
+`>= MAX_UNION_COUNT` (10) and the DB column defaults to 0 — so **no player can ever
+hold union 20**, and fixing only her tab would have produced a shop that still refused
+to open. She is the only Karkia NPC with a non-zero union. `--verify` now fails any
+seller whose union is unreachable.
+
+Armour is still unstocked — there is no armour import yet. Astraea sells **materials**
+instead: she is the one NPC whose own dialog already lists them.
+
+| row | caption | stock | seller |
+|---|---|---|---|
+| 565 | Karkia Materials | 12 of the 25 stage-8 materials | Astraea |
+
+The materials split follows the weapon precedent: the ordinary reagents (Black Iron
+Gear, the four lesser Scrolls, the Talisman, the four colour cores, Stella Libra,
+Tamahagane) are bought; the 13 the dialog treats as hard to come by are **not for sale
+at any price** — Graphistone is "found only in the Tower of Despair", Starlight is what
+the armourers demand you bring *them*, the Tomes are asked for fifty at a time, and the
+Sacred Demon Crystals break Nagia's seal. Selling those over a counter would contradict
+the lines that make them worth having, so they wait for drops or a craft. `--verify`
+proves none of the 13 leaked into any shop row.
 
 **Stocking the tabs was not enough for Gelt** (found in game). His entire service
 menu — `GF_openStore`, `GF_openBank`, `GF_repair`, `GF_openUpgrade`, all four
@@ -746,7 +778,7 @@ bake into the `.vfs`. They are moved to `build/data-bak-archive/` after every ru
 
 ---
 
-### Stage 8 — materials  *(DONE, 2026-09-08)*
+### Stage 8 — materials  *(DONE + validated in game, 2026-09-08)*
 
 Twenty-five Jrose materials at `LIST_NATURAL` rows **740–764**, by
 `scripts/import-karkia-materials.py`. The selection is not a sample of what the
