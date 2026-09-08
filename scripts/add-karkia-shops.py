@@ -82,11 +82,22 @@ Unicorn, Albion, Quetzalcoatl, ...) and is deliberately left for drops, as are
 Requirements are on our own scale, not inflated -- our level-230 Viper weapons
 already ask STR 335-365, and the level-215 tier here asks 277-321.
 
-Armour is deliberately not stocked -- there is no armour import yet. Astraea,
-Karkia's armourer, sells **materials** instead: Memories became reachable in
-stage 7a, and stage 8 imported the 25 materials her own dialog asks for, so she
-is the one NPC in the game for whom that stock is already written into her
-lines.
+Astraea, Karkia's armourer, sells the **materials** her own dialog asks for --
+Memories became reachable in stage 7a and stage 8 imported them, so she is the one
+NPC in the game for whom that stock was already written into her lines.
+
+She also sells the **armour**, in her two remaining tab columns: the level-225
+Refined Steam and level-230 Unit Core tiers, 16 items each. She is the only armour
+seller Karkia has -- the [Starsteel Armourer], and the only NPC there whose `.CON`
+opens a store *and* whose role fits -- so there is nothing to split across. The
+level-240 Egyptian tier is deliberately **not** sold: it is the cap tier and is
+reserved for loot, the same split the weapons use.
+
+Both armour tabs are laid out as a grid rather than poured in from slot 0, matching
+Muris' Azim: **one set per column, one body part per row** -- cap over body over
+gloves over boots, classes left to right. A tab is 8 columns x 6 rows and the client
+places each icon at its slot index, so pouring 16 items in sequentially would run all
+four caps along the top row and wrap each set across a line break.
 
 Idempotent. `--dry-run` / `--verify` / `--restore`. Backups go to build/, never
 beside the data: src/pipeline/src/pack.rs walks the data tree filtering only
@@ -118,6 +129,29 @@ MAX_ITEM_NO = 2047          # tagBaseITEM: m_nItemNo is 11 bits
 SLOTS = 48                  # LIST_SELL is 2 + 48 columns
 
 T_WEAPON, T_USE, T_NATURAL = 8, 10, 12
+T_CAP, T_BODY, T_ARMS, T_FOOT = 2, 3, 4, 5
+
+# A shop tab is 8 columns x 6 rows (dlgstore.xml stacks six 41px STORE_MIDDLE
+# strips over 48 slots) and the client positions each icon by its slot index, so
+# an empty slot is a real gap rather than something the next item slides into.
+# Armour is therefore laid out as a grid, the same way Muris' Azim is:
+# one set per column, one body part per row, ascending level left to right.
+GRID_COLS = 8
+ARMOUR_PIECES = ((T_CAP, "cap"), (T_BODY, "body"), (T_ARMS, "arms"), (T_FOOT, "foot"))
+
+
+def armour_grid(first_row, classes=4):
+    """{slot: (type, item no)} for one armour tier.
+
+    `first_row` is the Soldier row; the four class variants are consecutive, and
+    every slot table uses the same row number for a given class -- which is true
+    because import-midtier-armour.py wrote them that way on purpose.
+    """
+    out = {}
+    for r, (typ, _name) in enumerate(ARMOUR_PIECES):
+        for c in range(classes):
+            out[r * GRID_COLS + c] = (typ, first_row + c)
+    return out
 
 # LIST_NPC shop-tab columns. Col 24 is the fourth tab, which the client draws
 # only for openStore(npc, 1); every Karkia seller passes 0, so it stays empty.
@@ -199,6 +233,10 @@ NEW_TABS = [
      [(T_NATURAL, n) for n in ARROWS + BULLETS + SHELLS]
      + [(T_USE, REPAIR_HAMMER)]),
     (565, "Karkia Materials", [(T_NATURAL, n) for n in MATERIALS_SOLD]),
+    # The two mid tiers, one per tab, each a 4x4 block: class across, body part
+    # down. Astraea is the only armour seller Karkia has, so both hang off her.
+    (566, "Refined Steam lv225", armour_grid(254)),
+    (567, "Unit Core lv230", armour_grid(258)),
 ]
 
 # npc row -> the three drawable tabs, in order
@@ -219,7 +257,7 @@ NPC_TABS = {
     # exist, so he costs no new stock. Astraea is the armourer and sells the
     # reagents she talks about; armour when there is armour to sell.
     4089: (563, 564, 0),     # [General Store] Ginias
-    4108: (565, 0, 0),       # [Starsteel Armourer] Astraea
+    4108: (565, 566, 567),   # [Starsteel Armourer] Astraea -- materials + both tiers
 }
 
 # Sellers whose union column must be cleared, or the shop refuses to open for
@@ -231,7 +269,9 @@ NPC_NAMES = {4019: "[Spire Warrior] Gelt", 4103: "[Master Smith] Belfa",
 
 # STB tables an item type is validated against, for the don't-sell / range check
 TYPE_TABLE = {T_WEAPON: "LIST_WEAPON.STB", T_USE: "LIST_USEITEM.STB",
-              T_NATURAL: "LIST_NATURAL.STB"}
+              T_NATURAL: "LIST_NATURAL.STB", T_CAP: "LIST_CAP.STB",
+              T_BODY: "LIST_BODY.STB", T_ARMS: "LIST_ARMS.STB",
+              T_FOOT: "LIST_FOOT.STB"}
 
 ITEM_DONT_SELL = 0x01
 
@@ -278,13 +318,37 @@ def check_captions(oro):
     return bad
 
 
+def tab_slots(items):
+    """The 48 packed cells for one tab, from either a flat list or a {slot: item} map.
+
+    A list is poured in from slot 0 (fine for a bag of consumables); a dict places
+    each item at an exact slot, which is what the armour grid needs.
+    """
+    out = [0] * SLOTS
+    if isinstance(items, dict):
+        for slot, pair in items.items():
+            out[slot] = encode(*pair)
+    else:
+        for i, pair in enumerate(items):
+            out[i] = encode(*pair)
+    return out
+
+
+def stock_pairs(items):
+    return list(items.values()) if isinstance(items, dict) else list(items)
+
+
 def check_stock(rd):
     """Refuse to stock anything missing, or flagged not-for-sale."""
     bad = []
     for _row, _name, items in NEW_TABS:
-        if len(items) > SLOTS:
+        if isinstance(items, dict):
+            over = [k for k in items if not 0 <= k < SLOTS]
+            if over:
+                bad.append(f"row {_row}: slots outside 0..{SLOTS - 1}: {over}")
+        elif len(items) > SLOTS:
             bad.append(f"row {_row}: {len(items)} items exceeds {SLOTS} slots")
-        for ty, no in items:
+        for ty, no in stock_pairs(items):
             tbl = rd.Stb(os.path.join(STB, TYPE_TABLE[ty]), "utf-8")
             if no >= tbl.rows or not rd.scrub(tbl.s(no, 0)).strip():
                 bad.append(f"type {ty} no {no}: no such item")
@@ -292,11 +356,11 @@ def check_stock(rd):
             if tbl.i(no, 3) & ITEM_DONT_SELL:
                 bad.append(f"type {ty} no {no} "
                            f"({rd.scrub(tbl.s(no, 0))}): flagged don't-sell")
-    leaked = [n for _r, _nm, items in NEW_TABS for ty, n in items
+    leaked = [n for _r, _nm, items in NEW_TABS for ty, n in stock_pairs(items)
               if ty == T_WEAPON and n in DROP_ONLY]
     if leaked:
         bad.append(f"drop-only weapons leaked into a shop: {leaked}")
-    held = [n for _r, _nm, items in NEW_TABS for ty, n in items
+    held = [n for _r, _nm, items in NEW_TABS for ty, n in stock_pairs(items)
             if ty == T_NATURAL and n in MATERIALS_RESERVED]
     if held:
         bad.append(f"reserved materials leaked into a shop: {held}")
@@ -327,14 +391,13 @@ def apply(oro, dry):
         key = f"LSEL{row}"
         sell.set(row, 0, name.encode("latin-1"))
         sell.set(row, 1, key.encode("latin-1"))
-        for slot in range(SLOTS):
-            packed = encode(*items[slot]) if slot < len(items) else 0
+        for slot, packed in enumerate(tab_slots(items)):
             sell.set(row, 2 + slot, str(packed).encode("latin-1") if packed
                      else b"")
         if not stl.has(key):
             stl.append(key, row, name)
             report.append(f"  STL +{key} = {name!r}")
-        report.append(f"  row {row} {name!r}: {len(items)} items")
+        report.append(f"  row {row} {name!r}: {len(stock_pairs(items))} items")
 
     for nid, tabs in NPC_TABS.items():
         before = [npc.get(nid, c).decode("latin-1") or "0" for c in TAB_COLS]
@@ -367,7 +430,7 @@ def verify(oro, rd):
         if not stl.has(f"LSEL{row}"):
             bad.append(f"row {row}: no STL key LSEL{row}")
         got = [int(sell.get(row, 2 + s) or 0) for s in range(SLOTS)]
-        want = [encode(*i) for i in items] + [0] * (SLOTS - len(items))
+        want = tab_slots(items)
         if got != want:
             bad.append(f"row {row}: stock differs from plan")
     for nid, tabs in NPC_TABS.items():
@@ -436,7 +499,7 @@ def main():
 
     report, blobs = apply(oro, args.dry_run)
     print("\n".join(report))
-    total = sum(len(i) for _r, _n, i in NEW_TABS)
+    total = sum(len(stock_pairs(i)) for _r, _n, i in NEW_TABS)
     print(f"\n{len(NEW_TABS)} tabs, {total} items, "
           f"{len(DROP_ONLY)} weapons reserved for drops")
     if args.dry_run:

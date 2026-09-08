@@ -728,6 +728,22 @@ instead: she is the one NPC whose own dialog already lists them.
 | row | caption | stock | seller |
 |---|---|---|---|
 | 565 | Karkia Materials | 12 of the 25 stage-8 materials | Astraea |
+| 566 | Refined Steam lv225 | 16 — 4 classes x cap/body/arms/foot | Astraea |
+| 567 | Unit Core lv230 | 16 — 4 classes x cap/body/arms/foot | Astraea |
+
+**Armour, 2026-09-08.** Astraea is the only armour seller Karkia has — the
+[Starsteel Armourer], and the only NPC there whose `.CON` opens a store whose role
+fits — so both mid tiers hang off her two free tab columns rather than being split.
+The level-240 Egyptian tier is deliberately **not** sold; it is the cap tier and is
+reserved for loot, the same split the weapons use.
+
+Both tabs are laid out as a grid rather than poured in from slot 0, matching Muris'
+Azim: **one set per column, one body part per row** — cap over body over gloves over
+boots, classes left to right. A tab is 8 columns x 6 rows (`dlgstore.xml` stacks six
+41px `STORE_MIDDLE` strips over 48 slots) and the client places each icon at its slot
+index, so pouring 16 items in sequentially would run all four caps along the top row
+and wrap each set across a line break. `armour_grid()` writes the sparse map, and
+`NEW_TABS` now accepts `{slot: item}` as well as a flat list.
 
 The materials split follows the weapon precedent: the ordinary reagents (Black Iron
 Gear, the four lesser Scrolls, the Talisman, the four colour cores, Stella Libra,
