@@ -16,6 +16,7 @@ There is enough surviving material to reconstruct the client presentation and a 
 - Normal and boss room models, including alternate room variants, and their music.
 - **461 tower-associated NPC rows (3510–3970)**, recovered by combining name and AI references, and **263 `TENKU_*.AIP` files** containing monster behavior. The first-pass name-only filter found only 345; see §12.
 - A **historical partial boss-checkpoint mapping through 190F**, matched to local NPC IDs, plus recoverable boss-summon actions. These are not a complete final-version wave schedule.
+- **Decoded the encrypted archive index: 80,230 entries.** All 2,584 indexed script/table/dialogue/UI and related control files are present in the loose dump and match the index CRCs. No additional indexed wave table was found (§13).
 - A tower-specific network protocol for entry, floor setup, starting combat, counting enemies/kills, reporting completion times, and ending a run.
 - Quest rewards, entry-item identities, achievement milestones at floors 250 and 260, and links to the related Slayer challenges.
 
@@ -211,7 +212,7 @@ The countdown is presentation code, not a client-authorized permission to spawn 
 - `Sound/BGM/nageki_n.ogg`, string VA **`0x71FAE8`**.
 - `Sound/BGM/nageki_boss.ogg`, string VA **`0x71FACC`**.
 
-Both music files exist. The zone's generic Ramesses BGM fields are therefore insufficient to reproduce the observed client branch. The exact purpose and switching behavior of every `_B` room component still needs rendering-oriented analysis.
+Both music files exist. The zone's generic Ramesses BGM fields are therefore insufficient to reproduce the observed client branch. **Third-pass finding (§13):** the matching `_B` room is instantiated alongside the base room, with recursive visibility increasing by floor and reaching 1 at floor 200. Its exact visual appearance still needs rendering-oriented validation.
 
 ## 6. Monsters and AI: recovered content, missing encounter schedule
 
@@ -323,7 +324,7 @@ The event table at **`0x56CF04`** establishes the following mapping. Semantic na
 
 | Extension command | Handler VA | Observed effect |
 |---|---|---|
-| `0x96` | `0x56CB6E` | Initialize accepted run state; status at payload +0x12, mode at +0x11; resets counters/timers. |
+| `0x96` | `0x56CB6E` | Initialize accepted run state; status at payload +0x12, mode at +0x11; resets counters/timers. U32 values at +4/+8 become room-placement X/Y components (§13). |
 | `0x97` | default | No action in this handler. |
 | **`0x98`** | **`0x56CBFE`** | **Set floor and room:** u16 floor at +0, room flag u8 at +4, optional string at +5; resets lap and rebuilds room. Bytes +2/+3 not interpreted here. |
 | **`0x99`** | **`0x56CC80`** | **Start combat:** clear preparing flag, set fighting flag, reset lap clocks. |
@@ -385,7 +386,7 @@ Tower code was found in **TRose.exe itself**. Inspection of the root DLLs did no
 
 - `extr01/02/03.dll` have small code sections, large data sections, and ordinal-only exports. No relevant tower strings were found; `extr02.dll` has an unrelated “MOON-香奈- CD Tenku” string. Their exact roles were not fully reverse engineered.
 - Other DLLs include image, XML, and compression libraries and `TriggerInfo.dll`. A negative string search is not proof that an opaque DLL contains no relevant behavior.
-- The `.VFS` archives and `data.idx` were not decrypted. Existing workspace context identifies the index as encrypted `IDX2`. Findings about missing files/controllers refer to the readable loose tree and traced executable paths, not a proof about every encrypted archive byte.
+- **Updated in the third pass:** the `IDX2` index was fully decoded, and the payload decoder was reproduced and verified on selected tower files (§13). The index accounts for every byte of the five supplied archives. `ROOT.VFS` is absent, but all of its indexed files exist loose. The earlier encrypted-archive limitation is superseded by these results.
 
 No passwords, server credentials, or live service access were needed.
 
@@ -581,16 +582,174 @@ All **172 loose STB files** were parsed and screened for tower/floor terms and n
 
 The Ramesses `PARTS_LV*.STB` files contain room-part authoring paths, while the two `TENKU` STBs still contain only their single populated room-definition row. No new floor roster was identified in these candidates.
 
-**Archive limit:** A read-only signature/string probe of the five root VFS files and `data.idx` found no literal `TENKU`/`tenku` strings. The first `STB1` hit in `3DDATA.VFS`, file offset **`0x442610BF`**, has an impossible STB header and was rejected as a false positive. No decrypted archive listing was recovered; this probe is not an exhaustive archive-content search.
+**Second-pass archive limit, since resolved in §13:** A read-only signature/string probe of the five root VFS files and `data.idx` found no literal `TENKU`/`tenku` strings. The first `STB1` hit in `3DDATA.VFS`, file offset **`0x442610BF`**, has an impossible STB header and was rejected as a false positive. At that stage no decrypted archive listing had been recovered; that probe was not an exhaustive archive-content search.
 
 ### 12.6 What is worth pursuing next
 
 The second pass justifies **partial historical reconstruction**: earlier boss checkpoints, some later boss-pool members, and explicit boss-add behavior now have evidence. The remaining gap is specifically the ordinary-floor populations, their counts and positions, wave timing, and final-version pool rules.
 
-The next useful sources would be:
+The follow-up priorities, with footage reserved for final validation as requested, are:
 
-1. **Recorded Jrose runs**, especially floors 1–30 and 190–210, where visible floor numbers, enemy counters, names and spawn batches can test these hypotheses.
-2. **A server binary or server-side configuration**, which could recover authoritative spawn templates and selection rules directly.
-3. **A decrypted archive index**, to determine whether any additional server-oriented data was accidentally shipped. The present encrypted archives alone do not establish that such data exists.
+1. **A server binary or server-side configuration**, which could recover authoritative spawn templates and selection rules directly.
+2. **A decrypted archive index**, to determine whether additional server-oriented data was accidentally shipped. **Completed in the third pass below.**
+3. **Recorded Jrose runs at the end**, especially floors 1–30 and 190–210, to test floor numbers, enemy counters, names and spawn batches against the reconstruction.
 
 Further blind filename searching in this loose client tree is now unlikely to recover the whole schedule. Until stronger evidence appears, preserve the checkpoint mapping as historical/inferred and explicitly label any newly authored ordinary-floor waves.
+
+## 13. Third pass: archive decryption and room behavior
+
+**Follow-up date:** 2026-09-08. **Result:** the encrypted-archive uncertainty is resolved for the supplied files. No additional indexed tower schedule was recovered. Two previously unclear room behaviors were identified. All work remained static; no game executable, batch file, or embedded workbook was launched.
+
+### 13.1 The IDX2 decoder is in TRose.exe
+
+The decoder requires no external service or unavailable key. The executable constructs its table locally:
+
+| VA | Identified behavior |
+|---|---|
+| `0x434837` | Initialize a global to `0xA1BB52D2`. |
+| `0x4349CB` | XOR that value with `0xF53A0740`, producing seed **`0x54815592`**. |
+| `0x5C9540` | Wrapper forwarding the seed to the table generator. |
+| `0x5CB020` | Generate **1,024 u32 words / 4,096 bytes** at `0x7B3860`. |
+| `0x5CB1C0` | Read bytes and XOR them using the **absolute file position modulo 4096**. |
+| `0x5CBB21` | Validate the raw `IDX2` marker through XOR/byte comparisons; this explains why searching the executable for a literal `IDX2` failed. |
+| `0x5CBC10` | Apply an additional **0xCC XOR** to archive-name bytes after the position-based decoding. |
+| `0x5C9AD0` | Read file records, with the same additional 0xCC XOR on their names. |
+
+For seed `k`, table word `i` is:
+
+```text
+word[i] = ((4*k + 1 + 4*i) * (k + 1 + i)) modulo 2^32
+```
+
+Serialize each word little-endian. The first **12 index bytes** are unencrypted: base version **204**, current version **1108**, then `IDX2`. Position-based decoding begins at file offset **12**, retaining absolute positions rather than restarting the table there. The archive count at that offset decodes to **6**.
+
+Index SHA-256: **`ade7b9f9ee4df49ebb74ba2768c81fb0185adc4f4b4235f5fd68945abd38580f`**.
+
+### 13.2 Complete index and archive coverage
+
+Every archive directory and file record decoded successfully. Record boundaries join exactly, and the final record ends at index EOF, **5,819,462 bytes**.
+
+| Archive entry | File records | Index table offset | Physical archive |
+|---|---:|---:|---|
+| `DATA.VFS` | 9,311 | 110 | Present |
+| `MAP.VFS` | 26,822 | 604,296 | Present |
+| `GROUND.VFS` | 6,224 | 2,655,680 | Present |
+| `3DDATA.VFS` | 37,241 | 3,079,928 | Present |
+| `BASIC.VFS` | 96 | 5,785,919 | Present |
+| `ROOT.VFS` | 536 | 5,790,767 | Absent; all 536 indexed files exist loose |
+| **Total** | **80,230** | | |
+
+There are **no deleted entries or duplicate normalized paths**. For each of the five physical archives, sorting its entries by offset covers the entire archive from byte zero to EOF with **no gaps, overlaps, block slack, or trailing bytes**. All stored block sizes equal the corresponding file sizes. This closes the lead of an unindexed/deleted table lingering in unused archive space. It does not prove that every asset's internal contents have been exhaustively interpreted.
+
+Comparison against the loose dump, ignoring path separator and case differences, found **27 unmatched names**: **17 DDS textures, 8 ZMS meshes, one BAT file, and one SHS scrap file**. These are primarily avatar equipment resources with unusual full-width characters in their filenames. One additional name resolves under Unicode NFKC normalization; no broad filename-renaming changes were made. All matched files have the expected size.
+
+**All indexed control files are already present:** 172 STBs, 548 QSDs, 1,219 AIPs, 463 CONs, 19 Lua files, 35 STLs, 6 LTBs, 108 XMLs, 5 CSVs, 5 ID files, 3 HLPs and 1 TBL. Their **2,584 CRC-32 checks all match the index**, covering **44,014,709 bytes**. Thus there is no same-sized alternate indexed wave table hiding behind a different archive copy of one of these files.
+
+### 13.3 Payload decoding and the two auxiliary files
+
+**Binary:** VFS payload reads at **`0x5C9610`** first apply the same position-based XOR and then a byte substitution. The substitution table is embedded in the executable at **`0x7773C8`**, with eight 256-byte permutations. `0x5CC0A0` implements the substitution. The selector is the file record's encryption byte masked with **0x3F**; all entries in this index use selectors **0–7** and compression byte **0**.
+
+This is a two-stage transformation. XOR alone does not recover ordinary file signatures.
+
+Decrypted bytes were compared directly with loose files for **LIST_NPC.STB, CELESTIALTOWER.QSD, EM98-005.CON, TENKU_JUNON_MELEE1.AIP, the two tower room STBs, and all four room ZSCs**: **10 exact byte-for-byte matches**, with matching CRCs as well.
+
+The two unmatched auxiliary files were decoded into the system temporary directory and inspected without executing them:
+
+- `3DDATA/EVENT/XLS2LTB(CON_XLSをLTBで変換)_2.BAT`, **328 bytes**: commands for converting conversation/quest/AI localization between XLS and LTB. It contains no floor controller.
+- The **239,104-byte SHS** under `3DDATA/WEAPON/WEAPON/KATAR/CYMBAL/`: an OLE compound document containing a **225,785-byte BIFF workbook**. Its five sheet names are **防具** (armor), **武器** (weapons), **材料** (materials), **消費アイテム** (consumables), and **宝箱** (treasure chests). Readable cells describe base-item selection and `LIST_BODY.STB`, `LIST_FOOT`, `LIST_ARMS`, `LIST_SUBWPN`, and `LIST_WEAPON` references. This is an item-authoring scrap, with no recovered tower content. Its records parsed to workbook EOF; no formulas or macros were executed.
+
+The five CSVs concern pets; the DB files are `THUMBS.DB`; the TBL is terrain `O_RANGE.TBL`. These extension-based leads did not identify another encounter database. The index contains no standalone XLS/XLSX, TXT, SQL, EXE or DLL entries.
+
+### 13.4 Additional room-code findings
+
+**Binary:** The dedicated loader's calls at `0x56F620/0x56F68E` read the two room STBs; `0x56F701/0x56F75D/0x56F7B8/0x56F813` load the four ZSCs. The traced room setup uses object **1** from the selected normal/boss pair. No floor-population loader was identified on these paths.
+
+Two details are now resolved:
+
+1. **The server supplies room-placement coordinates.** Command `0x96` payload u32 values **+4/+8** become state **+8/+0xC**, corresponding to avatar **+0x28A0/+0x28A4**. The room builder at `0x56D853` converts these to the first two components of its placement vector, with the third component zero. These are room-origin X/Y values, not recovered per-monster spawn coordinates.
+2. **The `_B` geometry is a simultaneous layer with floor-dependent visibility.** The builder creates both the normal/boss base object and its matching `_B` object at the same origin. At `0x56D9C4`, it computes approximately **`min(1, (floor - 1) / 199)`** using the float at `0x71FAC8` (`0.005025125574320555`). At `0x56DA2D`, it passes that factor to `0x5CF150`, identified by its diagnostic string as **`setVisibilityRecursive`**. For valid floors, the layer has visibility **0 at 1F**, approximately **0.4975 at 100F**, and **1 from 200F onward**.
+
+This explains a genuine floor-dependent formula in the client: it changes room presentation, not monster selection. The particular visual effect of the added geometry still needs a rendered check at the final validation stage.
+
+### 13.5 Reproduce index decoding without modifying files
+
+This Python snippet prints the decoded archive counts and builds an in-memory `entries` list. It does not extract or overwrite files:
+
+```python
+from pathlib import Path
+import struct
+
+root = Path(r"C:\Users\Thomas\Desktop\Testclients\Jrose")
+raw = (root / "data.idx").read_bytes()
+assert raw[8:12] == b"IDX2"
+seed = 0x54815592
+key_table = b"".join(
+    struct.pack("<I", ((4*seed + 1 + 4*i) * (seed + 1 + i)) & 0xffffffff)
+    for i in range(1024)
+)
+decoded = raw[:12] + bytes(
+    value ^ key_table[position & 4095]
+    for position, value in enumerate(raw[12:], 12)
+)
+cursor = 12
+
+def read(fmt):
+    global cursor
+    values = struct.unpack_from("<" + fmt, decoded, cursor)
+    cursor += struct.calcsize("<" + fmt)
+    return values[0] if len(values) == 1 else values
+
+def name():
+    global cursor
+    size = read("H")
+    assert 0 < size <= 2048
+    value = bytes(x ^ 0xcc for x in decoded[cursor:cursor + size])
+    cursor += size
+    assert value[-1:] == b"\0"
+    return value[:-1].decode("cp932")
+
+archives = [(name(), read("I")) for _ in range(read("I"))]
+assert cursor == archives[0][1]
+entries = []
+for archive, table_offset in archives:
+    assert cursor == table_offset
+    count, deleted_count, data_start = read("III")
+    print(archive, count, "entries")
+    for _ in range(count):
+        path = name()
+        offset, size, block, deleted, compressed, selector, version, crc = read("IIIBBBII")
+        entries.append(dict(archive=archive, path=path, offset=offset,
+                            size=size, block=block, deleted=deleted,
+                            compressed=compressed, selector=selector,
+                            version=version, crc=crc))
+assert cursor == len(decoded)
+assert len(entries) == 80230
+```
+
+To verify one payload, run this after the previous block. It requires the previously used `pefile` package and uses this report's exact executable build:
+
+```python
+import pefile
+import zlib
+
+pe = pefile.PE(str(root / "TRose.exe"))
+image = pe.get_memory_mapped_image()
+table_rva = 0x7773C8 - pe.OPTIONAL_HEADER.ImageBase
+substitution = image[table_rva:table_rva + 8*256]
+entry = next(e for e in entries
+             if e["path"].upper() == r"3DDATA\QUESTDATA\CELESTIALTOWER.QSD")
+assert entry["compressed"] == 0 and 0 <= entry["selector"] <= 7
+with (root / entry["archive"]).open("rb") as archive_file:
+    archive_file.seek(entry["offset"])
+    encrypted = archive_file.read(entry["size"])
+assert len(encrypted) == entry["size"]
+stage1 = bytes(value ^ key_table[(entry["offset"] + i) & 4095]
+               for i, value in enumerate(encrypted))
+selector = entry["selector"] & 0x3f
+payload = stage1.translate(substitution[selector*256:(selector + 1)*256])
+assert zlib.crc32(payload) == entry["crc"]
+assert payload == (root / entry["path"]).read_bytes()
+print("CelestialTower: decrypted bytes and CRC match the loose file")
+```
+
+**Assessment after three passes:** the supplied archives contain no additional indexed schedule file, and no unused archive space in which an old file could remain. The client preserves the presentation contract, a large encounter catalogue, boss-add AI, and partial historical checkpoint evidence. Exact ordinary-floor waves and final-version random-selection rules still require stronger evidence. Footage remains deferred until the final validation stage, as requested.
