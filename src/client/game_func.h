@@ -277,6 +277,26 @@ void	GF_openSeparate ( int iNPCNO );
 GF_SCRIPT
 void	GF_openUpgrade ( int iNPCNO );
 
+/*
+	Imported conversations call the refine service by two other names, and
+	neither existed here: calling an unregistered function is a Lua error that
+	surfaces in game as "error while running the chunk" the moment the option is
+	clicked. Two shipped .CONs are affected -- Karkia's Ginias and Gelt.
+
+	GF_openUpgradeNormal is simply this service under its other name.
+
+	GF_openUpgradeDurability is a *separate* feature there (refining an item's
+	durability) that we do not have: CUpgradeDlg's STATE_NORMAL/WAIT/RESULT are
+	a UI state machine, not a second refine mode. It is aliased so the retail
+	option opens the refine window rather than erroring; if a real durability
+	refine is ever built, this is the seam to split.
+*/
+GF_SCRIPT
+void	GF_openUpgradeNormal ( int iNPCNO );
+
+GF_SCRIPT
+void	GF_openUpgradeDurability ( int iNPCNO );
+
 
 /*
 =================================================================================

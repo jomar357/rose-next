@@ -496,6 +496,25 @@ SPAWN_THINNING = {"KSPIREVIL": 0.25}
 #                Cemetery, so it is present-day Karkia and gets present-day
 #                monsters. The Church's own timber request names Woodnoids and
 #                Dark Towers, which is exactly a burned forest's roster.
+# Concurrent-alive cap (CRegenPOINT m_iLimitCNT) to force onto every regen point
+# in a zone. None means "leave Jrose's".
+#
+# This is the lever these three zones need, and SPAWN_THINNING is not. Karkia's
+# main zones are built as **many points at cap 1** -- the Cemetery is 847 points
+# holding 847 monsters -- while the flashback zones are **few points at cap
+# 10-15**: 23 points holding 265 in the Burned Forest. Each point is therefore a
+# nest that refills up to fifteen bodies into a 10 m radius on a 60 s timer, and
+# the maps are small enough (Memories' whole population fits inside one 200 m
+# view) that there is nowhere to stand that is not inside one.
+#
+# Measured as monsters per 100 m cell against JG07, our densest field zone:
+# Burned Forest and Memories both sat at 0.66x and the Garden at 0.61x, which
+# looks reasonable until you notice Memories spends all of it in five cells
+# where JG07 spreads over twenty-six. Capping at 5 lands them near 0.3x, which
+# is where Spire Village ended up after its 75% thin -- the density already
+# signed off as "much better, still an invasion feeling".
+SPAWN_CAP = {"KMEMORIES": 5, "KFLOWERGARDEN": 5, "KBURNEDFOREST": 5}
+
 SPAWN_ROSTER = {
     "KMEMORIES": ([(2528, 5), (2528, 5), (2529, 5), (2529, 5), (2527, 5)],
                   [(2530, 1), (2527, 5)]),
@@ -1193,16 +1212,38 @@ def regen_set_roster(extra, basic, tactics):
     return bytes(out)
 
 
+def regen_set_cap(extra, cap):
+    """Force a REGEN record's concurrent-alive cap (m_iLimitCNT).
+
+    It sits in the four i32s after the two mob lists -- interval, limitCNT,
+    range, tacticPoint -- so this is a single field write and the record's
+    length is unchanged.
+    """
+    out = bytearray(extra)
+    o = 1 + out[0]
+    for _ in range(2):
+        cnt, = struct.unpack_from("<i", out, o)
+        o += 4
+        for _ in range(max(0, cnt)):
+            o += 1 + out[o]
+            o += 8
+    struct.pack_into("<i", out, o + 4, cap)
+    return bytes(out)
+
+
 def apply_spawn_roster(per_file, folder):
-    """Point every regen record in one zone at that zone's roster."""
+    """Point every regen record in one zone at its roster, and cap it."""
     roster = SPAWN_ROSTER.get(folder.upper())
-    if not roster:
+    cap = SPAWN_CAP.get(folder.upper())
+    if not roster and cap is None:
         return 0
-    basic, tactics = roster
     n = 0
     for objs in per_file.values():
         for obj in objs:
-            obj["extra"] = regen_set_roster(obj["extra"], basic, tactics)
+            if roster:
+                obj["extra"] = regen_set_roster(obj["extra"], *roster)
+            if cap is not None:
+                obj["extra"] = regen_set_cap(obj["extra"], cap)
             n += 1
     return n
 
@@ -1850,7 +1891,7 @@ def stage3(ours, src, src_index, dry):
     # thinning below and for the same reason: this stage rebuilds the lumps.
     rostered = {}
     for folder in sorted({f for _r, f, _n, _k in ZONES}):
-        if folder.upper() not in SPAWN_ROSTER:
+        if folder.upper() not in SPAWN_ROSTER and folder.upper() not in SPAWN_CAP:
             continue
         files_here = {k: v for k, v in regen_src.items() if k[0] == folder}
         per_file = {}
@@ -1863,10 +1904,12 @@ def stage3(ours, src, src_index, dry):
         n = apply_spawn_roster(per_file, folder)
         for key, objs in per_file.items():
             regen_src[key] = oro.build_object_lump(objs, trailing.get(key, b""))
-        basic, tactics = SPAWN_ROSTER[folder.upper()]
-        rostered[folder] = (n, sorted({m for m, _c in basic + tactics if m}))
-    for folder, (n, mobs) in sorted(rostered.items()):
-        print(f"    {'spawn roster':26s} {folder}: {n} points -> {mobs}")
+        basic, tactics = SPAWN_ROSTER.get(folder.upper(), ([], []))
+        rostered[folder] = (n, sorted({m for m, _c in basic + tactics if m}),
+                            SPAWN_CAP.get(folder.upper()))
+    for folder, (n, mobs, cap) in sorted(rostered.items()):
+        capped = f", cap {cap}" if cap is not None else ""
+        print(f"    {'spawn roster':26s} {folder}: {n} points{capped} -> {mobs}")
 
     thinned = {}
     for folder in {f for _r, f, _n, _k in ZONES}:

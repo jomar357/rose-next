@@ -147,6 +147,7 @@ PROMOTE = [
     # breaks, the flashback zones are unreachable or a player is stuck in them.
     ("EM03-007.CON", "[Mage of Dreams] Ragia", 0, 30011),
     ("EM03-008.CON", "[Mage of Mists] Magia", 0, 30016),
+    ("EM03-011.CON", "[Starsteel Armourer] Astraea", 0, 31421),
 ]
 
 # (con, who, [(menu, str_id, field, expected current name)])
@@ -169,6 +170,18 @@ TARGETS = [
     ("EM02-115.CON", "[Artificer] Physalis",
      [(0, 31024, "check", "TA_Q547_01"),
       (2, 31025, "click", "AT_Q547_02")]),
+    # Astraea, the Memories armourer. Every one of her root nodes is gated, so
+    # she is mute for the same reason the original six were. TA_NormalTalk1 is
+    # the shop greeting and the right default -- its child menu carries the
+    # AT_store option (GF_openStore, which we have).
+    #
+    # It matters *which* node here: most of her 182 menus are GF_SwapItem armour
+    # exchanges, and GF_SwapItem does not exist in our client at all -- calling
+    # it is the "error while running the chunk" that Ginias produces. The two
+    # enhancement chains hanging off this greeting are safe because they
+    # dead-end at a fully gated menu before any swap is reachable.
+    ("EM03-011.CON", "[Starsteel Armourer] Astraea",
+     [(0, 31421, "check", "TA_NormalTalk1")]),
     # Gelt is Spire Village's quartermaster, and his whole service menu --
     # GF_openStore, GF_openBank, GF_repair, GF_openUpgrade, all four registered
     # in game_func_reg.inc -- hangs off this one node. Jrose gates it behind

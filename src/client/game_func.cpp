@@ -202,6 +202,22 @@ GF_openUpgrade(int iNPCNO) {
     g_itMGR.OpenDialog(DLG_TYPE_UPGRADE, false);
 }
 
+//-------------------------------------------------------------------------------------------------
+/// The same service under the name imported conversations use. See game_func.h.
+void
+GF_openUpgradeNormal(int iNPCNO) {
+    ::GF_openUpgrade(iNPCNO);
+}
+
+//-------------------------------------------------------------------------------------------------
+/// Aliased, not implemented: we have one refine flavour, not two. Opening the
+/// refine window is wrong in name only, where leaving it unregistered is a Lua
+/// error the player sees. See game_func.h.
+void
+GF_openUpgradeDurability(int iNPCNO) {
+    ::GF_openUpgrade(iNPCNO);
+}
+
 GF_SCRIPT
 void
 GF_organizeClan(int iNPCNO) {
