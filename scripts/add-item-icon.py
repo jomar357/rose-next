@@ -55,7 +55,16 @@ def rect_fits(x1, y1, x2, y2):
     return x2 <= SHEET_SIZE and y2 <= SHEET_SIZE
 
 # ---------------------------------------------------------------- TSI
-def tsi_read(path):
+def tsi_read(path, strict=True):
+    """Parse a TSI. `strict` cross-checks the header's sprite total.
+
+    That total is a real safety net on **our** atlas, where we write it back --
+    but it is not universally meaningful. 667's ITEM1.TSI declares 540 while its
+    blocks hold 9295, and the blocks still consume the file to the exact byte, so
+    the structure is right and only that one header field means something else
+    there. Reading a foreign atlas to extract art is therefore done with
+    strict=False; anything we write keeps the check.
+    """
     with open(path, "rb") as fh:
         f = io.BytesIO(fh.read())
     ntex, = struct.unpack("<h", f.read(2))
@@ -74,7 +83,8 @@ def tsi_read(path):
         cnt, = struct.unpack("<h", f.read(2))
         blocks.append((cnt, f.read(cnt * 54)))
     assert f.read() == b"", "trailing bytes in TSI"
-    assert total == sum(c for c, _ in blocks), "TSI sprite count mismatch"
+    if strict:
+        assert total == sum(c for c, _ in blocks), "TSI sprite count mismatch"
     return textures, blocks
 
 def tsi_write(path, textures, blocks, dry):

@@ -591,7 +591,7 @@ def copy_source_icon(source, src_index, label, dry):
     src_tsi = os.path.join(src_res, "ITEM1.TSI")
     if not os.path.exists(src_tsi):
         sys.exit("source has no ITEM1.TSI at %s" % src_tsi)
-    textures, blocks = ico.tsi_read(src_tsi)
+    textures, blocks = ico.tsi_read(src_tsi, strict=False)   # foreign atlas, read-only
     flat = []
     for (sheet, _), (cnt, raw) in zip(textures, blocks):
         for i in range(cnt):
