@@ -428,9 +428,37 @@ XOR'd, so a plaintext search reports a correct file as broken.
 
 #### Stage 6c — English dialog  *(DONE, 2026-09-07)*
 
-`scripts/translate-karkia-dialog.py`. **All 20 reachable NPCs, 1,140 nodes, 0
-missing.** The 12 in Memories and the Garden are left, since those zones sit
-behind a quest we have not written.
+`scripts/translate-karkia-dialog.py`. **Every Karkia NPC now speaks English —
+all 32, 1,865 nodes, 0 missing** (reachable set done 2026-09-07; Memories and the
+Garden finished 2026-09-08 once stage 7a made them reachable).
+
+The flashback carries the whole backstory, and it is worth knowing before writing
+any quest for those zones:
+
+- **Hebarn was not Karkia's goddess.** She governs *planet Hebarn*, and took Karkia
+  on when her younger brother, the god **Karkia**, vanished. She summoned a Hero
+  from another world and — per Miranda and Bordeaux — fell in love with him.
+- **Karkia did not vanish. He fell.** Nagia has the reveal: he was eaten through by
+  the Devil Pest, forgot he had ever been a god, and became a demon that destroys
+  everything. Hebarn and the Hero could not finish him, so **the Hero shattered the
+  flame of his own life to seal him**. The seal is 無限牢獄, the **Infinite Prison**
+  — which is zone 134, the second of the two "towers" that ship as bare arenas.
+- **Lowe's ecological survey** finds the savage animals bear a blessing
+  near-identical to Hebarn's but from an entirely different, considerably stronger
+  god. **Bordeaux's last contact** with Hebarn is a broken sentence and the word
+  "flee". That is the present-day Devil Pest seen from before the fall, and it ties
+  directly into the Arua/Hebarn fate system.
+
+Two notes on the rendering. 夢限 is a homophone pun on 無限 (*mugen*, "infinite")
+and on Nagia's own title 無限のナギア, so the pair is rendered **Endless / Dreamless**
+to keep it. And one line in plainly Steinia's voice names *Steinia* as the one
+keeping watch on him — Jrose's own slip; translated without the name rather than
+repeating it or inventing a different one.
+
+Astraea's and Nagia's formulaic lines (40 reagent lists, 26 weapon names) were
+generated from templates rather than retyped, with an alignment assertion per
+family: a transcription slip inside a cost list is exactly the error that survives
+review.
 
 Not through QEX1, as this section originally assumed — **dialog text is not in the
 `.CON` at all.** A conversation node carries a `str_id` that indexes
