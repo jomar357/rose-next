@@ -219,6 +219,34 @@ KARKIA_MONSTERS = {
     2728: "Elgar Gargoyle",
     2729: "Deadly Drake",
     2730: "Melt Qualle",
+    # --- stage 7b: the flashback zones -------------------------------------
+    #
+    # Memories (133) and the Garden (144) are Karkia *before* the fall, and
+    # their monsters are ordinary wildlife rather than the undead of the
+    # present day. Jrose laid out 53 regen points across the flashback cluster
+    # and never assigned a monster to any of them -- their own files carry id 1
+    # in every slot -- so which creatures live here is authored, not restored.
+    # The dialog names them, which is what settles it:
+    #
+    #   Pormello's ecology quests  -> Melitta, Melan Melitta, Calaplasinos,
+    #                                 and the Melitta swarm's queen
+    #   Nitraria's leaf collection -> Mukuroji, Nigaki, Beeberu
+    #
+    # Ids 2520-2560 are entirely empty on our side, so these keep their native
+    # numbering like the rest of the roster.
+    #
+    # Names are transliterations, kept identical to the ones already shipped in
+    # the translated dialog -- consistency with the text a player reads matters
+    # more than a prettier rendering. Mukuroji, Nigaki and Beeberu are Japanese
+    # plant names (soapberry, bitterwood), which is why Nitraria harvests
+    # leaves from them.
+    2527: "Calaplasinos",
+    2528: "Melitta",
+    2529: "Melan Melitta",
+    2530: "Basilissa Melitta",
+    2539: "Mukuroji",
+    2547: "Nigaki",
+    2549: "Beeberu",
 }
 NPC_STB_REL = r"3DDATA\STB\LIST_NPC.STB"
 NPC_STL_REL = r"3DDATA\STB\LIST_NPC_S.STL"
@@ -414,6 +442,13 @@ CHR_MOTION_FILL = {
            7: r"3Ddata\MOTION\NPC\warrior1\warrior1_attack_01.ZMO"},
     2703: {6: r"3Ddata\MOTION\NPC\warrior1\warrior1_warring_01.ZMO",
            7: r"3Ddata\MOTION\NPC\warrior1\warrior1_attack_01.ZMO"},
+    # Mukuroji (stage 7b) is the same defect on a different model. It uses
+    # Pig1, whose CHR carries only the six basic clips in *both* dumps, and its
+    # .aip casts skill 3050 on nMotion **8** -- so the missing pair is 8/9
+    # (CASTION02 / SKILL_ACTION02), not 6/7. Filled the same way: warnnimg
+    # (1.70 s, the alert pose) telegraphs, attack (1.90 s) releases.
+    2539: {8: r"3Ddata\MOTION\NPC\pig01\pig01_warnnimg.ZMO",
+           9: r"3Ddata\MOTION\NPC\pig01\pig01_attack.ZMO"},
 }
 MOB_ANI_MAX = 11                   # MAX_MOB_ANI; the client indexes with no bound check
 
@@ -437,6 +472,38 @@ MOB_ANI_MAX = 11                   # MAX_MOB_ANI; the client indexes with no bou
 # The Cemetery is deliberately absent: at 98 typical / 221 draws it already sits
 # inside what our own zones run, and it reads as a field rather than a brawl.
 SPAWN_THINNING = {"KSPIREVIL": 0.25}
+
+# Which monsters a zone's regen points actually spawn, as
+#   folder -> (basic [(npc, count), ...], tactics [(npc, count), ...])
+#
+# Jrose laid out 53 regen points across these three zones and put **id 1 in
+# every slot** -- their own files, not our import -- so nothing here is being
+# restored. Every point carries five basic slots and two tactics slots with a
+# concurrent cap of seven, and the tactics list is the escalation set: it comes
+# out once the point's tactic points build up, which makes it the right home for
+# an elite. Unused slots are written as id 0, which the loader skips.
+#
+# This lives in stage 3 for the same reason SPAWN_THINNING does: the stage
+# rebuilds every REGEN lump from Jrose's source on each run, so an
+# after-the-fact edit would be silently undone by the next --stage 3.
+#
+# The rosters come from what the NPCs ask for, which is the only authority there
+# is now that the source slots are empty:
+#   Memories  -- Pormello's ecology quests name Melitta, Melan Melitta and
+#                Calaplasinos, and a swarm with a queen behind it.
+#   Garden    -- Nitraria collects leaves from Mukuroji, Nigaki and Beeberu.
+#   Burned Forest is NOT a flashback zone: its gates run to and from the
+#                Cemetery, so it is present-day Karkia and gets present-day
+#                monsters. The Church's own timber request names Woodnoids and
+#                Dark Towers, which is exactly a burned forest's roster.
+SPAWN_ROSTER = {
+    "KMEMORIES": ([(2528, 5), (2528, 5), (2529, 5), (2529, 5), (2527, 5)],
+                  [(2530, 1), (2527, 5)]),
+    "KFLOWERGARDEN": ([(2539, 5), (2547, 5), (2549, 5), (2539, 5), (2547, 5)],
+                      [(2549, 5), (2539, 5)]),
+    "KBURNEDFOREST": ([(2719, 5), (2720, 5), (2725, 5), (2727, 5), (2728, 5)],
+                      [(2720, 5), (2725, 5)]),
+}
 
 # Where a synthetic LUMP_ECONOMY comes from. Any of our zones would do -- 50 of our
 # 55 carry the identical 74-byte block -- but a populated Junon field zone gives
@@ -1098,6 +1165,48 @@ def aip_disable(path, skills, dry):
 REGEN_POS_OFF = 2 + 2 + 4 + 4 + 4 + 4 + 16   # into the 60-byte fixed object header
 
 
+def regen_set_roster(extra, basic, tactics):
+    """Rewrite a REGEN record's two mob lists in place.
+
+    Layout (CRegenPOINT::Load): a pascal-string point name, then two lists, each
+    an i32 count followed by that many (pascal-string mob name, i32 npc,
+    i32 count) entries, then interval / limitCNT / range / tacticPoint.
+
+    Only the two i32s per entry are touched and the names are left exactly as
+    they are -- every one of them is empty in these files -- so the record's
+    length never changes and the surrounding lump needs no repacking. A slot
+    beyond the end of the roster is written as npc 0, which `regen_mob_ids` and
+    the server both skip.
+    """
+    out = bytearray(extra)
+    o = 1 + out[0]                                   # past the point name
+    for wanted in (basic, tactics):
+        cnt, = struct.unpack_from("<i", out, o)
+        o += 4
+        for slot in range(max(0, cnt)):
+            o += 1 + out[o]                          # past the mob name
+            npc, num = wanted[slot] if slot < len(wanted) else (0, 0)
+            struct.pack_into("<ii", out, o, npc, num)
+            o += 8
+    if len(out) != len(extra):
+        raise SystemExit("regen record changed length")
+    return bytes(out)
+
+
+def apply_spawn_roster(per_file, folder):
+    """Point every regen record in one zone at that zone's roster."""
+    roster = SPAWN_ROSTER.get(folder.upper())
+    if not roster:
+        return 0
+    basic, tactics = roster
+    n = 0
+    for objs in per_file.values():
+        for obj in objs:
+            obj["extra"] = regen_set_roster(obj["extra"], basic, tactics)
+            n += 1
+    return n
+
+
 def thin_regen(per_file, keep):
     """Drop regen points until `keep` of them remain, most crowded first.
 
@@ -1410,7 +1519,11 @@ def stage3(ours, src, src_index, dry):
     if borrowed:
         names = ", ".join(f"{i} ({our_npc.get(i, 0).decode('latin-1')})"
                           for i in borrowed)
-        print(f"    {'placeholder spawns':26s} 3 zones spawn only our own {names}")
+        # Jrose left id 1 in every slot of the three zones SPAWN_ROSTER covers,
+        # so this is what the *source* holds, not what we ship -- the roster is
+        # applied further down, after this scope is taken.
+        print(f"    {'placeholder spawns':26s} source has {names} in "
+              f"{len(SPAWN_ROSTER)} zones; SPAWN_ROSTER replaces them")
     if max(ids) >= our_npc.rows:
         raise SystemExit(f"monster id {max(ids)} beyond LIST_NPC.STB ({our_npc.rows})")
     written, kept = 0, []
@@ -1732,6 +1845,29 @@ def stage3(ours, src, src_index, dry):
     # Jrose's source on each run, so an after-the-fact edit would be silently
     # undone by the next --stage 3. Doing it here makes it idempotent and makes
     # SPAWN_THINNING the single record of what the zone actually ships.
+    # --- 3l. spawn rosters. Jrose shipped these three zones with id 1 in every
+    # slot, so the monsters they hold are chosen here. Same placement as the
+    # thinning below and for the same reason: this stage rebuilds the lumps.
+    rostered = {}
+    for folder in sorted({f for _r, f, _n, _k in ZONES}):
+        if folder.upper() not in SPAWN_ROSTER:
+            continue
+        files_here = {k: v for k, v in regen_src.items() if k[0] == folder}
+        per_file = {}
+        trailing = {}
+        for key, blob in files_here.items():
+            objs, tail = oro.parse_object_lump(blob, 0, len(blob),
+                                               oro.LUMP_REGEN, exact=False)
+            per_file[key] = objs
+            trailing[key] = tail
+        n = apply_spawn_roster(per_file, folder)
+        for key, objs in per_file.items():
+            regen_src[key] = oro.build_object_lump(objs, trailing.get(key, b""))
+        basic, tactics = SPAWN_ROSTER[folder.upper()]
+        rostered[folder] = (n, sorted({m for m, _c in basic + tactics if m}))
+    for folder, (n, mobs) in sorted(rostered.items()):
+        print(f"    {'spawn roster':26s} {folder}: {n} points -> {mobs}")
+
     thinned = {}
     for folder in {f for _r, f, _n, _k in ZONES}:
         keep = SPAWN_THINNING.get(folder.upper(), 1.0)
@@ -1781,8 +1917,8 @@ def stage3(ours, src, src_index, dry):
     print("\n    Stats are Jrose's, deliberately -- see the roadmap. On our curve a")
     print("    level-213 trash mob takes ~4,200 swings and kills you in three hits,")
     print("    so play one session to see the fights, then run the stage-4 pass.")
-    print("    Three placeholder zones (131/133/144) still spawn only a level-2")
-    print("    Jelly Bean; that is Jrose's authoring, not a broken import.")
+    print("    Zones 131/133/144 ship id 1 in every source slot -- Jrose's own")
+    print("    authoring, not a broken import. SPAWN_ROSTER replaces it.")
 
 
 # ------------------------------------------------------- stage 6: the NPCs

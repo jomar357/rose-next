@@ -288,6 +288,59 @@ three port across with one effect asset. None needs authoring.
 **Acceptance:** monsters spawn, animate, path, attack, and die. `/dps` shows damage flowing.
 The D=Seed's summon behaviour fires. Nothing crashes.
 
+#### Stage 7b — populating the flashback  *(DONE, 2026-09-08)*
+
+53 regen points across three zones held **id 1 in every slot**, and so did
+**Jrose's own files** — they laid the points out and never assigned a monster.
+Nothing here is restoration; the rosters are authored, and the only authority for
+what belongs is what the NPCs ask for.
+
+Seven monsters imported at native ids (2520–2560 was entirely empty on our side),
+with **zero new art files** — every mesh and texture they need was already in the
+tree:
+
+| zone | roster | from |
+|---|---|---|
+| Memories 133 | Melitta, Melan Melitta, Calaplasinos, + Basilissa Melitta on the tactics list | Pormello's ecology quests |
+| Garden 144 | Mukuroji, Nigaki, Beeberu | Nitraria's leaf collection |
+| Burned Forest 131 | Woodnoid, Dark Tower, Evil Fairy, both Gargoyles | **not a flashback zone** — its gates run to and from the Cemetery, so it is present-day Karkia and reuses that roster |
+
+Each point carries five basic slots and two tactics slots at a cap of seven, and
+the tactics list is the escalation set — the right home for the swarm's queen.
+`SPAWN_ROSTER` lives inside stage 3 for the same reason `SPAWN_THINNING` does:
+the stage rebuilds every REGEN lump from source on each run, so an after-the-fact
+edit would be silently undone by the next `--stage 3`.
+
+Bands: Memories 230–238, Garden 235–240 — reached from the Church by a player who
+already crossed Karkia, so they sit at the top of the planet.
+
+**Three traps, all caught by `--verify` rather than by reading:**
+
+- **Mukuroji casts on an animation it does not have.** It uses the `Pig1` model,
+  which carries only the six basic clips in *both* dumps, and its `.aip` casts
+  skill 3050 on `nMotion` **8** — so the missing pair is 8/9, not the 6/7 of the
+  earlier cases. Same defect as 2692/2703 and the same fix. Left alone it is an
+  invisible cast: damage with no animation.
+- **The Burned Forest silently re-planned the Cemetery.** `zone_of` is a
+  `setdefault` over an alphabetical glob and KBURNEDFOREST sorts before
+  KCEMETERY, so five shared monsters were attributed to a zone with no band,
+  dropped out of the Cemetery's median, and moved 14 other rows. `ZONE_ALIAS`
+  now folds it into the Cemetery, which is the honest model anyway.
+- **`add-karkia-drops.py --restore` wiped the new monsters.** It backed up
+  `LIST_NPC.STB` whole, and four scripts write that file, so the copy went stale
+  the moment the import ran — the restore reverted both the monster rows and
+  Belfa's shop repoint. LIST_NPC is now restored **cell by cell** from the
+  sidecar; only `ITEM_DROP.STB`, which is ours alone, keeps a file backup.
+
+Drops: tables 909 (Memories), 910 (the queen), 911 (Garden), with 133/144
+mirroring their own and 131 mirroring the Cemetery's. Materials are deliberately
+**woods and weaves** — the ones the present-day tables refuse — so the two eras
+read differently in your bag. Rates land on the house figures: shields 1 in 30,
+weapons 1 in 32, and the queen 19% weapons. The seven also imported with
+`NPC_DROP_ITEM` of 10–30 against the 80 the rest of Karkia uses, which at 10
+makes the drop roll usually fail outright *and* inverts the table-vs-zone split;
+raised to 80.
+
 ### Stage 4 — the balance pass  *(DONE, 2026-09-07)*
 
 The real work, and the reason Karkia cannot ship on Jrose's numbers. Karkia DEF is 2,350 at

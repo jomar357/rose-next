@@ -122,6 +122,12 @@ MAT_CEMETERY = [151, 47, 8, 152, 48, 9, 153, 49, 10]      # hearts/leather/metal
 MAT_SPIRE = [49, 10, 154, 50, 16, 84, 155, 85, 17]        # the better half
 MAT_BOSS = [86, 156, 87, 88, 157]                         # Lisent + top hearts
 
+# The flashback is Karkia *alive*: bees, plants and beasts in a world the goddess
+# still tends. Its materials are deliberately the ones the present-day tables
+# refuse -- woods and cloth -- so the two eras read differently in your bag.
+MAT_MEMORIES = [37, 57, 38, 58, 39, 59, 40, 60, 66]       # woods + weaves
+MAT_GARDEN = [39, 59, 40, 60, 97, 67, 66, 68, 96]         # the better half
+
 USE_FIELD = [13, 32]                                      # Vital / Spiritual (XL)
 USE_BOSS = [35, 36]                                       # Health / Mana Bottle (XL)
 
@@ -156,6 +162,22 @@ def field(mats, uses, shields, weapons, extra=None):
     return common, groups
 
 
+def elite(weapons, shields, mats):
+    """Between trash and a boss: the queen behind the Melitta swarm.
+
+    She only ever comes off the *tactics* list, so she is rare by construction
+    and can afford to pay well -- four weapon slots (about 20% a kill) rather
+    than a boss's eight, then materials and a shield bucket.
+    """
+    common = [(T_WEAPON, w) for w in weapons[:4]]
+    common += [(T_NATURAL, m) for m in mats[:5]]
+    common += [(T_USE, USE_BOSS[0])]
+    common += [("redirect", 1), ("redirect", 2)]
+    groups = {1: [(T_SUBWPN, x) for x in shields],
+              2: [(T_WEAPON, w) for w in weapons[:5]]}
+    return common, groups
+
+
 def boss(mythicals, shields):
     """Eight mythical slots -> 36% per kill, then materials and a shield."""
     common = [(T_WEAPON, w) for w in mythicals[:8]]
@@ -178,6 +200,15 @@ TABLES = {
     906: ("Alpha roster (10 mobs, lv228-240)",
           field(MAT_SPIRE, USE_FIELD, SHIELD_230 + SHIELD_235 + SHIELD_240[:1],
                 WPN_235[:5], extra=WPN_235[5:])),
+    # --- the flashback zones, stage 7b --------------------------------------
+    909: ("Memories wildlife (lv230-232)",
+          field(MAT_MEMORIES, USE_FIELD, SHIELD_230 + SHIELD_215[:2],
+                WPN_235[:5])),
+    910: ("ELITE Basilissa Melitta (lv238)",
+          elite(WPN_235[5:], SHIELD_240, MAT_GARDEN)),
+    911: ("Garden wildlife (lv235-240)",
+          field(MAT_GARDEN, USE_FIELD, SHIELD_235 + SHIELD_240 + SHIELD_225,
+                WPN_235[5:])),
     903: ("BOSS Hebarn Officer Pazugenti (lv240)",
           boss([1389, 1398, 1404, 1407, 1419, 1395, 1392, 1386], SHIELD_240)),
     904: ("BOSS Hebarn Officer Scylla Mira (lv240)",
@@ -192,13 +223,30 @@ TABLES = {
 
 # Zone-number rows mirror the dominant table for that zone, so the 20% fallback
 # is not a dead roll. Without these every rate above loses a fifth.
-ZONE_MIRROR = {87: 900, 88: 906}
+ZONE_MIRROR = {87: 900, 88: 906,
+               # The flashback pair mirror their own zones. The Burned Forest
+               # is present-day Karkia sharing the Cemetery's roster, so its
+               # fallback is the Cemetery's table rather than one of its own.
+               133: 909, 144: 911, 131: 900}
 
-# npc row -> new drop table. Both Drakes were sharing a trash table.
-NPC_TABLE_FIX = {2729: 907, 2699: 908}
+# npc row -> new drop table. Both Drakes were sharing a trash table, and the
+# seven flashback monsters arrived pointing at Jrose's table 831, which is empty
+# on our side.
+NPC_TABLE_FIX = {2729: 907, 2699: 908,
+                 2527: 909, 2528: 909, 2529: 909,   # Memories wildlife
+                 2530: 910,                          # the queen
+                 2539: 911, 2547: 911, 2549: 911}    # Garden wildlife
+
+# The flashback monsters also import with NPC_DROP_ITEM of 10 or 30 against the
+# 80 the rest of Karkia uses. At 10 the drop roll is usually <= 0 outright, and
+# the table-vs-zone split inverts: 90% of what does roll would come off the zone
+# fallback rather than the monster's own table.
+DROP_ITEM_FIX = {2527: 80, 2528: 80, 2529: 80, 2530: 80,
+                 2539: 80, 2547: 80, 2549: 80}
 
 BOSS_ROWS = {2685, 2686, 2687, 2688, 2699, 2729}
-KARKIA_NPC_RANGE = range(2685, 2732)
+KARKIA_NPC_RANGE = list(range(2685, 2732)) + [2527, 2528, 2529, 2530,
+                                              2539, 2547, 2549]
 
 
 def load(name):
@@ -259,9 +307,22 @@ def plan():
     return rows
 
 
+def npc_cells_before(npc):
+    """{row: {col: value}} for every LIST_NPC cell this script may write."""
+    rows = set(NPC_TABLE_FIX) | set(DROP_ITEM_FIX) | set(KARKIA_NPC_RANGE)
+    out = {}
+    for nid in sorted(rows):
+        if nid >= npc.rows:
+            continue
+        out[str(nid)] = {str(c): npc.get(nid, c).decode("latin-1")
+                         for c in (COL_DROP_TYPE, COL_DROP_MONEY, COL_DROP_ITEM)}
+    return out
+
+
 def apply(oro, dry):
     drop = oro.Stb(DROP_STB)
     npc = oro.Stb(NPC_STB)
+    npc_before = npc_cells_before(npc)
     report = []
     rows = plan()
 
@@ -285,7 +346,15 @@ def apply(oro, dry):
     for nid, tbl in NPC_TABLE_FIX.items():
         was = npc.get(nid, COL_DROP_TYPE).decode("latin-1")
         npc.set(nid, COL_DROP_TYPE, str(tbl).encode("latin-1"))
-        report.append(f"  npc {nid} drop table {was} -> {tbl} (was a trash table)")
+        report.append(f"  npc {nid} drop table {was} -> {tbl}")
+
+    fixed = 0
+    for nid, want in DROP_ITEM_FIX.items():
+        if int(npc.get(nid, COL_DROP_ITEM) or 0) != want:
+            npc.set(nid, COL_DROP_ITEM, str(want).encode("latin-1"))
+            fixed += 1
+    if fixed:
+        report.append(f"  drop-item rate raised to 80 on {fixed} flashback rows")
 
     money = 0
     for nid in KARKIA_NPC_RANGE:
@@ -302,8 +371,8 @@ def apply(oro, dry):
                   f"(field {MONEY_FIELD}%, bosses {MONEY_BOSS}%)")
 
     if dry:
-        return report, None
-    return report, (drop.to_bytes(), npc.to_bytes())
+        return report, None, npc_before
+    return report, (drop.to_bytes(), npc.to_bytes()), npc_before
 
 
 def verify(oro):
@@ -320,6 +389,10 @@ def verify(oro):
         if int(npc.get(nid, COL_DROP_TYPE) or 0) != tbl:
             bad.append(f"npc {nid}: drop table is "
                        f"{npc.get(nid, COL_DROP_TYPE).decode('latin-1')}")
+    for nid, want in DROP_ITEM_FIX.items():
+        if int(npc.get(nid, COL_DROP_ITEM) or 0) != want:
+            bad.append(f"npc {nid}: drop-item rate is "
+                       f"{npc.get(nid, COL_DROP_ITEM).decode('latin-1')}, want {want}")
     for nid in KARKIA_NPC_RANGE:
         if nid >= npc.rows or not npc.get(nid, 0).strip():
             continue
@@ -344,15 +417,23 @@ def main():
     if args.restore:
         if not os.path.isdir(BACKUP):
             sys.exit("no backup -- nothing to restore")
-        n = 0
-        for path in (DROP_STB, NPC_STB):
-            src = os.path.join(BACKUP, os.path.basename(path))
-            if os.path.isfile(src):
-                shutil.copyfile(src, path)
-                n += 1
+        src = os.path.join(BACKUP, os.path.basename(DROP_STB))
+        if os.path.isfile(src):
+            shutil.copyfile(src, DROP_STB)
+        cells = 0
         if os.path.exists(SIDECAR):
+            with open(SIDECAR, encoding="utf-8") as fh:
+                saved = json.load(fh).get("npc_cells") or {}
+            npc = oro.Stb(NPC_STB)
+            for nid, cols in saved.items():
+                for col, val in cols.items():
+                    npc.set(int(nid), int(col), val.encode("latin-1"))
+                    cells += 1
+            with open(NPC_STB, "wb") as fh:
+                fh.write(npc.to_bytes())
             os.remove(SIDECAR)
-        print(f"restored {n} table(s) from {os.path.relpath(BACKUP, ROOT)}")
+        print(f"restored ITEM_DROP.STB and {cells} LIST_NPC cell(s) "
+              "(cells, not the whole table -- four scripts write that file)")
         return 0
 
     if args.verify:
@@ -361,23 +442,30 @@ def main():
               f"{len(bad)} problem(s)" + ("\n  " + "\n  ".join(bad[:10]) if bad else ""))
         return 1 if bad else 0
 
-    report, blobs = apply(oro, args.dry_run)
+    report, blobs, npc_before = apply(oro, args.dry_run)
     print("\n".join(report))
     if args.dry_run:
         print("\ndry run: nothing written")
         return 0
 
     os.makedirs(BACKUP, exist_ok=True)
-    for path in (DROP_STB, NPC_STB):
-        bak = os.path.join(BACKUP, os.path.basename(path))
-        if not os.path.exists(bak):
-            shutil.copyfile(path, bak)
+    # ITEM_DROP.STB is ours alone, so a whole-file backup is safe. LIST_NPC.STB
+    # is NOT: import-karkia, rebalance-karkia and add-karkia-shops all write it,
+    # so a file copy taken here goes stale the moment any of them runs and
+    # restoring it silently reverts their work. This cost the seven flashback
+    # monsters once -- a --restore wiped rows written by a later import, and only
+    # rebalance-karkia --verify noticed. LIST_NPC is therefore restored cell by
+    # cell, from values recorded in the sidecar.
+    bak = os.path.join(BACKUP, os.path.basename(DROP_STB))
+    if not os.path.exists(bak):
+        shutil.copyfile(DROP_STB, bak)
     for path, blob in zip((DROP_STB, NPC_STB), blobs):
         with open(path, "wb") as fh:
             fh.write(blob)
     with open(SIDECAR, "w", encoding="utf-8") as fh:
         json.dump({"tables": sorted(TABLES), "zones": ZONE_MIRROR,
-                   "npc_table_fix": NPC_TABLE_FIX}, fh, indent=1)
+                   "npc_table_fix": NPC_TABLE_FIX,
+                   "npc_cells": npc_before}, fh, indent=1)
 
     bad = verify(oro)
     if bad:

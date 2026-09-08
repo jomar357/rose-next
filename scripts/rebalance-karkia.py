@@ -84,7 +84,24 @@ FIT_BELOW = 200                    # our curve is trustworthy below the endgame 
 # Karkia's own zones, from the REGEN lumps: Cemetery 2701-2730, Spire Village
 # 2690-2699. Target bands come from roadmap section 5 -- Karkia is an alternative
 # to late Oro, so it overlaps 208-240 rather than sitting above it.
-ZONE_BANDS = {"KCEMETERY": (215, 228), "KSPIREVIL": (228, 238)}
+ZONE_BANDS = {"KCEMETERY": (215, 228), "KSPIREVIL": (228, 238),
+              # The flashback pair, stage 7b. Reached from the Church by a
+              # player who already crossed Karkia, so they sit at the top of
+              # the planet rather than beside the Cemetery, and the Garden
+              # (reached only through Memories) sits above Memories.
+              "KMEMORIES": (230, 238), "KFLOWERGARDEN": (235, 240)}
+
+# Zones whose roster is deliberately a *reuse* of another zone's, and which must
+# therefore be banded as one pool.
+#
+# The Burned Forest is present-day Karkia hanging off the Cemetery and shares its
+# monsters. Without this alias `zone_of` (a setdefault over an alphabetical glob)
+# attributes Woodnoid, Dark Tower, Evil Fairy and both Gargoyles to
+# KBURNEDFOREST, which sorts first -- that zone has no band, so they drop out of
+# the Cemetery's median and every remaining Cemetery monster re-plans to a
+# different number. It is silent: the levels stay legal and only --verify
+# notices, which it did, on 14 rows.
+ZONE_ALIAS = {"KBURNEDFOREST": "KCEMETERY"}
 
 # row -> (level, effective HP, ATK). Effective HP is level x NPC_HP.
 # HP budget from roadmap section 5: a geared party does ~34-46 DPS against a boss
@@ -164,6 +181,7 @@ def karkia_rows(oro):
             objs, _ = oro.read_lump(buf, bounds, oro.LUMP_REGEN)
         except Exception:
             continue
+        zone = ZONE_ALIAS.get(zone, zone)
         for o in objs or ():
             for i in oro.regen_mob_ids(o["extra"]):
                 if i in ik.KARKIA_MONSTERS:
