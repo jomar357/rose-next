@@ -341,6 +341,36 @@ weapons 1 in 32, and the queen 19% weapons. The seven also imported with
 makes the drop roll usually fail outright *and* inverts the table-vs-zone split;
 raised to 80.
 
+#### The `D=` prefix  *(fixed 2026-09-08)*
+
+Twelve Devil Pest monsters were authored as `D-Victim`, `D-Ghoul Ein`, `D-Seed` and so on.
+The source spells that prefix with an **equals sign** — Jrose's own player-facing rows are
+`D=シード` and `Ｄ＝エラー` — and a line of dialog shipped in 6c quotes it directly:
+
+> "So every monster with **'D='** in its name is a victim of the Devil Pest."
+
+which the Field Medic says while standing next to twelve monsters whose names all began with
+a hyphen. **The player was told to look for a prefix that appeared nowhere in the game.** Ten
+more lines name `D=Seed`, `D=Victim`, `D=Error` and `D=Alma Core` the same way, several as
+hunt instructions.
+
+`scripts/fix-karkia-monster-names.py` corrects it and stays as a general re-sync tool. It is
+separate from the import for a structural reason: `import-karkia.py` stage 3 writes a name
+only into a row it is *creating* (`if our_npc.occupied(i): continue`, and likewise
+`if our_stl.has(key): continue`), which is exactly what makes re-running it safe for the
+balance passes — and also what makes it unable to ever *revise* a name. The rename pass
+writes names and nothing else, so it runs against live rebalanced data without touching a
+stat.
+
+Both sides must be written, and nothing warns you if you miss one:
+
+    server   NPC_NAME(I) -> g_TblNPC.get_cstr(I, 0)         LIST_NPC.STB col 0
+    client   NPC_NAME(I) -> CStringManager::GetNpcName(I)   LIST_NPC_S.STL, keyed by
+                                                            NPC_STRING_ID = col 40
+
+Write only the STB and the server renames it — GM tools, logs — while every player still
+reads the old name from the STL.
+
 ### Stage 4 — the balance pass  *(DONE, 2026-09-07)*
 
 The real work, and the reason Karkia cannot ship on Jrose's numbers. Karkia DEF is 2,350 at
@@ -1251,9 +1281,23 @@ Small, and none of them blocks starting.
   entirely. Return leg goes back to Muris either way, free, like Oro's.
 - **A level requirement on the warp**, or none. Oro deliberately has none — the real gate
   there is the monsters. Same logic probably applies.
-- **Whether the α set gets re-themed.** 10 of Karkia's 31 monsters are the Cemetery roster
-  again at higher level with an α suffix. Shipping them as-is is honest ("the same horrors,
-  worse") and free; re-theming is real work. Decide when Spire Village is first playable.
+- **Whether the α set gets re-themed** — *narrowed to art only, 2026-09-08.* 10 of Karkia's
+  31 monsters are the Cemetery roster again at higher level with an α suffix, and column 1
+  confirms the worst of it: the **model file is identical** to the base in every case
+  (`karkiawolf.mon` is `karkiawolf.mon`), so Spire Village shows the same creatures with the
+  same art, ~13 levels up.
+
+  The **names, however, are not ours to change.** The source rows carry only dev placeholders
+  (`KSヴィクティムf`), but the dialog names the creatures outright — `D=ヴィクティムα`,
+  `蘇った防疫団員α` — and two quests instruct the player to kill thirty of each *by that
+  name*. Renaming them would desynchronise shipped text. Nor is the duplicate "D=Victim Alpha"
+  on 2690/2691 a defect: 186 names in `LIST_NPC` are shared by more than one row (Candle Ghost
+  by 32), and those two are simply the male and female models.
+
+  So what remains open is **art**: colour variants for the ten, which is real work. Shipping
+  as-is stays honest ("the same horrors, worse") and free.
+
+  Renaming them *did* surface a real bug — see the `D=` prefix note under stage 3.
 
 ---
 

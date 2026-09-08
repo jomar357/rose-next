@@ -167,14 +167,26 @@ WARP_DEST_ZONE_COL, WARP_DEST_EVENT_COL = 1, 2
 # Eye, kak_melt -> Melt Qualle).
 #
 # Two deliberate choices worth knowing:
-#   * 2701 and 2702 both come out "D-Victim". They are separate rows at different
+#   * The "D=" prefix is CANON and the "=" is load-bearing. Jrose's own
+#     player-facing rows spell it that way (`D=シード`, `Ｄ＝エラー`), and a
+#     translated line of dialog quotes it directly: "So every monster with 'D='
+#     in its name is a victim of the Devil Pest." These names were first authored
+#     with a hyphen, which silently broke that line -- the player was told to look
+#     for a prefix no monster had. Corrected 2026-09-08; do not "tidy" it back to
+#     a hyphen.
+#   * 2701 and 2702 both come out "D=Victim". They are separate rows at different
 #     levels whose only distinguishing text is the *editor* label (2701 is
 #     "transformed villager", 2702 "maddened infected"), and the in-game name is
 #     the same in the source. Kept faithful rather than invented; our own data
-#     already ships three zones called "The Golden Ring".
+#     already ships three zones called "The Golden Ring", and 186 names in
+#     LIST_NPC are shared by more than one row (Candle Ghost x32).
 #   * The Spire Village roster is the Cemetery roster again +14 levels with an
-#     alpha suffix, so it gets " Alpha". Re-theming that set is an open question
-#     in the roadmap, not something settled here.
+#     alpha suffix, so it gets " Alpha". That suffix is **also canon**: the
+#     source rows carry only dev placeholders (`KSヴィクティムf`), but the
+#     dialog names the creatures directly -- `D=ヴィクティムα`, `蘇った防疫団員α`
+#     -- so " Alpha" is what the quest text tells the player to hunt. Re-theming
+#     the set would desynchronise those lines; the open roadmap question is the
+#     shared *art*, not the names.
 #   * A few are transliteration guesses with no established English: Murilo,
 #     Orgeid, Eugeid, Melt Qualle, Woodnoid.
 KARKIA_MONSTERS = {
@@ -184,30 +196,30 @@ KARKIA_MONSTERS = {
     2687: "Corroded Golem",
     2688: "Revived Veteran Warrior",
     2689: "Ghost Seed",                     # shares STL key LNPC2731 with 2731
-    2705: "D-Pollinosis",
+    2705: "D=Pollinosis",
     2731: "Ghost Seed",
     # Spire Village (zone 88)
-    2690: "D-Victim Alpha",
-    2691: "D-Victim Alpha",
+    2690: "D=Victim Alpha",
+    2691: "D=Victim Alpha",
     2692: "Revived Quarantine Officer Alpha",
-    2693: "D-Ghoul Ein Alpha",
-    2694: "D-Ghoul Eine Alpha",
+    2693: "D=Ghoul Ein Alpha",
+    2694: "D=Ghoul Eine Alpha",
     2695: "Deadly Wolf Alpha",
     2696: "Murilo Alpha",
     2697: "Evil Eye Alpha",
-    2698: "D-Error Alpha",
+    2698: "D=Error Alpha",
     2699: "Deadly Drake Alpha",
     # The Desolate Cemetery (zone 87)
-    2701: "D-Victim",
-    2702: "D-Victim",
+    2701: "D=Victim",
+    2702: "D=Victim",
     2703: "Revived Quarantine Officer",
-    2704: "D-Seed",
-    2712: "D-Ghoul Ein",
-    2713: "D-Ghoul Eine",
+    2704: "D=Seed",
+    2712: "D=Ghoul Ein",
+    2713: "D=Ghoul Eine",
     2714: "Deadly Wolf",
     2715: "Murilo",
     2716: "Evil Eye",
-    2717: "D-Error",
+    2717: "D=Error",
     2719: "Woodnoid",
     2720: "Dark Tower",
     2721: "Element Battler",
