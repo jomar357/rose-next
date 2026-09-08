@@ -142,6 +142,11 @@ PROMOTE = [
     # file that currently works.
     ("EM86-009.CON", "[Explorer] Petri", 0, 23269),
     ("EM86-001.CON", "[Shrine Maiden] Nemo", 0, 21321),
+    # Ragia carries the way into Memories, and Magia the way back out of it.
+    # Same fragility as Petri and Nemo, same reason to remove it: if either
+    # breaks, the flashback zones are unreachable or a player is stuck in them.
+    ("EM03-007.CON", "[Mage of Dreams] Ragia", 0, 30011),
+    ("EM03-008.CON", "[Mage of Mists] Magia", 0, 30016),
 ]
 
 # (con, who, [(menu, str_id, field, expected current name)])

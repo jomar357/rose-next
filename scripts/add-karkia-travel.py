@@ -60,10 +60,13 @@ QSD = os.path.join(DATA, "3DDATA", "QUESTDATA", "QP401.QSD")
 ZONE_CHURCH = 86
 ZONE_HOME = 2                       # City of Junon Polis, LIST_ZONE row 2
 ZONE_CEMETERY = 87                  # The Desolate Cemetery, Karkia's field
+ZONE_MEMORIES = 133                 # Memories of Karkia, the flashback town
 CHURCH_ZON = os.path.join(DATA, "3DDATA", "MAPS", "KARKIA", "KCHURCH", "KCHURCH.ZON")
 HOME_ZON = os.path.join(DATA, "3DDATA", "MAPS", "JUNON", "JPT01", "JPT01.ZON")
 CEMETERY_ZON = os.path.join(DATA, "3DDATA", "MAPS", "KARKIA", "KCEMETERY",
                             "KCEMETERY.ZON")
+MEMORIES_ZON = os.path.join(DATA, "3DDATA", "MAPS", "KARKIA", "KMEMORIES",
+                            "KMEMORIES.ZON")
 
 # (pattern, trigger, destination zone, the .ZON to read the landing spot from).
 # Two patterns rather than two triggers in one, so each leg can be added on its
@@ -77,6 +80,16 @@ LEGS = [
     # could only leave by Petri's teleport home. The whole planet was
     # unreachable on foot from its own arrival point.
     ("KarkiaOutward", "Karkia-TravelToCemetery", ZONE_CEMETERY, CEMETERY_ZON),
+    # Into the flashback. Jrose authored both ends of this and we are only
+    # supplying the triggers they reference: Ragia, the Church's [Mage of
+    # Dreams], already offers "shall I show you the world of the past with my
+    # power?" (her AT_Normal04 fires Q537_qsw-on), and Magia, the [Mage of
+    # Mists] standing in Memories, already calls
+    # QF_doQuestTrigger("Warp_to_zone86") to send you back.
+    #
+    # The way *out* needs no new leg -- Karkia-TravelToChurch already lands on
+    # zone 86, which is exactly where Magia sends you.
+    ("KarkiaDream", "Karkia-TravelToMemories", ZONE_MEMORIES, MEMORIES_ZON),
 ]
 TRIGGER = LEGS[0][1]                # kept for the message at the end
 
@@ -93,6 +106,8 @@ HOSTS = [
     # greeting already reads "It's dangerous out there. Still going?", which is
     # a gate guard's line and needs no new writing.
     (4145, "[Church Guard] Kashi",        "The Abandoned Church (86)",  LEGS[2][1]),
+    (4094, "[Mage of Dreams] Ragia",      "The Abandoned Church (86)",  LEGS[3][1]),
+    (4095, "[Mage of Mists] Magia",       "Memories of Karkia (133)",   LEGS[0][1]),
 ]
 
 REWD_007 = 0x01000000 | 7

@@ -66,6 +66,19 @@ SRC_EVENT = os.path.join(SRC, "3DDATA", "EVENT")
 OUR_EVENT = os.path.join(ROOT, "data", "3DDATA", "EVENT")
 TRANSLATIONS = os.path.join(HERE, "karkia-dialog-en.json")
 SIDECAR = os.path.join(ROOT, "data", "3DDATA", "EVENT", "ulngtb_con.karkia.json")
+
+# ORDERING TRAP, learned the hard way 2026-09-08.
+#
+# This script writes each string at its **source str_id**, growing the table to
+# max(str_id) + 1. `quest-editor con-warp` / `con-store` instead *append* their
+# rows at the current end of the table. So a row appended before a translate run
+# that grows past it is silently overwritten -- Magia's warp confirm/accept/
+# decline landed on 31212-31214, which are her own source ids for the class-reset
+# lines, and came back reading "I want my Champion experience erased."
+#
+# Rule: **translate first, append second.** Karkia's source ids top out at 33071,
+# so any appended row at 33072 or above is safe for good; the table is padded to
+# that floor. If a future import raises the ceiling, pad again before appending.
 # Backups go OUTSIDE data/: pack.rs walks the data tree filtering only hidden
 # entries -- no extension filter -- so a .bak left beside the table gets baked
 # into the .vfs.
