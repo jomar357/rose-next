@@ -489,6 +489,7 @@ CObjCHAR::CObjCHAR(): m_EndurancePack(this), m_ChangeActionMode(this), m_ObjVibr
     m_bPendingCombatSwingProjectileSpawned = false;
     m_dwPendingCombatSwingTime = 0;
     m_bOwedHitReaction = false;
+    m_bCombatCrowdDrain = false;
     m_iPendingMountedAttackTarget = 0;
     m_dwPendingMountedAttackTime = 0;
 
@@ -2844,6 +2845,116 @@ CObjCHAR::PresentQueuedCombatDamageFromAttacker(CObjCHAR* pAtkOBJ) {
     return Rose::Combat::CombatPresentationQueue::result_for(event);
 }
 
+namespace {
+
+/// Distinct queued attackers at which one-digit-per-hit-frame stops keeping up.
+///
+/// Presentation is animation-gated: a queued hit waits for its attacker's visual
+/// hit frame, and each attacker holding one owes this defender a digit it has not
+/// shown yet. Under a mob train every attacker sits permanently one swing behind
+/// -- its next swing lands about as fast as the previous one reaches its hit frame
+/// -- so the hidden HP is simply (attackers x one average swing), and it is linear
+/// in the attacker count. Measured live on a 4951 HP character: 4 attackers hid
+/// 143 HP, 8 hid 283, 25 hid 920, 31 hid 1048. That is ~35 HP each.
+///
+/// 12 puts the trip point near 10% of that character's bar, which is also about
+/// where the digits stop being individually readable. The gap around it is what
+/// makes it safe: in the same session, ordinary play never exceeded 8 queued
+/// attackers, and the two pile-ups that killed the player jumped straight to 25
+/// and 31. Nothing lands in between.
+///
+/// Counting attackers rather than queued damage is deliberate. A boss that hits
+/// for a fifth of the bar is still one attacker, and a boss plus its minions is a
+/// handful -- neither can open this gate however hard they hit. A damage-based
+/// trigger would have fired on both.
+const size_t kCombatCrowdDrainOpenAttackers = 12;
+
+/// Hysteresis: once open, drain until the backlog is comfortably clear so a single
+/// attacker joining and leaving at the threshold cannot flap the gate.
+const size_t kCombatCrowdDrainCloseAttackers = 6;
+
+/// Extra events presented per hit frame while open. At the 15-25 hit frames a
+/// second observed under load this clears a 31-attacker backlog inside about a
+/// second, while bounding how many digits any one swing can spawn.
+const int kCombatCrowdDrainPerHitFrame = 3;
+
+} // namespace
+
+//--------------------------------------------------------------------------------
+/// class : CObjCHAR
+/// @brief  : Present surplus queued hits when hit frames cannot keep pace.
+//--------------------------------------------------------------------------------
+
+int
+CObjCHAR::DrainCrowdedCombatDamage() {
+    if (!m_bCombatCrowdDrain) {
+        if (m_CombatDamageQueue.deferred_attacker_count() < kCombatCrowdDrainOpenAttackers) {
+            return 0;
+        }
+
+        m_bCombatCrowdDrain = true;
+        LogString(LOG_DEBUG_,
+            "CombatTrace crowd drain opened: target %d attackers %d queue %d visible hp %d\n",
+            this->Get_INDEX(),
+            static_cast<int>(m_CombatDamageQueue.deferred_attacker_count()),
+            static_cast<int>(m_CombatDamageQueue.size()),
+            this->Get_HP());
+    }
+
+    const DWORD dwCurrentTime = g_GameDATA.GetGameTime();
+    int iDrained = 0;
+    Rose::Combat::DamageEvent event;
+
+    // Re-read the count every iteration: popping an event only lowers it when that
+    // was its attacker's last one, and the gate must close on the real figure.
+    while (iDrained < kCombatCrowdDrainPerHitFrame
+        && this->Get_HP() > DEAD_HP
+        && m_CombatDamageQueue.deferred_attacker_count() > kCombatCrowdDrainCloseAttackers
+        && m_CombatDamageQueue.pop_oldest_deferred_melee(DEAD_HP, event)) {
+
+        // The same bookkeeping a real hit frame does, so the attacker's own hit
+        // frame finds nothing left to present (it draws no digit and returns) and
+        // CancelInterruptedCombatSwingPresentation has nothing left to chase.
+        CObjCHAR* pAtkOBJ = g_pObjMGR->Get_CharOBJ(event.attacker_id, false);
+        if (pAtkOBJ) {
+            pAtkOBJ->ClearPendingCombatSwingPresentation(event.event_id);
+        }
+
+        LogString(LOG_DEBUG_,
+            "CombatTrace crowd drain pop: attacker %d target %d event %u seq %u damage %d hp_after %d age %u attackers %d queue %d\n",
+            event.attacker_id,
+            this->Get_INDEX(),
+            event.event_id,
+            event.defender_seq,
+            event.damage_value,
+            event.hp_after,
+            (unsigned int)(dwCurrentTime - event.queued_at_ms),
+            static_cast<int>(m_CombatDamageQueue.deferred_attacker_count()),
+            static_cast<int>(m_CombatDamageQueue.size()));
+
+        // HP fold and digit only -- deliberately not the rest of Hitted(). No
+        // ClearStateByHitted: a swing whose animation has not landed must not strip
+        // the defender's buffs. No vibration, hit effect or sound either; those
+        // belong to the hit frame that is still coming, and doubling them up is
+        // what would make a crowd unreadable rather than merely busy.
+        ApplyPresentedCombatDamage(pAtkOBJ, event);
+        CreateImmediateDigitEffect(event.raw_damage);
+        ++iDrained;
+    }
+
+    if (m_CombatDamageQueue.deferred_attacker_count() <= kCombatCrowdDrainCloseAttackers) {
+        m_bCombatCrowdDrain = false;
+        LogString(LOG_DEBUG_,
+            "CombatTrace crowd drain closed: target %d attackers %d queue %d drained %d\n",
+            this->Get_INDEX(),
+            static_cast<int>(m_CombatDamageQueue.deferred_attacker_count()),
+            static_cast<int>(m_CombatDamageQueue.size()),
+            iDrained);
+    }
+
+    return iDrained;
+}
+
 Rose::Combat::PresentationResult
 CObjCHAR::DiscardQueuedCombatDamageFromAttacker(CObjCHAR* pAtkOBJ) {
     Rose::Combat::DamageEvent event;
@@ -3062,6 +3173,9 @@ CObjCHAR::ClearAllDamage() {
     // Death / revive resets combat presentation wholesale; a flinch deferred behind
     // a swing that no longer exists must not survive into the next life.
     m_bOwedHitReaction = false;
+    // The queue is now empty, so the crowd gate has nothing to drain and must not
+    // stay latched into the next life.
+    m_bCombatCrowdDrain = false;
 }
 
 //--------------------------------------------------------------------------------
@@ -3477,6 +3591,19 @@ CObjCHAR::Hitted(CObjCHAR* pFromOBJ,
                     pHitEFT->InsertToScene();
                 }
             }
+        }
+
+        // Crowd drain, paced by this hit frame. One digit per hit frame cannot keep
+        // up once enough attackers are queued, and the visible bar then trails the
+        // server silently -- the player is never shown a fifth of the health they
+        // are losing, and death arrives with the bar still reading a quarter full.
+        //
+        // Deliberately hung off a hit frame rather than off Proc(): something just
+        // visibly connected, so the extra digits read as that hit landing hard
+        // rather than as numbers from nowhere. Never into a corpse -- a lethal
+        // presentation above has already run Dead().
+        if (this->Get_HP() > DEAD_HP) {
+            DrainCrowdedCombatDamage();
         }
     }
 

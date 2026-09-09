@@ -224,6 +224,65 @@ public:
         return false;
     }
 
+    // How many distinct attackers are holding an event that still waits on an
+    // animation frame? Each one owes this defender exactly one un-shown digit --
+    // measured live at 1.0-1.1 events per attacker even at 35 attackers, because a
+    // monster's next swing arrives about as fast as its previous one reaches its
+    // hit frame. So this count, not the event count, is what the visible HP bar
+    // trails server truth by: ~35 HP per attacker on the character it was measured
+    // on, and linear in the count (4 attackers -> 143 HP, 8 -> 283, 25 -> 920,
+    // 31 -> 1048).
+    //
+    // Lethal events are excluded: they resolve through the death-presenting paths,
+    // not through hit-frame digits, so they are not part of the readable backlog.
+    size_t deferred_attacker_count() const {
+        size_t count = 0;
+        for (auto it = m_events.begin(); it != m_events.end(); ++it) {
+            if (!is_deferred_presentation(*it)) {
+                continue;
+            }
+
+            bool bAlreadyCounted = false;
+            for (auto prev = m_events.begin(); prev != it; ++prev) {
+                if (is_deferred_presentation(*prev)
+                    && prev->attacker_id == it->attacker_id) {
+                    bAlreadyCounted = true;
+                    break;
+                }
+            }
+            if (!bAlreadyCounted) {
+                ++count;
+            }
+        }
+        return count;
+    }
+
+    // Oldest event awaiting a melee hit frame, for the crowd drain (see
+    // CObjCHAR::DrainCrowdedCombatDamage). Oldest-first is deliberate: the stalest
+    // entries belong to attackers that have visibly swung several times since, so
+    // showing them is late rather than early -- the honest direction to be wrong in
+    // when the drain has to reach across attackers.
+    //
+    // Melee only. A projectile's digit belongs to its visible impact and the bullet
+    // is on screen to contradict an early number, and lethal events keep their own
+    // death-presenting routes (pop_stale_lethal, the pending-death backstop,
+    // drain-on-death) as the only ways a death reaches the screen.
+    bool pop_oldest_deferred_melee(int32_t dead_hp, DamageEvent& out) {
+        for (auto it = m_events.begin(); it != m_events.end(); ++it) {
+            if (it->presentation_kind != DamagePresentationKind::MeleeHitFrame) {
+                continue;
+            }
+            if (it->lethal || it->hp_after <= dead_hp) {
+                continue;
+            }
+
+            out = *it;
+            m_events.erase(it);
+            return true;
+        }
+        return false;
+    }
+
     // Is a committed death sitting in this queue, waiting for its animation frame?
     // The server applies the kill at swing start; presentation is deferred, so for
     // that whole window the character is dead server-side and alive client-side.
@@ -276,6 +335,16 @@ public:
     }
 
 private:
+    // Waits on an animation frame (a hit frame or a projectile impact) rather than
+    // presenting at receive, and is therefore part of the readable backlog.
+    static bool is_deferred_presentation(const DamageEvent& event) {
+        if (event.lethal) {
+            return false;
+        }
+        return event.presentation_kind == DamagePresentationKind::MeleeHitFrame
+            || event.presentation_kind == DamagePresentationKind::ProjectileImpact;
+    }
+
     std::vector<DamageEvent> m_events;
 };
 

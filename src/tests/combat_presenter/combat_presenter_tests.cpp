@@ -1791,6 +1791,99 @@ main() {
             "an attacker still holding CMD_ATTACK keeps its swing, however long the wait");
     }
 
+    {
+        // Crowd drain gate -- mirrors CObjCHAR::DrainCrowdedCombatDamage's trigger:
+        // open at 12 distinct deferred attackers, close at 6, drain oldest-first.
+        const size_t kOpen = 12;
+        const size_t kClose = 6;
+
+        {
+            // A boss never opens it, however hard it hits. This is the whole reason
+            // the trigger counts attackers instead of queued damage: one attacker is
+            // one attacker at 20 damage or at 2000.
+            CombatPresentationQueue q;
+            q.push(event(1, 7, 2000, 2000));
+            expect(q.deferred_attacker_count() == 1,
+                "a single boss is one attacker regardless of its damage");
+            expect(q.deferred_attacker_count() < kOpen, "so it cannot open the gate");
+        }
+
+        {
+            // Boss plus minions: still nowhere near, even though the queued damage is
+            // far past any percentage-of-HP threshold.
+            CombatPresentationQueue q;
+            q.push(event(1, 7, 2000, 3000));
+            for (uint32_t i = 0; i < 6; ++i) {
+                q.push(event(10 + i, 20 + i, 20, 2900 - int(i) * 20));
+            }
+            expect(q.deferred_attacker_count() == 7, "boss + six minions is seven attackers");
+            expect(q.deferred_attacker_count() < kOpen, "which must not open the gate");
+        }
+
+        {
+            // One event each from many attackers -- the shape actually measured in a
+            // mob train (1.0-1.1 events per attacker).
+            CombatPresentationQueue q;
+            for (uint32_t i = 0; i < 14; ++i) {
+                q.push(event(100 + i, 200 + i, 70, 5000 - int(i) * 70));
+            }
+            expect(q.deferred_attacker_count() == 14, "fourteen attackers, one swing each");
+            expect(q.deferred_attacker_count() >= kOpen, "opens the gate");
+
+            // Drain oldest-first until the close threshold, exactly as the real loop
+            // does, and check it stops there rather than emptying the queue.
+            DamageEvent out;
+            uint32_t expected_id = 100;
+            size_t drained = 0;
+            while (q.deferred_attacker_count() > kClose
+                && q.pop_oldest_deferred_melee(-30000, out)) {
+                expect(out.event_id == expected_id, "drain takes the oldest queued hit first");
+                ++expected_id;
+                ++drained;
+            }
+            expect(drained == 8, "drains down to the close threshold and no further");
+            expect(q.deferred_attacker_count() == kClose, "gate closes at six attackers");
+            expect(q.size() == kClose, "the remaining hits stay queued for their own hit frames");
+        }
+
+        {
+            // Several swings from one attacker are one attacker. A duel where the
+            // player lags behind a fast attacker must never trip a *crowd* gate.
+            CombatPresentationQueue q;
+            for (uint32_t i = 0; i < 20; ++i) {
+                q.push(event(300 + i, 9, 70, 5000 - int(i) * 70));
+            }
+            expect(q.deferred_attacker_count() == 1, "twenty swings from one attacker is one");
+        }
+
+        {
+            // What the drain refuses to take. Lethal events keep their own
+            // death-presenting routes and a projectile's digit belongs to its visible
+            // impact, so neither is drainable -- and a lethal event is not counted as
+            // backlog either, because it resolves as a death rather than a digit.
+            CombatPresentationQueue q;
+            q.push(event(400, 30, 90, 500, true));
+            DamageEvent projectile = event(401, 31, 90, 410);
+            projectile.presentation_kind = DamagePresentationKind::ProjectileImpact;
+            q.push(projectile);
+            DamageEvent immediate = event(402, 32, 90, 320);
+            immediate.presentation_kind = DamagePresentationKind::Immediate;
+            q.push(immediate);
+            q.push(event(403, 33, 90, 230));
+
+            expect(q.deferred_attacker_count() == 2,
+                "lethal and immediate events are not part of the deferred backlog");
+
+            DamageEvent out;
+            expect(q.pop_oldest_deferred_melee(-30000, out), "the melee hit is drainable");
+            expect(out.event_id == 403, "and it is the only one taken");
+            expect(!q.pop_oldest_deferred_melee(-30000, out),
+                "lethal, projectile and immediate events are all left alone");
+            expect(q.has_event(400) && q.has_event(401) && q.has_event(402),
+                "and they remain queued for their own paths");
+        }
+    }
+
     std::cout << "combat_presenter_tests passed\n";
     return 0;
 }
