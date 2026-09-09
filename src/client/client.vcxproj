@@ -336,6 +336,7 @@
     <ClCompile Include="IO_Terrain.cpp" />
     <ClCompile Include="Terrain\PatchManager.cpp" />
     <ClCompile Include="CApplication.cpp" />
+    <ClCompile Include="CrashHandler.cpp" />
     <ClCompile Include="StdAfx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='debug|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='release|Win32'">Create</PrecompiledHeader>
@@ -746,6 +747,7 @@
     <ClInclude Include="Terrain\PatchManager.h" />
     <ClInclude Include="Terrain\TerrainDef.h" />
     <ClInclude Include="CApplication.h" />
+    <ClInclude Include="CrashHandler.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="StdAfx.h" />
     <ClInclude Include="gamecommon\CDelegatedObservable.h" />

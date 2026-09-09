@@ -1,6 +1,7 @@
 #include "stdafx.h"
 
 #include "CApplication.h"
+#include "CrashHandler.h"
 #include "Game.h"
 #include "Network/CNetwork.h"
 #include "Util/VFSManager.h"
@@ -260,6 +261,16 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdLine, int nCmd
     // the traced code never ran.
     LOG_INFO("Log level: {} ([LOG] LEVEL in rose-next.ini, ROSE_LOG_LEVEL overrides)",
         LogLevelNAME(log_level));
+
+    // Installed here rather than at the very top so the confirmation line has a
+    // logger to reach. Everything before it is ResolveLogLevel and logger_init;
+    // a fault in those has no diagnostics to write to anyway.
+    //
+    // Without this a crash leaves nothing behind -- error.txt is buffered and still
+    // ends at the previous run's "log: end.", and client.log stops mid-line -- so
+    // an intermittent fault could only be caught by playing under cdb and hoping it
+    // happened while you were there.
+    Rose::Client::InstallCrashHandler();
 
     VHANDLE hVFS = OpenVFS("data.idx", "r");
 
