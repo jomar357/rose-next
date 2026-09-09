@@ -275,6 +275,27 @@ CDigitEffect::GetEmptyNode() {
 }
 
 /// 최대 4자리 타격치를 표현한다.. ( 32 * 32 * 4 )
+// GetSurfaceLevel AddRefs, and CreateDigitEffect has eight early returns between
+// acquiring its surfaces and reaching the SAFE_RELEASE calls at the bottom --
+// every one of them used to abandon whatever it had already taken. The failure
+// paths are not exotic: a texture still streaming in, or an UpdateSurface the
+// driver rejects, and the miss branch runs on roughly half of all incoming hits
+// in a crowd. Hold them in a scope guard so every exit releases.
+namespace {
+
+struct ScopedSurface {
+    LPDIRECT3DSURFACE9 p;
+
+    ScopedSurface(): p(NULL) {}
+    ~ScopedSurface() { SAFE_RELEASE(p); }
+
+private:
+    ScopedSurface(const ScopedSurface&);
+    ScopedSurface& operator=(const ScopedSurface&);
+};
+
+} // namespace
+
 void
 CDigitEffect::CreateDigitEffect(int iPoint, float x, float y, float z, bool bIsUSER) {
     int iEmptyNode = GetEmptyNode();
@@ -287,9 +308,9 @@ CDigitEffect::CreateDigitEffect(int iPoint, float x, float y, float z, bool bIsU
         LPD3DTEXTURE MissTexture = (LPD3DTEXTURE)::getTexturePointer(m_DigitMissTex);
         LPD3DTEXTURE ClearTexture = (LPD3DTEXTURE)::getTexturePointer(m_DigitClearTex);
         
-        LPDIRECT3DSURFACE9 psurfWork = NULL;
-        LPDIRECT3DSURFACE9 psurfMiss = NULL;
-        LPDIRECT3DSURFACE9 psurfClear = NULL;
+        ScopedSurface psurfWork;
+        ScopedSurface psurfMiss;
+        ScopedSurface psurfClear;
 
         if (!workTexture || !MissTexture || !ClearTexture)
             return; // 텍스쳐가 아직 로딩되지 않은 상태라면 건너뜀.
@@ -297,17 +318,17 @@ CDigitEffect::CreateDigitEffect(int iPoint, float x, float y, float z, bool bIsU
         HRESULT hr = S_OK;
 
         /// 작업 텍스쳐..
-        hr = workTexture->GetSurfaceLevel(0, &psurfWork);
+        hr = workTexture->GetSurfaceLevel(0, &psurfWork.p);
         if (FAILED(hr))
             return;
 
         /// Miss 텍스쳐..
-        hr = MissTexture->GetSurfaceLevel(0, &psurfMiss);
+        hr = MissTexture->GetSurfaceLevel(0, &psurfMiss.p);
         if (FAILED(hr))
             return;
 
         /// Clear 텍스쳐..
-        hr = ClearTexture->GetSurfaceLevel(0, &psurfClear);
+        hr = ClearTexture->GetSurfaceLevel(0, &psurfClear.p);
         if (FAILED(hr))
             return;
 
@@ -317,11 +338,11 @@ CDigitEffect::CreateDigitEffect(int iPoint, float x, float y, float z, bool bIsU
         POINT DestinationPoint = {0, 0};
 
         LPD3DDEVICE pDevice = (LPD3DDEVICE)::getDevice();
-        hr = pDevice->UpdateSurface(psurfClear, &ClearRect, psurfWork, &ClearPoint);
+        hr = pDevice->UpdateSurface(psurfClear.p, &ClearRect, psurfWork.p, &ClearPoint);
         if (FAILED(hr))
             return;
 
-        hr = pDevice->UpdateSurface(psurfMiss, &SourceRect, psurfWork, &DestinationPoint);
+        hr = pDevice->UpdateSurface(psurfMiss.p, &SourceRect, psurfWork.p, &DestinationPoint);
 
         if (FAILED(hr))
             return;
@@ -336,9 +357,6 @@ CDigitEffect::CreateDigitEffect(int iPoint, float x, float y, float z, bool bIsU
         m_DigitNode[iEmptyNode].m_bVisible = true;
         ///::setVisibility( m_DigitNode[ iEmptyNode ].m_hAnimatable, 1 );
 
-        SAFE_RELEASE(psurfWork);
-        SAFE_RELEASE(psurfMiss);
-        SAFE_RELEASE(psurfClear);
     } else {
         int iDigitCount = DIGIT_COUNT;
         int iDigit[DIGIT_COUNT];
@@ -371,9 +389,9 @@ CDigitEffect::CreateDigitEffect(int iPoint, float x, float y, float z, bool bIsU
 
         LPD3DTEXTURE ClearTexture = (LPD3DTEXTURE)::getTexturePointer(m_DigitClearTex);
 
-        LPDIRECT3DSURFACE9 psurfWork = NULL;
-        LPDIRECT3DSURFACE9 psurfDigit = NULL;
-        LPDIRECT3DSURFACE9 psurfClear = NULL;
+        ScopedSurface psurfWork;
+        ScopedSurface psurfDigit;
+        ScopedSurface psurfClear;
 
         if (!workTexture || !DigitTexture || !ClearTexture)
             return; // 텍스쳐가 아직 로딩되지 않은 상태라면 건너뜀.
@@ -381,17 +399,17 @@ CDigitEffect::CreateDigitEffect(int iPoint, float x, float y, float z, bool bIsU
         HRESULT hr = S_OK;
 
         /// 작업 텍스쳐..
-        hr = workTexture->GetSurfaceLevel(0, &psurfWork);
+        hr = workTexture->GetSurfaceLevel(0, &psurfWork.p);
         if (FAILED(hr))
             return;
 
         /// 숫자 텍스쳐..
-        hr = DigitTexture->GetSurfaceLevel(0, &psurfDigit);
+        hr = DigitTexture->GetSurfaceLevel(0, &psurfDigit.p);
         if (FAILED(hr))
             return;
 
         /// Clear 텍스쳐..
-        hr = ClearTexture->GetSurfaceLevel(0, &psurfClear);
+        hr = ClearTexture->GetSurfaceLevel(0, &psurfClear.p);
         if (FAILED(hr))
             return;
 
@@ -399,7 +417,7 @@ CDigitEffect::CreateDigitEffect(int iPoint, float x, float y, float z, bool bIsU
         POINT DestinationPoint = {0, 0};
 
         LPD3DDEVICE pDevice = (LPD3DDEVICE)::getDevice();
-        hr = pDevice->UpdateSurface(psurfClear, &SourceRect, psurfWork, &DestinationPoint);
+        hr = pDevice->UpdateSurface(psurfClear.p, &SourceRect, psurfWork.p, &DestinationPoint);
 
         /// 센타로 위치
         int iStartPos = ((DIGIT_COUNT - iDigitCount) * DIGIT_WIDTH) / 2;
@@ -413,7 +431,7 @@ CDigitEffect::CreateDigitEffect(int iPoint, float x, float y, float z, bool bIsU
             DestinationPoint.x = iStartPos + i * DIGIT_WIDTH;
             DestinationPoint.y = 0;
 
-            hr = pDevice->UpdateSurface(psurfDigit, &SourceRect, psurfWork, &DestinationPoint);
+            hr = pDevice->UpdateSurface(psurfDigit.p, &SourceRect, psurfWork.p, &DestinationPoint);
 
             if (FAILED(hr)) {
                 return;
@@ -430,8 +448,5 @@ CDigitEffect::CreateDigitEffect(int iPoint, float x, float y, float z, bool bIsU
         m_DigitNode[iEmptyNode].m_bVisible = true;
         ///::setVisibility( m_DigitNode[ iEmptyNode ].m_hAnimatable, 1 );
 
-        SAFE_RELEASE(psurfWork);
-        SAFE_RELEASE(psurfDigit);
-        SAFE_RELEASE(psurfClear);
     }
 }
