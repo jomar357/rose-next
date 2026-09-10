@@ -20,6 +20,112 @@ enum class PresentationResult {
     PresentedDeath,
 };
 
+// Client presentation policy only. Membership follows recent confirmed attacks,
+// not queued events: presenting a hit must not make its monster leave the crowd.
+class CombatCrowdTracker {
+public:
+    static constexpr size_t kOpenAttackers = 8;
+    static constexpr uint32_t kRecentAttackMs = 3000;
+    static constexpr uint32_t kExitDelayMs = 1000;
+
+    void observe(uint32_t attacker, uint32_t now) {
+        for (auto& recent: m_attackers) {
+            if (recent.id == attacker) {
+                recent.at_ms = now;
+                return;
+            }
+        }
+        m_attackers.push_back({attacker, now});
+    }
+
+    // Called before a departing monster's client object index can be recycled.
+    void forget(uint32_t attacker) {
+        for (auto it = m_attackers.begin(); it != m_attackers.end(); ++it) {
+            if (it->id == attacker) {
+                m_attackers.erase(it);
+                return;
+            }
+        }
+    }
+
+    template <typename IsStillPresent>
+    void update(uint32_t now, IsStillPresent is_still_present) {
+        for (auto it = m_attackers.begin(); it != m_attackers.end();) {
+            if (uint32_t(now - it->at_ms) >= kRecentAttackMs || !is_still_present(it->id)) {
+                it = m_attackers.erase(it);
+            } else {
+                ++it;
+            }
+        }
+
+        if (m_attackers.size() >= kOpenAttackers) {
+            m_active = true;
+            m_exiting = false;
+        } else if (m_active) {
+            if (!m_exiting) {
+                m_exiting = true;
+                m_below_since = now;
+            }
+            if (uint32_t(now - m_below_since) >= kExitDelayMs) {
+                m_active = false;
+                m_exiting = false;
+            }
+        }
+    }
+
+    bool active() const { return m_active; }
+    size_t attacker_count() const { return m_attackers.size(); }
+
+    void clear() {
+        m_attackers.clear();
+        m_active = false;
+        m_exiting = false;
+        m_below_since = 0;
+    }
+
+private:
+    struct RecentAttack {
+        uint32_t id;
+        uint32_t at_ms;
+    };
+    std::vector<RecentAttack> m_attackers;
+    bool m_active = false;
+    bool m_exiting = false;
+    uint32_t m_below_since = 0;
+};
+
+// Six extra positive digits at most, with a separate work cap so a run of misses
+// cannot consume the digit budget or cause an unbounded queue walk. The target is
+// an estimate of unpresented melee damage, not an authoritative HP checkpoint.
+class CombatCrowdDrainBudget {
+public:
+    static constexpr int kMaxDamageDigits = 6;
+    static constexpr int kMaxEvents = 16;
+
+    static int target_damage(int max_hp) {
+        return max_hp >= 20 ? max_hp / 20 : 1;
+    }
+
+    bool can_drain(int64_t queued_damage, int max_hp) const {
+        return m_events < kMaxEvents && m_damage_digits < kMaxDamageDigits
+            && queued_damage > target_damage(max_hp);
+    }
+
+    void record(int damage) {
+        ++m_events;
+        if (damage > 0) {
+            ++m_damage_digits;
+        }
+    }
+
+    int events() const { return m_events; }
+    int damage_digits() const { return m_damage_digits; }
+
+private:
+    int m_events = 0;
+    int m_damage_digits = 0;
+};
+
 // Client-synthesized event ids live in the top half of the id space.
 //
 // The server's g_nextCombatEventId starts at 1 and hands out ids for every swing
@@ -224,17 +330,8 @@ public:
         return false;
     }
 
-    // How many distinct attackers are holding an event that still waits on an
-    // animation frame? Each one owes this defender exactly one un-shown digit --
-    // measured live at 1.0-1.1 events per attacker even at 35 attackers, because a
-    // monster's next swing arrives about as fast as its previous one reaches its
-    // hit frame. So this count, not the event count, is what the visible HP bar
-    // trails server truth by: ~35 HP per attacker on the character it was measured
-    // on, and linear in the count (4 attackers -> 143 HP, 8 -> 283, 25 -> 920,
-    // 31 -> 1048).
-    //
-    // Lethal events are excluded: they resolve through the death-presenting paths,
-    // not through hit-frame digits, so they are not part of the readable backlog.
+    // Diagnostic backlog count, not crowd membership. Multiple swings can be
+    // queued per attacker, and presenting them does not end that attacker's fight.
     size_t deferred_attacker_count() const {
         size_t count = 0;
         for (auto it = m_events.begin(); it != m_events.end(); ++it) {
@@ -257,11 +354,21 @@ public:
         return count;
     }
 
+    int64_t deferred_melee_damage(int32_t dead_hp) const {
+        int64_t damage = 0;
+        for (const auto& event: m_events) {
+            if (event.presentation_kind == DamagePresentationKind::MeleeHitFrame
+                && !event.lethal && event.hp_after > dead_hp && event.damage_value > 0) {
+                damage += event.damage_value;
+            }
+        }
+        return damage;
+    }
+
     // Oldest event awaiting a melee hit frame, for the crowd drain (see
     // CObjCHAR::DrainCrowdedCombatDamage). Oldest-first is deliberate: the stalest
-    // entries belong to attackers that have visibly swung several times since, so
-    // showing them is late rather than early -- the honest direction to be wrong in
-    // when the drain has to reach across attackers.
+    // entries have waited longest. Some still precede their own visual impact;
+    // crowd mode deliberately trades that precision for a more current HP bar.
     //
     // Melee only. A projectile's digit belongs to its visible impact and the bullet
     // is on screen to contradict an early number, and lethal events keep their own

@@ -539,9 +539,9 @@ public:
     /// reconciliation drift so the next presented hit absorbs it silently.
     void DrainQueuedCombatDamageFromAttacker(CObjCHAR* pAtkOBJ,
         bool bAllowDeathPresentation = true);
-    /// Present surplus queued hits at this hit frame instead of one, while enough
-    /// distinct attackers are queued that one-digit-per-hit-frame cannot keep up.
-    /// Returns how many extra events were presented. See the .cpp for the trigger.
+    /// Update recent monster membership without changing HP or presenting hits.
+    void UpdateCombatCrowdState(DWORD now);
+    /// Present bounded extra melee damage at a real hit frame while in a crowd.
     int DrainCrowdedCombatDamage();
     void ApplyPresentedCombatDamage(CObjCHAR* pAtkOBJ, Rose::Combat::DamageEvent& event);
     void ApplyPresentedCombatFeedback(CObjCHAR* pAtkOBJ,
@@ -888,10 +888,8 @@ protected:
     /// A hit reaction was suppressed so an in-flight confirmed swing could reach
     /// its hit frame; play it once that swing resolves.
     bool m_bOwedHitReaction;
-    /// Crowd-drain gate: true while this defender has so many attackers queued that
-    /// hit-frame presentation cannot keep pace. Latched with hysteresis so it does
-    /// not flap at the threshold -- opens high, closes low.
-    bool m_bCombatCrowdDrain;
+    /// Recent confirmed attackers, independent of the presentation queue.
+    Rose::Combat::CombatCrowdTracker m_CombatCrowdTracker;
     int m_AruaAddMoveSpeed; /// 아루아 여신상태 일경우 증가되는 이동속도
     int m_iPendingMountedAttackTarget; /// Pending mounted attack target while command propagation catches up
     DWORD m_dwPendingMountedAttackTime; /// Timestamp of pending mounted attack

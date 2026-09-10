@@ -1792,96 +1792,124 @@ main() {
     }
 
     {
-        // Crowd drain gate -- mirrors CObjCHAR::DrainCrowdedCombatDamage's trigger:
-        // open at 12 distinct deferred attackers, close at 6, drain oldest-first.
-        const size_t kOpen = 12;
-        const size_t kClose = 6;
+        using Rose::Combat::CombatCrowdTracker;
+        using Rose::Combat::CombatCrowdDrainBudget;
+        const auto present = [](uint32_t) { return true; };
 
-        {
-            // A boss never opens it, however hard it hits. This is the whole reason
-            // the trigger counts attackers instead of queued damage: one attacker is
-            // one attacker at 20 damage or at 2000.
-            CombatPresentationQueue q;
-            q.push(event(1, 7, 2000, 2000));
-            expect(q.deferred_attacker_count() == 1,
-                "a single boss is one attacker regardless of its damage");
-            expect(q.deferred_attacker_count() < kOpen, "so it cannot open the gate");
+        // A boss with six minions, even with repeated swings and enormous queued
+        // damage, retains ordinary presentation. Exercise the actual policy.
+        CombatCrowdTracker crowd;
+        CombatPresentationQueue q;
+        for (uint32_t id = 1; id <= 7; ++id) {
+            crowd.observe(id, 0);
+            crowd.observe(id, 100);
+            crowd.update(100, present);
+            expect(!crowd.active(), "each group size from one to seven keeps normal timing");
+            q.push(event(id, id, 2000, 30000));
         }
+        crowd.update(100, present);
+        expect(crowd.attacker_count() == 7, "repeated swings do not create extra attackers");
+        expect(!crowd.active(), "one through seven monsters never open crowd mode");
+        expect(q.deferred_melee_damage(-30000) == 14000, "large hits cannot bypass the crowd gate");
 
-        {
-            // Boss plus minions: still nowhere near, even though the queued damage is
-            // far past any percentage-of-HP threshold.
-            CombatPresentationQueue q;
-            q.push(event(1, 7, 2000, 3000));
-            for (uint32_t i = 0; i < 6; ++i) {
-                q.push(event(10 + i, 20 + i, 20, 2900 - int(i) * 20));
-            }
-            expect(q.deferred_attacker_count() == 7, "boss + six minions is seven attackers");
-            expect(q.deferred_attacker_count() < kOpen, "which must not open the gate");
+        // The eighth attack opens the gate even if every older hit has already
+        // presented. Likewise draining every queue entry must not close it.
+        q.clear();
+        crowd.observe(8, 100);
+        crowd.update(100, present);
+        expect(crowd.active(), "eight recent attackers open crowd mode with an empty queue");
+        crowd.update(500, present);
+        expect(crowd.active(), "an empty queue does not switch crowd mode off");
+
+        crowd.forget(8);
+        crowd.update(500, present); // all slots may exist again after ID reuse
+        expect(crowd.attacker_count() == 7,
+            "a recycled object slot does not inherit the departed monster's membership");
+
+        const auto sevenRemain = [](uint32_t id) { return id != 8; };
+        crowd.update(500, sevenRemain);
+        crowd.update(1499, sevenRemain);
+        expect(crowd.active(), "losing an attacker preserves crowd mode for one second");
+        crowd.update(1500, sevenRemain);
+        expect(!crowd.active(), "the exit delay completes without another hit frame");
+
+        crowd.observe(8, 1500);
+        crowd.update(1500, present);
+        crowd.update(1600, sevenRemain);
+        crowd.observe(8, 2000);
+        crowd.update(2000, present);
+        crowd.update(2700, present);
+        expect(crowd.active(), "a returning eighth attacker cancels the pending exit");
+        crowd.clear();
+        crowd.update(2700, present);
+        expect(!crowd.active() && crowd.attacker_count() == 0,
+            "revive or zone reset clears membership and the exit timer");
+
+        // Zero is a valid game tick, and DWORD wrap must not expire fresh attacks.
+        for (uint32_t id = 1; id <= 8; ++id) crowd.observe(id, 0xfffffff0u);
+        crowd.update(0x10u, present);
+        expect(crowd.active() && crowd.attacker_count() == 8, "membership survives timer wrap");
+        crowd.update(0x1000u, present);
+        expect(crowd.attacker_count() == 0, "old confirmed attacks expire without new packets");
+        crowd.update(0x13e8u, present);
+        expect(!crowd.active(), "expired membership eventually exits crowd mode");
+        crowd.clear();
+        for (uint32_t id = 1; id <= 8; ++id) crowd.observe(id, 0);
+        crowd.update(0, present);
+        crowd.update(0, sevenRemain);
+        crowd.update(1000, sevenRemain);
+        expect(!crowd.active(), "an exit timer started at tick zero still completes");
+
+        // Eight heavy queued hits: the work ends at the digit cap first, then a
+        // second hit frame finishes catching up to the 5% budget (250 of 5000 HP).
+        q.clear();
+        for (uint32_t id = 1; id <= 8; ++id) q.push(event(id, id, 190, 5000 - int(id) * 190));
+        CombatCrowdDrainBudget budget;
+        DamageEvent out;
+        while (budget.can_drain(q.deferred_melee_damage(-30000), 5000)
+            && q.pop_oldest_deferred_melee(-30000, out)) {
+            expect(out.event_id == uint32_t(budget.events() + 1), "crowd damage stays oldest-first");
+            budget.record(out.damage_value);
         }
+        expect(budget.damage_digits() == 6, "one hit frame cannot emit more than six extra damage digits");
+        expect(q.deferred_melee_damage(-30000) == 380, "work cap leaves remaining real hits queued");
+        budget = CombatCrowdDrainBudget();
+        while (budget.can_drain(q.deferred_melee_damage(-30000), 5000)
+            && q.pop_oldest_deferred_melee(-30000, out)) budget.record(out.damage_value);
+        expect(budget.events() == 1 && q.deferred_melee_damage(-30000) == 190,
+            "next hit frame stops as soon as queued damage is within budget");
+        expect(!budget.can_drain(250, 5000), "exactly five percent needs no extra drain");
+        expect(budget.can_drain(250, 2000), "the same backlog needs catch-up on a smaller HP bar");
 
-        {
-            // One event each from many attackers -- the shape actually measured in a
-            // mob train (1.0-1.1 events per attacker).
-            CombatPresentationQueue q;
-            for (uint32_t i = 0; i < 14; ++i) {
-                q.push(event(100 + i, 200 + i, 70, 5000 - int(i) * 70));
-            }
-            expect(q.deferred_attacker_count() == 14, "fourteen attackers, one swing each");
-            expect(q.deferred_attacker_count() >= kOpen, "opens the gate");
+        // A run of misses does not starve damage, but still has a finite work cap.
+        budget = CombatCrowdDrainBudget();
+        for (int i = 0; i < 10; ++i) budget.record(0);
+        expect(budget.can_drain(1000, 5000), "ten misses do not consume the positive digit slots");
+        for (int i = 0; i < 6; ++i) budget.record(0);
+        expect(!budget.can_drain(1000, 5000), "sixteen misses reach the separate event work cap");
 
-            // Drain oldest-first until the close threshold, exactly as the real loop
-            // does, and check it stops there rather than emptying the queue.
-            DamageEvent out;
-            uint32_t expected_id = 100;
-            size_t drained = 0;
-            while (q.deferred_attacker_count() > kClose
-                && q.pop_oldest_deferred_melee(-30000, out)) {
-                expect(out.event_id == expected_id, "drain takes the oldest queued hit first");
-                ++expected_id;
-                ++drained;
-            }
-            expect(drained == 8, "drains down to the close threshold and no further");
-            expect(q.deferred_attacker_count() == kClose, "gate closes at six attackers");
-            expect(q.size() == kClose, "the remaining hits stay queued for their own hit frames");
-        }
-
-        {
-            // Several swings from one attacker are one attacker. A duel where the
-            // player lags behind a fast attacker must never trip a *crowd* gate.
-            CombatPresentationQueue q;
-            for (uint32_t i = 0; i < 20; ++i) {
-                q.push(event(300 + i, 9, 70, 5000 - int(i) * 70));
-            }
-            expect(q.deferred_attacker_count() == 1, "twenty swings from one attacker is one");
-        }
-
-        {
-            // What the drain refuses to take. Lethal events keep their own
-            // death-presenting routes and a projectile's digit belongs to its visible
-            // impact, so neither is drainable -- and a lethal event is not counted as
-            // backlog either, because it resolves as a death rather than a digit.
-            CombatPresentationQueue q;
-            q.push(event(400, 30, 90, 500, true));
-            DamageEvent projectile = event(401, 31, 90, 410);
-            projectile.presentation_kind = DamagePresentationKind::ProjectileImpact;
-            q.push(projectile);
-            DamageEvent immediate = event(402, 32, 90, 320);
-            immediate.presentation_kind = DamagePresentationKind::Immediate;
-            q.push(immediate);
-            q.push(event(403, 33, 90, 230));
-
-            expect(q.deferred_attacker_count() == 2,
-                "lethal and immediate events are not part of the deferred backlog");
-
-            DamageEvent out;
-            expect(q.pop_oldest_deferred_melee(-30000, out), "the melee hit is drainable");
-            expect(out.event_id == 403, "and it is the only one taken");
-            expect(!q.pop_oldest_deferred_melee(-30000, out),
-                "lethal, projectile and immediate events are all left alone");
-            expect(q.has_event(400) && q.has_event(401) && q.has_event(402),
-                "and they remain queued for their own paths");
-        }
+        // Neither the damage target nor selection may borrow lethal damage or
+        // projectiles to satisfy the melee budget. A dead sentinel is lethal even
+        // if its flag is absent. Wide sums cannot wrap at high combined damage.
+        q.clear();
+        q.push(event(400, 30, 90, 500, true));
+        q.push(event(404, 34, 90, -30000));
+        DamageEvent projectile = event(401, 31, 90, 410);
+        projectile.presentation_kind = DamagePresentationKind::ProjectileImpact;
+        q.push(projectile);
+        DamageEvent immediate = event(402, 32, 90, 320);
+        immediate.presentation_kind = DamagePresentationKind::Immediate;
+        q.push(immediate);
+        q.push(event(403, 33, 90, 230));
+        expect(q.deferred_melee_damage(-30000) == 90, "budget includes only eligible nonlethal melee damage");
+        expect(q.pop_oldest_deferred_melee(-30000, out) && out.event_id == 403,
+            "only the eligible melee hit drains");
+        expect(!q.pop_oldest_deferred_melee(-30000, out), "protected events keep their original timing");
+        expect(q.size() == 4, "every protected event remains queued");
+        q.clear();
+        q.push(event(1, 1, 2000000000, 1));
+        q.push(event(2, 2, 2000000000, 1));
+        expect(q.deferred_melee_damage(-30000) == 4000000000LL, "backlog sum uses wide arithmetic");
     }
 
     std::cout << "combat_presenter_tests passed\n";
