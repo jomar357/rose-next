@@ -118,15 +118,41 @@ MONEY_BOSS = 0              # bosses pay items; money would eat the mythical rol
 
 # ---------------------------------------------------------------- item pools
 # Materials, cheapest first -- low slots are the most frequent.
-MAT_CEMETERY = [151, 47, 8, 152, 48, 9, 153, 49, 10]      # hearts/leather/metal
-MAT_SPIRE = [49, 10, 154, 50, 16, 84, 155, 85, 17]        # the better half
-MAT_BOSS = [86, 156, 87, 88, 157]                         # Lisent + top hearts
+#
+# These were vanilla metals, leather and hearts until 2026-09-12. A level-240
+# monster paying out Chromium (595z, a Junon-tier ore) read as filler, and the 25
+# Karkia materials imported in stage 8 had no source at all: twelve were buyable
+# from Astraea and the other thirteen were reachable by nothing in the game. The
+# shop script called those thirteen "reserved for drops or a craft"; this is the
+# drops half of that promise.
+#
+# **The three Hearts stay.** They are the only vanilla material that reads as a
+# graveyard drop, and the catacomb entry design in
+# doc/karkia-catacombs-implementation-brief.md uses them as its toll -- a player
+# clears the cemetery above to pay for the crypt below. Pulling them out here
+# would silently break that before it was built.
+MAT_CEMETERY = [742, 743, 744, 751, 151, 152, 760, 153]
+MAT_SPIRE = [745, 746, 763, 760, 747, 748, 752, 758]
+
+# Two boss pools rather than one, because several descriptions name the creature
+# they come from and it costs nothing to keep that true:
+#   761 "Seven of these will break the seal"        Nagia's chain, from the
+#   759 "Nagia forges the key ... from ten of them" god's own jailers
+#   762 "Prised from the ash-grey wyrm"             so: the Drakes, not anything else
+MAT_BOSS = [759, 761]
+MAT_DRAKE = [762, 758]
 
 # The flashback is Karkia *alive*: bees, plants and beasts in a world the goddess
-# still tends. Its materials are deliberately the ones the present-day tables
-# refuse -- woods and cloth -- so the two eras read differently in your bag.
-MAT_MEMORIES = [37, 57, 38, 58, 39, 59, 40, 60, 66]       # woods + weaves
-MAT_GARDEN = [39, 59, 40, 60, 97, 67, 66, 68, 96]         # the better half
+# still tends. It draws the clean half of the catalogue -- colour cores, star
+# scales, starlight -- where the present day pays in plague crystals and
+# blackened cogs, so the two eras still read differently in your bag.
+MAT_MEMORIES = [753, 754, 755, 756, 757, 745, 763, 741]
+MAT_GARDEN = [755, 756, 757, 741, 749, 750, 764, 758]
+
+# 740 Graphistone is deliberately absent. Its description says it is "found only
+# in the Tower of Despair", and the Tower has no population yet -- dropping it in
+# the Cemetery would make the item lie about itself. It stays unobtainable until
+# there is something in zone 136 to take it from.
 
 USE_FIELD = [13, 32]                                      # Vital / Spiritual (XL)
 USE_BOSS = [35, 36]                                       # Health / Mana Bottle (XL)
@@ -178,11 +204,16 @@ def elite(weapons, shields, mats):
     return common, groups
 
 
-def boss(mythicals, shields):
-    """Eight mythical slots -> 36% per kill, then materials and a shield."""
+def boss(mythicals, shields, mats=None):
+    """Eight mythical slots -> 36% per kill, then materials and a shield.
+
+    `mats` takes two slots rather than the one it used to, so the seal chain
+    (759 + 761) can come off Hebarn's officers while the Drakes pay their own
+    stone. Twelve of a row's slots are used either way; there is room.
+    """
     common = [(T_WEAPON, w) for w in mythicals[:8]]
     common += [(T_SUBWPN, s) for s in shields[:2]]
-    common += [(T_NATURAL, m) for m in MAT_BOSS[:1]]
+    common += [(T_NATURAL, m) for m in (mats or MAT_BOSS)[:2]]
     common += [(T_USE, USE_BOSS[0])]
     return common, {}
 
@@ -216,9 +247,11 @@ TABLES = {
     905: ("BOSS Corroded Golem + Revived Veteran (lv238/235)",
           boss([1395, 1404, 1416, 1413, 1401, 1410, 1383, 1398], SHIELD_240)),
     907: ("BOSS Deadly Drake (lv238, Cemetery)",
-          boss([1389, 1392, 1395, 1398, 1401, 1404, 1407, 1410], SHIELD_240)),
+          boss([1389, 1392, 1395, 1398, 1401, 1404, 1407, 1410], SHIELD_240,
+               MAT_DRAKE)),
     908: ("BOSS Deadly Drake Alpha (lv240, Spire Village)",
-          boss([1383, 1386, 1413, 1416, 1419, 1389, 1398, 1404], SHIELD_240)),
+          boss([1383, 1386, 1413, 1416, 1419, 1389, 1398, 1404], SHIELD_240,
+               MAT_DRAKE)),
 }
 
 # Zone-number rows mirror the dominant table for that zone, so the 20% fallback

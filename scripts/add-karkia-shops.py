@@ -190,7 +190,10 @@ DROP_ONLY = (
 # Despair"; Starlight is what the Starsteel armourers demand you bring *them*;
 # the Tomes are asked for fifty at a time; the Sacred Demon Crystals break
 # Nagia's seal. Selling those would contradict the lines that make them worth
-# having, so they wait for drops or a craft.
+# having, so they are earned instead: `add-karkia-drops.py` put all thirteen into
+# the drop tables on 2026-09-12, several onto the very monster their own
+# description names. Graphistone alone is still unobtainable, deliberately --
+# it says it is found only in the Tower of Despair, which has no population yet.
 MATERIALS_SOLD = [742,                    # Black Iron Gear
                   743, 744, 745, 746,     # the four lesser Scrolls
                   751,                    # Talisman of Enchantment
