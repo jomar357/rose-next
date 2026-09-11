@@ -272,6 +272,10 @@ namespace Map_Editor.Engine.RenderManager
         /// <value>The batch objects.</value>
         private List<BatchObject> batchObjects { get; set; }
 
+        // Parts share atlas files, but keep their own UV transforms. Keep the textures
+        // alive until the map is cleared, including parts held by undo commands.
+        private Dictionary<string, Texture2D> lightmapTextures = new Dictionary<string, Texture2D>(StringComparer.OrdinalIgnoreCase);
+
         #endregion
 
         /// <summary>
@@ -374,22 +378,50 @@ namespace Map_Editor.Engine.RenderManager
         }
 
         /// <summary>
-        /// Clears this instance.
+        /// Loads one shared lightmap per file for this map's object parts.
+        /// </summary>
+        public Texture2D LoadLightmap(string path)
+        {
+            string key = System.IO.Path.GetFullPath(path);
+            Texture2D texture;
+            if (!lightmapTextures.TryGetValue(key, out texture))
+            {
+                texture = Texture2D.FromFile(device, key);
+                lightmapTextures.Add(key, texture);
+            }
+
+            return texture;
+        }
+
+        /// <summary>
+        /// Releases map resources, including shared lightmaps no longer in the batch.
         /// </summary>
         public void Clear()
         {
+            objectList.ForEach(delegate(Object model)
+            {
+                model.VertexBuffer.Dispose();
+                model.IndexBuffer.Dispose();
+            });
             objectList.Clear();
 
+            HashSet<Texture2D> textures = new HashSet<Texture2D>(lightmapTextures.Values);
             batchObjects.ForEach(delegate(BatchObject batchObject)
             {
                 for (int i = 0; i < batchObject.EffectParameters.Length; i++)
                 {
                     if (batchObject.EffectParameters[i].Type == KeyType.Texture)
-                        ((Texture2D)batchObject.EffectParameters[i].Value).Dispose();
+                        textures.Add((Texture2D)batchObject.EffectParameters[i].Value);
                 }
             });
 
             batchObjects.Clear();
+            foreach (Texture2D texture in textures)
+            {
+                if (texture != null)
+                    texture.Dispose();
+            }
+            lightmapTextures.Clear();
         }
 
         /// <summary>

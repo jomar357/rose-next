@@ -423,7 +423,7 @@ namespace Map_Editor.Engine.Objects
                     TextureID = TextureManager.Add(FileManager.ZSCs[Type.ToString()].Textures[zscObject.Models[i].TextureID]),
                     ModelID = modelID,
                     LightmapManipulation = new Vector4(textureAdd.X, textureAdd.Y, textureMultiply.X, textureMultiply.Y),
-                    LightmapTexture = (lightmapFilePath == string.Empty) ? null : Texture2D.FromFile(Game.GraphicsDevice, lightmapFilePath),
+                    LightmapTexture = (lightmapFilePath == string.Empty) ? null : ObjectManager.LoadLightmap(lightmapFilePath),
                     Position = zscObject.Models[i].Position,
                     Scale = zscObject.Models[i].Scale,
                     Rotation = zscObject.Models[i].Rotation,

@@ -162,6 +162,18 @@ Clear-Content '..\..\data\Map Editor.log'
 
 ## Compatibility Fixes Already Made
 
+- **Share object lightmaps by full path.** Fossil Sanctuary (667, ODFS01) has
+  2,710 lightmapped part instances sharing 112 atlas textures across decoration
+  and construction. Loading a DDS per part consumed about 2,247 MiB of nominal
+  base texture storage instead of 70 MiB and exhausted the x86 editor while
+  loading objects. `ObjectManager.LoadLightmap` caches by case-insensitive full
+  path; parts retain independent UV transforms. The manager owns these textures
+  until `Clear`, including textures detached from draw batches by editing/undo.
+  `ClearBatch` must not dispose them; `Clear` disposes each texture once and also
+  releases mesh vertex/index buffers. Tested with real XNA terrain, scenery, NPC
+  and monster loads for ODP01 -> ODGR01 -> ODFS01 -> ODGR01 -> ODFS01, including
+  disposal checks after clearing draw batches (2026-09-11). GUI retest remains
+  separate from this loader check.
 - Tileset helper STBs resolve from both `3Ddata\ESTB` and `ESTB`.
 - **A bad global table no longer kills startup.** `FileManager.Add` registers an empty
   placeholder for a missing or unreadable STB/STL/ZSC/CHR and continues, and `STB.Load`
