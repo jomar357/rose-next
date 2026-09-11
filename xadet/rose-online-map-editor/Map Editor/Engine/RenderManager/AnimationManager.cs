@@ -529,6 +529,10 @@ namespace Map_Editor.Engine.RenderManager
         {
             BoundingFrustum boundingFrustum = new BoundingFrustum(view * projection);
 
+            bool depthTest = device.RenderState.DepthBufferEnable;
+            bool depthWrite = device.RenderState.DepthBufferWriteEnable;
+            CullMode cull = device.RenderState.CullMode;
+
             device.VertexDeclaration = vertexDeclaration;
 
             int currentTexture = -1;
@@ -554,14 +558,17 @@ namespace Map_Editor.Engine.RenderManager
                         shader.SetValue("Texture", textureManager[batchObject.TextureID].Image);
 
                         device.RenderState.AlphaBlendEnable = textureManager[batchObject.TextureID].RenderState.AlphaEnabled;
+                        device.RenderState.AlphaTestEnable = textureManager[batchObject.TextureID].RenderState.AlphaTestEnabled;
+                        device.RenderState.ReferenceAlpha = textureManager[batchObject.TextureID].RenderState.AlphaReference;
+                        device.RenderState.AlphaFunction = textureManager[batchObject.TextureID].RenderState.AlphaFunction;
+                        device.RenderState.DepthBufferEnable = textureManager[batchObject.TextureID].RenderState.ZTestEnabled;
+                        device.RenderState.DepthBufferWriteEnable = textureManager[batchObject.TextureID].RenderState.ZWriteEnabled;
+                        device.RenderState.CullMode = textureManager[batchObject.TextureID].RenderState.Cull;
 
                         if (device.RenderState.AlphaBlendEnable)
                         {
-                            device.RenderState.AlphaTestEnable = textureManager[batchObject.TextureID].RenderState.AlphaTestEnabled;
                             device.RenderState.SourceBlend = textureManager[batchObject.TextureID].RenderState.SourceBlend;
                             device.RenderState.DestinationBlend = textureManager[batchObject.TextureID].RenderState.DestinationBlend;
-                            device.RenderState.ReferenceAlpha = textureManager[batchObject.TextureID].RenderState.AlphaReference;
-                            device.RenderState.AlphaFunction = textureManager[batchObject.TextureID].RenderState.AlphaFunction;
                             device.RenderState.BlendFunction = textureManager[batchObject.TextureID].RenderState.BlendFunction;
                         }
                     }
@@ -603,6 +610,10 @@ namespace Map_Editor.Engine.RenderManager
                 }
             });
 
+            // The water and editor overlays drawn next must not inherit wave settings.
+            device.RenderState.DepthBufferEnable = depthTest;
+            device.RenderState.DepthBufferWriteEnable = depthWrite;
+            device.RenderState.CullMode = cull;
             device.RenderState.AlphaBlendEnable = true;
             device.RenderState.AlphaTestEnable = false;
             device.RenderState.SourceBlend = Blend.One;

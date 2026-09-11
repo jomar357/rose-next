@@ -199,16 +199,17 @@ namespace Map_Editor.Engine.Objects
                 {
                     Alpha = 1.0f,
                     AlphaReference = 0x00000000,
-                    AlphaEnabled = true,
-                    AlphaTestEnabled = true,
+                    // Editor STB cells include the row-label column (game column + 1).
+                    AlphaEnabled = Convert.ToInt32(objectRow[5]) != 0,
+                    AlphaTestEnabled = Convert.ToInt32(objectRow[7]) != 0,
                     AlphaRefEnabled = true,
-                    BlendFunction = BlendFunction.Add,
+                    BlendFunction = TextureManager.BlendOperation(Convert.ToInt32(objectRow[12])),
                     AlphaFunction = CompareFunction.GreaterEqual,
                     SourceBlend = TextureManager.BlendingMode(Convert.ToInt32(objectRow[10])),
                     DestinationBlend = TextureManager.BlendingMode(Convert.ToInt32(objectRow[11])),
-                    Cull = CullMode.None,
-                    ZTestEnabled = true,
-                    ZWriteEnabled = true,
+                    Cull = Convert.ToInt32(objectRow[6]) != 0 ? CullMode.None : CullMode.CullClockwiseFace,
+                    ZTestEnabled = Convert.ToInt32(objectRow[8]) != 0,
+                    ZWriteEnabled = Convert.ToInt32(objectRow[9]) != 0,
                 }),
                 BoundingBox = AnimationManager.CreateBox(modelID, objectWorld)
             };

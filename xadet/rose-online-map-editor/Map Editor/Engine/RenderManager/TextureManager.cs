@@ -190,15 +190,22 @@ namespace Map_Editor.Engine.RenderManager
         /// <returns></returns>
         public int Add(string texturePath, RenderState renderStates)
         {
+            Texture2D image = null;
             for (int i = 0; i < textureList.Count; i++)
             {
                 if (string.Compare(textureList[i].FilePath, texturePath, true) == 0)
-                    return i;
+                {
+                    if (textureList[i].RenderState.Equals(renderStates))
+                        return i;
+
+                    // The same DDS may be used by materials with different depth/blend flags.
+                    image = textureList[i].Image;
+                }
             }
 
             textureList.Add(new Texture()
             {
-                Image = Texture2D.FromFile(device, texturePath),
+                Image = image ?? Texture2D.FromFile(device, texturePath),
                 FilePath = texturePath,
                 RenderState = renderStates,
             });
@@ -212,9 +219,10 @@ namespace Map_Editor.Engine.RenderManager
         /// <param name="id">The id.</param>
         public void RemoveAt(int id)
         {
-            textureList[id].Image.Dispose();
-
+            Texture2D image = textureList[id].Image;
             textureList.RemoveAt(id);
+            if (!textureList.Exists(delegate(Texture texture) { return texture.Image == image; }))
+                image.Dispose();
         }
 
         /// <summary>
@@ -222,15 +230,32 @@ namespace Map_Editor.Engine.RenderManager
         /// </summary>
         public void Clear()
         {
+            HashSet<Texture2D> images = new HashSet<Texture2D>();
             textureList.ForEach(delegate(Texture texture)
             {
-                texture.Image.Dispose();
+                if (images.Add(texture.Image))
+                    texture.Image.Dispose();
             });
 
             textureList.Clear();
         }
 
         #region Static Functions
+
+        /// <summary>
+        /// Maps LIST_MORPH_OBJECT's D3DBLENDOP value to XNA.
+        /// </summary>
+        public static BlendFunction BlendOperation(int operation)
+        {
+            switch (operation)
+            {
+                case 2: return BlendFunction.Subtract;
+                case 3: return BlendFunction.ReverseSubtract;
+                case 4: return BlendFunction.Min;
+                case 5: return BlendFunction.Max;
+                default: return BlendFunction.Add;
+            }
+        }
 
         /// <summary>
         /// Gets the source blend.

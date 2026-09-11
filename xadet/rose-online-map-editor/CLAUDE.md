@@ -162,6 +162,19 @@ Clear-Content '..\..\data\Map Editor.log'
 
 ## Compatibility Fixes Already Made
 
+- **Morph materials must use their STB depth/transparency flags.** Kenji's shoreline
+  waves (`LIST_MORPH_OBJECT` rows 1-3) have depth testing on and depth writing off.
+  The editor previously ignored those flags: transparent wave triangles wrote depth
+  and cut polygon-shaped holes in the water drawn afterwards. `Objects.Animation`
+  reads alpha/two-sided/alpha-test/Z-test/Z-write/blend-op from editor cells
+  5/6/7/8/9/12 (game column + 1), and `AnimationManager.Draw` applies them and
+  restores the caller's depth/cull state afterwards. Material-cache identity includes
+  render settings as well as the texture path; distinct materials share image storage
+  without sharing flags. Verified 2026-09-12 with actual XNA GPU draws of all three
+  Kenji wave meshes/motions at three views: the original blocked 32,195-40,960 pixels
+  of a diagnostic background plane; fixed draws blocked zero. Wave-only images were
+  pixel-identical before/after. Material disposal/state restoration and ODP01/ODFS01
+  terrain/scenery/NPC/monster loading also passed; interactive Kenji retest pending.
 - **Share object lightmaps by full path.** Fossil Sanctuary (667, ODFS01) has
   2,710 lightmapped part instances sharing 112 atlas textures across decoration
   and construction. Loading a DDS per part consumed about 2,247 MiB of nominal
