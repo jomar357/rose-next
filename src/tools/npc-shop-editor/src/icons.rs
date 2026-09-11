@@ -21,6 +21,7 @@ struct SpriteRef {
 }
 
 pub struct IconStore {
+    source: Option<std::sync::Arc<crate::assets::Assets>>,
     atlas: IconAtlas,
     res_dir: PathBuf,
     /// Decoded sheets, keyed by sheet index in the TSI.
@@ -37,6 +38,7 @@ impl IconStore {
         let atlas = IconAtlas::read(&fs::read(&tsi_path)?)
             .with_context(|| format!("reading {}", tsi_path.display()))?;
         Ok(Self {
+            source: None,
             atlas,
             res_dir,
             sheets: HashMap::new(),
@@ -48,11 +50,23 @@ impl IconStore {
     /// just without visible icons.
     pub fn empty(root: &Path) -> Self {
         Self {
+            source: None,
             atlas: IconAtlas::default(),
             res_dir: root.to_path_buf(),
             sheets: HashMap::new(),
             textures: HashMap::new(),
         }
+    }
+
+    pub fn from_assets(source: std::sync::Arc<crate::assets::Assets>) -> Result<Self> {
+        let atlas = IconAtlas::read(&source.read("3DDATA/CONTROL/RES/ITEM1.TSI")?)?;
+        Ok(Self {
+            source: Some(source),
+            atlas,
+            res_dir: PathBuf::new(),
+            sheets: HashMap::new(),
+            textures: HashMap::new(),
+        })
     }
 
     /// Look up a sprite by its linear index (icon_no in the item tables).
@@ -69,12 +83,17 @@ impl IconStore {
                 .sheets
                 .get(sheet_idx)
                 .ok_or_else(|| anyhow!("sheet index out of range"))?;
-            let sheet_path = find_file_ci(&self.res_dir, sheet_name)
-                .with_context(|| format!("locating sheet texture {}", sheet_name))?;
-            let bytes = fs::read(&sheet_path)
-                .with_context(|| format!("reading {}", sheet_path.display()))?;
+            let bytes = if let Some(source) = &self.source {
+                let basename = sheet_name.rsplit(['/', '\\']).next().unwrap_or(sheet_name);
+                source.read(&format!("3DDATA/CONTROL/RES/{basename}"))?
+            } else {
+                let sheet_path = find_file_ci(&self.res_dir, sheet_name)
+                    .with_context(|| format!("locating sheet texture {}", sheet_name))?;
+                fs::read(&sheet_path)
+                    .with_context(|| format!("reading {}", sheet_path.display()))?
+            };
             let decoded = dds::decode(&bytes)
-                .with_context(|| format!("decoding DDS {}", sheet_path.display()))?;
+                .with_context(|| format!("decoding DDS {}", sheet_name))?;
             self.sheets.insert(sheet_idx, decoded);
         }
         Ok(self.sheets.get(&sheet_idx).unwrap())

@@ -2,10 +2,15 @@
 name = "npc-shop-editor"
 version = "0.1.0"
 edition = "2021"
+default-run = "npc-shop-editor"
 
 [[bin]]
 name = "npc-shop-editor"
 path = "src/main.rs"
+
+[[bin]]
+name = "gm-item-browser"
+path = "src/bin/gm-item-browser.rs"
 
 [dependencies]
 anyhow = "1"

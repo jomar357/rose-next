@@ -1,10 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
-mod data;
-mod dds;
-mod icons;
-mod zones;
+
+use npc_shop_editor::{data, icons, zones};
 
 use std::path::PathBuf;
 

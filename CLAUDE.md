@@ -79,6 +79,7 @@ src/
 ├── tools/               # Standalone Rust dev tools (workspace members)
 │   ├── vfs-browser/     # rose-vfs: TUI browser for data.idx / .vfs (ratatui + rfd)
 │   ├── npc-shop-editor/ # egui editor for LIST_NPC/LIST_SELL shop tabs (COW on shared rows)
+│   │                   # also builds gm-item-browser.exe: read-only tester catalog, stats + /item clipboard
 │   └── quest-editor/    # CLI + egui wizard: Hunt/Fetch quests + NPC dialog givers (see its PROGRESS.md)
 ├── rmlui/               # (in client/) RmlUi integration: D3D9 backend, system iface, panels
 ├── lib_util/            # C++ utility library
