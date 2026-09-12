@@ -540,10 +540,18 @@ namespace Map_Editor.Engine.Terrain
             /// </summary>
             /// <param name="boundingFrustum">The bounding frustum.</param>
             /// <param name="shader">The shader.</param>
-            public void Draw(BoundingFrustum boundingFrustum, Effect shader)
+            /// <param name="view">The camera view matrix.</param>
+            /// <param name="projection">The camera projection matrix.</param>
+            public void Draw(BoundingFrustum boundingFrustum, Effect shader, Matrix view, Matrix projection)
             {
                 if (!boundingFrustum.OnScreen(BoundingBox))
                     return;
+
+                // Transform from a nearby block origin to retain depth precision at
+                // large map coordinates. Keep stored vertices in world space for tools.
+                Vector3 worldOrigin = new Vector3(mapOffset.Y * 160.0f, 10400.0f - mapOffset.X * 160.0f, 0.0f);
+                shader.SetValue("WorldOrigin", worldOrigin);
+                shader.SetValue("WorldViewProjection", Matrix.CreateTranslation(worldOrigin) * view * projection);
 
                 if (ToolManager.GetToolMode() != ToolManager.ToolMode.Height && ToolManager.GetToolMode() != ToolManager.ToolMode.Tiles && ToolManager.GetToolMode() != ToolManager.ToolMode.Brush)
                     device.Vertices[0].SetSource(VertexBuffer, 0, HIM.Vertex.SIZE_IN_BYTES);
@@ -933,8 +941,6 @@ namespace Map_Editor.Engine.Terrain
 
             Effect shader = ShaderManager.GetShader((ToolManager.GetToolMode() == ToolManager.ToolMode.Height) ? ShaderManager.ShaderType.HeightEditing : ShaderManager.ShaderType.Height);
 
-            shader.SetValue("WorldViewProjection", CameraManager.View * CameraManager.Projection);
-
             if (ToolManager.GetToolMode() != ToolManager.ToolMode.Height)
                 shader.SetValue("GridOutlineEnabled", ConfigurationManager.GetValue<bool>("Draw", "GridOutline"));
 
@@ -947,7 +953,7 @@ namespace Map_Editor.Engine.Terrain
                     if (Blocks[y, x] == null)
                         continue;
 
-                    Blocks[y, x].Draw(boundingFrustum, shader);
+                    Blocks[y, x].Draw(boundingFrustum, shader, CameraManager.View, CameraManager.Projection);
                 }
             }
 

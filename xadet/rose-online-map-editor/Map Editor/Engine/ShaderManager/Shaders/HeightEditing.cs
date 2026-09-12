@@ -13,6 +13,7 @@ namespace Map_Editor.Engine.Shaders
         /// </summary>
         public const string Shader =
       @"float4x4 WorldViewProjection;
+        float3 WorldOrigin;
 
         float3 SelectionPosition;
         float InnerRadius;
@@ -74,7 +75,7 @@ namespace Map_Editor.Engine.Shaders
         {
             VertexToPixel output;
 
-            output.Position = mul(input.Position, WorldViewProjection);
+            output.Position = mul(float4(input.Position.xyz - WorldOrigin, input.Position.w), WorldViewProjection);
             output.TexCoordBottom = input.TexCoordBottom;
             output.TexCoordTop = input.TexCoordTop;
             output.TexCoordShadow = input.TexCoordShadow;

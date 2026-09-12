@@ -162,6 +162,19 @@ Clear-Content '..\..\data\Map Editor.log'
 
 ## Compatibility Fixes Already Made
 
+- **Transform terrain relative to its block origin.** Lion's Plains (667, JPVP04)
+  decoration 158 in `34_33.IFO` is the circular `m-kwangjangside` paving. Its lowest
+  surface sits about 2 mm above the terrain near world coordinates (5440, 5067).
+  Multiplying large terrain coordinates by a combined view/projection matrix in
+  the vertex shader lost enough precision to draw the ground through the paving
+  as the camera moved. `Heightmap.Draw` now supplies a block origin and a combined
+  translation/view/projection matrix; both Height shaders subtract that origin
+  before transforming. Stored vertices, culling, picking, brush world coordinates,
+  and game assets remain unchanged. Default editor depth was already Depth24.
+  Verified 2026-09-12 with actual XNA draws of the platform and underlying terrain
+  at 15 camera positions, in normal and height-editing modes: up to 106,093 platform
+  pixels were incorrectly covered before; zero after, against platform-only renders
+  (RGB total-difference tolerance 20). Release x86 build passed; GUI retest pending.
 - **Morph materials must use their STB depth/transparency flags.** Kenji's shoreline
   waves (`LIST_MORPH_OBJECT` rows 1-3) have depth testing on and depth writing off.
   The editor previously ignored those flags: transparent wave triangles wrote depth
@@ -174,7 +187,7 @@ Clear-Content '..\..\data\Map Editor.log'
   Kenji wave meshes/motions at three views: the original blocked 32,195-40,960 pixels
   of a diagnostic background plane; fixed draws blocked zero. Wave-only images were
   pixel-identical before/after. Material disposal/state restoration and ODP01/ODFS01
-  terrain/scenery/NPC/monster loading also passed; interactive Kenji retest pending.
+  terrain/scenery/NPC/monster loading also passed; user confirmed the Kenji fix.
 - **Share object lightmaps by full path.** Fossil Sanctuary (667, ODFS01) has
   2,710 lightmapped part instances sharing 112 atlas textures across decoration
   and construction. Loading a DDS per part consumed about 2,247 MiB of nominal
