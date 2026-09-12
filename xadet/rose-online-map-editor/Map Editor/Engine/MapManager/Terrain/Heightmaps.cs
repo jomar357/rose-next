@@ -816,6 +816,40 @@ namespace Map_Editor.Engine.Terrain
         }
 
         /// <summary>
+        /// Samples the rendered terrain triangles at world coordinates in metres.
+        /// </summary>
+        public bool TryGetHeight(float worldX, float worldY, out float height)
+        {
+            height = 0.0f;
+            float gridX = worldX / 2.5f;
+            float gridY = (10400.0f - worldY) / 2.5f;
+            if (float.IsNaN(gridX) || float.IsNaN(gridY) ||
+                gridX < 0 || gridY < 0 || gridX >= Blocks.GetLength(0) * 64 || gridY >= Blocks.GetLength(1) * 64)
+                return false;
+
+            int blockX = (int)(gridX / 64);
+            int blockY = (int)(gridY / 64);
+            Heightmap block = Blocks[blockX, blockY];
+            if (block == null)
+                return false;
+
+            float x = gridX - blockX * 64;
+            float y = gridY - blockY * 64;
+            int ix = (int)x;
+            int iy = (int)y;
+            float fx = x - ix;
+            float fy = y - iy;
+            float[,] samples = block.HeightFile.Position;
+            float h00 = samples[iy, ix];
+            float h11 = samples[iy + 1, ix + 1];
+            // Match the diagonal used by the terrain triangle strip.
+            height = fx >= fy
+                ? h00 + (samples[iy, ix + 1] - h00) * fx + (h11 - samples[iy, ix + 1]) * fy
+                : h00 + (h11 - samples[iy + 1, ix]) * fx + (samples[iy + 1, ix] - h00) * fy;
+            return true;
+        }
+
+        /// <summary>
         /// Clears this instance.
         /// </summary>
         public void Clear()

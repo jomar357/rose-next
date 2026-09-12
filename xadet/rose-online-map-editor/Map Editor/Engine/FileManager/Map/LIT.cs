@@ -143,6 +143,8 @@ namespace Map_Editor.Engine.Map
         /// <value>The DDS files.</value>
         public List<DDS> DDSFiles { get; set; }
 
+        private bool hasDDSList = true;
+
         #endregion
 
         /// <summary>
@@ -170,6 +172,10 @@ namespace Map_Editor.Engine.Map
         /// <param name="device">The device.</param>
         public void Load(string filePath, GraphicsDevice device)
         {
+            FilePath = filePath;
+            Objects = new List<Object>();
+            DDSFiles = new List<DDS>();
+            hasDDSList = true;
             if (!File.Exists(filePath))
             {
                 Output.WriteLine(Output.MessageType.Error, string.Format(@"Missing File: {0}", filePath));
@@ -182,9 +188,10 @@ namespace Map_Editor.Engine.Map
 
             Folder = Path.GetDirectoryName(filePath);
 
+            FileHandler fh = null;
             try
             {
-                FileHandler fh = new FileHandler(FilePath = filePath, FileHandler.FileOpenMode.Reading, Encoding.GetEncoding("EUC-KR"));
+                fh = new FileHandler(filePath, FileHandler.FileOpenMode.Reading, Encoding.GetEncoding("EUC-KR"));
 
                 int objectCount = fh.Read<int>();
                 Objects = new List<Object>(objectCount);
@@ -214,7 +221,10 @@ namespace Map_Editor.Engine.Map
                     }
                 }
 
-                int ddsCount = fh.Read<int>();
+                // Retail maps can end after the object records, including a lone
+                // zero object count. The game's lightmap reader needs no DDS list.
+                hasDDSList = fh.Tell() < new FileInfo(filePath).Length;
+                int ddsCount = hasDDSList ? fh.Read<int>() : 0;
                 DDSFiles = new List<DDS>(ddsCount);
 
                 for (int i = 0; i < ddsCount; i++)
@@ -227,11 +237,15 @@ namespace Map_Editor.Engine.Map
                     });
                 }
 
-                fh.Close();
             }
-            catch
+            catch (System.Exception ex)
             {
-                Output.WriteLine(Output.MessageType.Error, string.Format(@"Error Reading File: {0}\{1}", Folder, Path.GetFileName(filePath)));
+                Output.WriteLine(Output.MessageType.Error, string.Format("Error Reading File: {0}\n{1}", filePath, ex));
+            }
+            finally
+            {
+                if (fh != null)
+                    fh.Close();
             }
         }
 
@@ -270,10 +284,13 @@ namespace Map_Editor.Engine.Map
                 }
             }
 
-            fh.Write<int>(DDSFiles.Count);
+            if (hasDDSList || DDSFiles.Count > 0)
+            {
+                fh.Write<int>(DDSFiles.Count);
 
-            for (int i = 0; i < DDSFiles.Count; i++)
-                fh.Write<BString>(DDSFiles[i].FileName);
+                for (int i = 0; i < DDSFiles.Count; i++)
+                    fh.Write<BString>(DDSFiles[i].FileName);
+            }
 
             fh.Close();
         }

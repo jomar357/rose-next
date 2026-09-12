@@ -162,6 +162,18 @@ Clear-Content '..\..\data\Map Editor.log'
 
 ## Compatibility Fixes Already Made
 
+- **Karkia lightmap trailers and zero-height spawn previews (2026-09-12).** All 98
+  Cemetery LITs end after the object records; the trailing DDS catalogue is optional
+  and the game never reads it. `LIT.Load` accepts EOF there, preserves whether the
+  catalogue existed on save, closes its reader on failure, and logs actual exceptions.
+  All 847 Cemetery regen entries store Z=0 although ground is 5-43 m higher. Monster
+  previews now sample terrain triangles for zero-height entries; explicit nonzero
+  heights and stored IFO coordinates stay intact. Model bounds, inactive/empty markers,
+  selection handles and radius overlays use the display position. The minimap preview
+  already worked because it only needs XY. Real XNA loader checks passed Cemetery
+  (847 spawns) and Spire Village (278); all 220 Karkia LITs and the Lion's Plains LITs
+  round-tripped byte-identically to temporary files. Terrain interpolation, selection
+  bounds and unchanged stored spawn positions passed; GUI retest pending.
 - **Transform terrain relative to its block origin.** Lion's Plains (667, JPVP04)
   decoration 158 in `34_33.IFO` is the circular `m-kwangjangside` paving. Its lowest
   surface sits about 2 mm above the terrain near world coordinates (5440, 5067).

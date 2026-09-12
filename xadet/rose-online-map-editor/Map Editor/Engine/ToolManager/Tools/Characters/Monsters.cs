@@ -120,14 +120,14 @@ namespace Map_Editor.Engine.Tools
         /// <returns></returns>
         public int Select(int index)
         {
-            ToolManager.Cursor.Position = MapManager.Monsters.WorldObjects[index].Entry.Position;
+            ToolManager.Cursor.Position = MapManager.Monsters.WorldObjects[index].World.Translation;
 
             ToolManager.Cursor.PositionChanged += new EventHandler(Cursor_PositionChanged);
             ToolManager.Cursor.Cancelled += new EventHandler(Cursor_Cancelled);
             ToolManager.Cursor.Finished += new EventHandler(Cursor_Finished);
 
             ToolManager.Position.BoundingBox = MapManager.Monsters.WorldObjects[index].BoundingBox;
-            ToolManager.Position.Position = ToolManager.Position.RealPosition = MapManager.Monsters.WorldObjects[index].Entry.Position;
+            ToolManager.Position.Position = ToolManager.Position.RealPosition = MapManager.Monsters.WorldObjects[index].World.Translation;
 
             ToolManager.Position.MouseReleased += new EventHandler(Translate_MouseReleased);
             ToolManager.Position.PositionChanged += new EventHandler(Translate_PositionChanged);
@@ -171,10 +171,10 @@ namespace Map_Editor.Engine.Tools
 
                 MapManager.Monsters.Add(SelectedObject, worldObjects[SelectedObject].Entry, true);
 
-                ToolManager.Cursor.Position = worldObjects[SelectedObject].Entry.Position;
+                ToolManager.Cursor.Position = worldObjects[SelectedObject].World.Translation;
 
                 ToolManager.Position.BoundingBox = worldObjects[SelectedObject].BoundingBox;
-                ToolManager.Position.Position = worldObjects[SelectedObject].Entry.Position;
+                ToolManager.Position.Position = worldObjects[SelectedObject].World.Translation;
             }
         }
 
@@ -500,12 +500,12 @@ namespace Map_Editor.Engine.Tools
             if (!drawRadii)
             {
                 if (SelectedObject >= 0)
-                    new BoundingSphere(worldObjects[SelectedObject].Entry.Position + new Vector3(0.0f, 0.0f, 3.0f), worldObjects[SelectedObject].Entry.Range).Draw(device, basicEffect, CameraManager.View, CameraManager.Projection, Color.White);
+                    new BoundingSphere(worldObjects[SelectedObject].World.Translation + new Vector3(0.0f, 0.0f, 3.0f), worldObjects[SelectedObject].Entry.Range).Draw(device, basicEffect, CameraManager.View, CameraManager.Projection, Color.White);
 
                 device.RenderState.DepthBufferEnable = false;
 
                 if (HoveredObject != SelectedObject && HoveredObject >= 0)
-                    new BoundingSphere(worldObjects[HoveredObject].Entry.Position + new Vector3(0.0f, 0.0f, 3.0f), worldObjects[HoveredObject].Entry.Range).Draw(device, basicEffect, CameraManager.View, CameraManager.Projection, Color.Red);
+                    new BoundingSphere(worldObjects[HoveredObject].World.Translation + new Vector3(0.0f, 0.0f, 3.0f), worldObjects[HoveredObject].Entry.Range).Draw(device, basicEffect, CameraManager.View, CameraManager.Projection, Color.Red);
 
                 device.RenderState.DepthBufferEnable = true;
 
@@ -517,7 +517,7 @@ namespace Map_Editor.Engine.Tools
                 if (i == SelectedObject || i == HoveredObject)
                     device.RenderState.DepthBufferEnable = false;
 
-                new BoundingSphere(worldObjects[i].Entry.Position + new Vector3(0.0f, 0.0f, 3.0f), worldObjects[i].Entry.Range).Draw(device, basicEffect, CameraManager.View, CameraManager.Projection, (SelectedObject == i) ? Color.White : (HoveredObject == i) ? Color.Red : Color.Blue);
+                new BoundingSphere(worldObjects[i].World.Translation + new Vector3(0.0f, 0.0f, 3.0f), worldObjects[i].Entry.Range).Draw(device, basicEffect, CameraManager.View, CameraManager.Projection, (SelectedObject == i) ? Color.White : (HoveredObject == i) ? Color.Red : Color.Blue);
 
                 if (i == SelectedObject || i == HoveredObject)
                     device.RenderState.DepthBufferEnable = true;

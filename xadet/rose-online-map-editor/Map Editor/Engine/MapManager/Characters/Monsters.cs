@@ -320,7 +320,15 @@ namespace Map_Editor.Engine.Characters
         /// <param name="removePrevious">if set to <c>true</c> [remove previous].</param>
         public void Add(int id, IFO.MonsterSpawn ifoObject, bool removePrevious)
         {
-            Matrix objectWorld = Matrix.CreateTranslation(ifoObject.Position);
+            Vector3 displayPosition = ifoObject.Position;
+            float terrainHeight;
+            // Some maps store only the spawn's XY and leave Z at zero. Ground the
+            // preview like the game does, without rewriting the saved IFO entry.
+            if (displayPosition.Z == 0.0f && MapManager.Heightmaps != null &&
+                MapManager.Heightmaps.TryGetHeight(displayPosition.X, displayPosition.Y, out terrainHeight))
+                displayPosition.Z = terrainHeight;
+
+            Matrix objectWorld = Matrix.CreateTranslation(displayPosition);
 
             WorldObject newObject = new WorldObject()
             {
@@ -373,7 +381,7 @@ namespace Map_Editor.Engine.Characters
                 }
 
                 objectWorld = Matrix.CreateScale(npcScale) *
-                              Matrix.CreateTranslation(ifoObject.Position);
+                              Matrix.CreateTranslation(displayPosition);
 
                 List<short> chrModels = FileManager.CHRs["LIST_NPC"].Characters[monsterID].Models;
 
@@ -432,8 +440,8 @@ namespace Map_Editor.Engine.Characters
 
                 newObject.BoundingBox = new BoundingBox()
                 {
-                    Min = Vector3.Transform(newObject.BoundingBox.Min, Matrix.CreateTranslation(ifoObject.Position)),
-                    Max = Vector3.Transform(newObject.BoundingBox.Max, Matrix.CreateTranslation(ifoObject.Position))
+                    Min = Vector3.Transform(newObject.BoundingBox.Min, objectWorld),
+                    Max = Vector3.Transform(newObject.BoundingBox.Max, objectWorld)
                 }; ;
             }
 
@@ -556,7 +564,7 @@ namespace Map_Editor.Engine.Characters
                             effect.DiffuseColor = (WorldObjects[i].Status == SpawnStatus.Empty) ? new Vector3(0.0f, 0.0f, 1.0f) : new Vector3(1.0f, 0.85f, 0.0f);
                                                
 
-                        Vector3 worldPosition = WorldObjects[i].Entry.Position;
+                        Vector3 worldPosition = WorldObjects[i].World.Translation;
 
                         effect.World = Matrix.CreateWorld(worldPosition, Vector3.Normalize(worldPosition - CameraManager.Position) * new Vector3(1.0f, 1.0f, 0.0f), Vector3.Backward);
                         effect.View = CameraManager.View;
