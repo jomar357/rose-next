@@ -399,6 +399,54 @@ An asset referenced by the data but absent from the baked `.vfs` used to be **fa
 - `zz_manager` must **drop** a terminally failed node, not re-queue it. `zz_node::is_load_terminally_failed()` (overridden by `zz_mesh`) distinguishes "file is missing" from "not ready yet"; without it `update()` pops and re-pushes the node every frame for the life of the process, `update()` never hits its both-lines-empty early return, and since `push()` does a linear `find()` the cost is O(n²) per update in the number of missing meshes.
 - `zz_manager::update`'s entrance loop also bounds failed re-inserts per update. The failure branch re-queues without decrementing `entrance_time_accumulated`, so an unloadable node otherwise spins forever *within a single update*. Note this only became a *hard* freeze once the retry throttling above was fixed — removing accidental throttling can expose a latent spin.
 
+### A Missing NPC Row Must Degrade, Not Kill (Client/Server)
+
+The sibling of the rule above, on the data side. Six AI action types carry a
+monster id as a `WORD` at offset 8 — 09 `Change_CHAR`, 10 `Create_PET`, 18, 20,
+36, 37 — and an imported `.aip` routinely names monsters that were never
+imported with it. The summon actions were always safe by accident
+(`CZoneTHREAD::RegenCharacter` rejects an unknown id), but **`Change_CHAR` had no
+guard on either side** and crashed the client. The 2026-09-12 Karkia session:
+
+- `kak_ghost_cemetery.aip` (NPC 2731 "Ghost Seed", summoned by the whole Burned
+  Forest roster) does `Change_CHAR` → 2734-2738, all **blank rows** in our
+  `LIST_NPC`.
+- Client `CObjMOB::Change_CHAR` calls `DeleteCHAR()` and *then* `Create()`.
+  `CreateCHAR` returns at its part-count check, so the object stayed alive with
+  **no engine model node** — invisible, unclickable, and logging
+  `interface: getVisibility() failed` every frame.
+- `CCharMODEL::DeleteBoneEFFECT` took `CEffect**` **by value**, so
+  `SAFE_DELETE_ARRAY` nulled only the local copy and left `m_ppBoneEFFECT`
+  dangling. Invisible on the normal path because `CreateCHAR` reassigns it a few
+  lines later — but a *failed* `Create()` never does. Zone teardown then walked
+  freed memory and freed the array a second time.
+
+Things that will bite:
+
+- **Heap corruption produces no crash dump.** It fail-fasts
+  (`STATUS_HEAP_CORRUPTION`) without unwinding, so `SetUnhandledExceptionFilter`
+  is never consulted and `CrashHandler` wrote nothing. A vectored handler now
+  catches the three fail-fast codes; anything else is handed straight back,
+  because a VEH sees every first-chance exception including ordinary handled ones.
+- **`NPC_NAME` is NULL on the server and `""` on the client** — `STBDATA::get_cstr`
+  returns `nullptr` for a blank cell, while the client goes through
+  `CStringManager`. A guard written as `if (!NPC_NAME(i))` is correct server-side
+  and useless client-side.
+- **`error.txt` accumulates across sessions and is buffered**; `client.log`
+  flushes per record. Read `client.log` first — here it named the exact object
+  (`client_idx 1217, type 7, char_no 2735`) and stopped mid-`FreeZONE(131)`,
+  which located the crash. `error.txt` only had 434 subject-less engine lines.
+- Count broken *objects*, not log lines: one object spams every frame.
+
+`scripts/audit-ai-monster-refs.py` is the data tool — read-only with
+`--dry-run`/`--verify`, strips the dead action records otherwise, and has a
+`--selftest` that proves the container rewrite is byte-identical across all 509
+`.aip` before touching anything. Backups go to `build/ai-monster-refs/`, **not**
+beside the `.aip`, because `pack.ps1` hard-errors on a `.bak` under `data/`. Run
+it after any `import-*.py` that brings in AI files. It found 278 dangling
+references in 45 files: Oro (2236/2237, 3001-3003), Karkia's ghosts and Flower
+Garden, and three pre-existing retail ones.
+
 ### Debugging a Client Crash or Freeze
 
 The client has **no unhandled-exception filter and no minidump writer**, so a crash leaves `error.txt` ending with a clean `log: end.` and nothing else. Use `scripts/debug-client-crash.ps1` (servers up first): it hash-verifies `bin/<config>` PDBs against the deployed binaries, forces windowed mode, restores `rose-next.ini` afterwards, and writes `!analyze -v` + all thread stacks + a full `.dmp` on the access violation.

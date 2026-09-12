@@ -2017,6 +2017,15 @@ CRecvPACKET::Recv_gsv_CHANGE_NPC() {
         g_pObjMGR->Get_ClientCharOBJ(m_pRecvPacket->m_gsv_CHANGE_NPC.m_wObjectIDX, true);
     if (pCHAR && pCHAR->IsNPC()) {
         pCHAR->Change_CHAR(m_pRecvPacket->m_gsv_CHANGE_NPC.m_nNPCNo);
+
+        /// The return value alone is not the test: Change_CHAR reports false both
+        /// when it restored the previous character (object is fine) and when it
+        /// could not (object has no model). Only the latter must go -- a modelless
+        /// character is invisible and unclickable but still Proc'd every frame, and
+        /// it is the shape that corrupted the heap at zone teardown.
+        if (!pCHAR->HasModelNODE()) {
+            g_pObjMGR->Del_Object(pCHAR->Get_INDEX());
+        }
     }
 }
 

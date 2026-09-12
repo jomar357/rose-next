@@ -1070,7 +1070,10 @@ CObjCHAR::Add_EFFECT(short nPartIDX, short nPointIDX, t_HASHKEY HashEffectFILE) 
 void
 CObjCHAR::Del_EFFECT(short nPartIDX) {
     CMODEL<CCharPART>* pCharPART;
-    pCharPART = m_pCharMODEL->GetCharPART(nPartIDX);
+    /// NULL on an object whose Create() failed -- DeleteCHAR calls this for every
+    /// body part, including on the destructor pass. The array below still has to
+    /// be freed in that case; only the per-dummy walk needs the model.
+    pCharPART = m_pCharMODEL ? m_pCharMODEL->GetCharPART(nPartIDX) : NULL;
     if (pCharPART) {
         if (m_pppEFFECT[nPartIDX]) {
             for (short nT = 0; nT < pCharPART->m_nDummyPointCNT; nT++) {
@@ -1493,7 +1496,15 @@ void
 CObjCHAR::DeleteCHAR(void) {
     this->RemoveFromScene();
 
-    m_pCharMODEL->DeleteBoneEFFECT(m_ppBoneEFFECT);
+    /// m_pCharMODEL can be NULL on an object whose Create() failed: CreateCHAR
+    /// assigns it before the part-count check, and CObjMOB::Change_CHAR leaves a
+    /// failed object alive. DeleteBoneEFFECT takes its argument by reference and
+    /// nulls m_ppBoneEFFECT, so a second DeleteCHAR (the destructor always runs
+    /// one) is now a no-op instead of a double free.
+    if (m_pCharMODEL)
+        m_pCharMODEL->DeleteBoneEFFECT(m_ppBoneEFFECT);
+    else
+        SAFE_DELETE_ARRAY(m_ppBoneEFFECT);
 
     short nP;
     for (nP = 0; nP < MAX_BODY_PART; nP++)
@@ -5523,7 +5534,10 @@ CObjMOB::Create(short nCharIdx, const D3DVECTOR& Position, short nQuestIDX, bool
 
     m_nCharIdx = nCharIdx;
     m_fScale = NPC_SCALE(nCharIdx) / 100.f;
-    if (CObjCHAR::CreateCHAR(szName, pMODEL, pMODEL->GetPartCNT(), Position)) {
+    /// GetMODEL returns NULL for a row that has no model at all; GetPartCNT() was
+    /// called on it unguarded. CreateCHAR itself handles a NULL model, so all this
+    /// needs is to not dereference it on the way in.
+    if (CObjCHAR::CreateCHAR(szName, pMODEL, pMODEL ? pMODEL->GetPartCNT() : 0, Position)) {
         this->m_iHP = NPC_HP(m_nCharIdx);
         this->m_iMaxHP = NPC_HP(m_nCharIdx) * NPC_LEVEL(m_nCharIdx);
 
@@ -5590,13 +5604,42 @@ CObjMOB::Run_AWAY(int iDistance) {
 /// @brief  : 캐릭터 변경..( 그래서 모델노드는 안지우나? )
 //--------------------------------------------------------------------------------
 
+/// A failed change must not leave the object alive with no model. DeleteCHAR()
+/// has already torn the old character down by the time Create() is attempted, so
+/// returning false here used to strand a CObjCHAR that every per-frame model path
+/// then skipped -- a nameless, unclickable, invisible monster that flooded the log
+/// with "getVisibility() failed" and corrupted the heap at zone teardown.
+///
+/// The usual cause is data, not code: any AI Change_CHAR action naming a monster
+/// that is missing from LIST_NPC (Karkia's Ghost Seed asked for 2734-2738, none of
+/// which were imported). Fall back to the character we were already showing; only
+/// if *that* cannot be rebuilt is the object genuinely unpresentable, and then it
+/// is better to say so loudly than to keep a broken object in the world.
 bool
 CObjMOB::Change_CHAR(int nCharIDX) {
+    const short nPrevCharIdx = m_nCharIdx;
+
     this->DeleteCHAR();
 
     D3DVECTOR PosBORN = Get_BornPOSITION();
 
     if (!this->Create(nCharIDX, m_PosCUR, m_nQuestIDX, m_bRunMODE)) {
+        LOG_WARN("Change_CHAR to npc {} failed; restoring npc {} (client_idx {})",
+            nCharIDX,
+            (int)nPrevCharIdx,
+            (int)m_nIndex);
+
+        this->DeleteCHAR();
+        if (nPrevCharIdx == nCharIDX
+            || !this->Create(nPrevCharIdx, m_PosCUR, m_nQuestIDX, m_bRunMODE)) {
+            LOG_WARN("Change_CHAR could not restore npc {} either (client_idx {}); "
+                     "the object has no model and must be removed",
+                (int)nPrevCharIdx,
+                (int)m_nIndex);
+            return false;
+        }
+
+        m_PosBORN = PosBORN;
         return false;
     }
 

@@ -510,6 +510,24 @@ CObjMOB::Drop_ITEM(short nDropITEM, BYTE btToOwner) {
 
 bool
 CObjMOB::Change_CHAR(int iCharIDX) {
+    /// Validate before anything is broadcast. This is reached straight from AI
+    /// action 9 with a WORD out of the .aip and nothing in between, so a monster
+    /// id that is missing from LIST_NPC -- Karkia's kak_ghost_cemetery.aip asks
+    /// for 2734-2738, none of which were ever imported -- used to be sent to every
+    /// client in the sector and applied to this object as well. The client then
+    /// tore its model down, failed to build the new one, and kept a modelless
+    /// character alive until zone teardown corrupted the heap on it.
+    ///
+    /// The same guard CZoneTHREAD::RegenCharacter uses: get_cstr returns nullptr
+    /// for a blank cell, so a NULL name is exactly "this row does not exist".
+    if (iCharIDX < 1 || (size_t)iCharIDX >= g_TblNPC.row_count || !NPC_NAME(iCharIDX)) {
+        LOG_WARN("Change_CHAR to unknown npc {} refused (obj {}, zone {})",
+            iCharIDX,
+            (int)this->Get_INDEX(),
+            this->GetZONE() ? this->GetZONE()->Get_ZoneNO() : -1);
+        return false;
+    }
+
     classPACKET* pCPacket = Packet_AllocNLock();
     if (!pCPacket)
         return false;

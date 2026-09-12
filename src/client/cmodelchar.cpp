@@ -261,8 +261,21 @@ CCharMODEL::CreateBoneEFFECT(HNODE hMODEL, CObjCHAR* pOwner) {
 /// 않기때문에 직접 지워야한다.
 ///
 ///
+/// `ppEffect` is taken **by reference** so the caller's pointer dies with the
+/// array. It used to be by value: SAFE_DELETE_ARRAY then nulled only the local
+/// copy and left CObjCHAR::m_ppBoneEFFECT dangling. That was invisible on the
+/// normal path -- CreateCHAR reassigns m_ppBoneEFFECT a few lines later -- but
+/// CObjMOB::Change_CHAR calls DeleteCHAR() *before* Create(), and when Create()
+/// fails (a blank LIST_NPC row, reachable from any AI Change_CHAR action naming
+/// a monster we never imported) CreateCHAR returns at its part-count check
+/// without ever reassigning it. The object then lives on with a dangling
+/// m_ppBoneEFFECT until zone teardown, where ~CObjCHAR -> DeleteCHAR walks freed
+/// memory, deletes garbage pointers and frees the array a second time. The
+/// resulting heap corruption fail-fasts past SetUnhandledExceptionFilter, so it
+/// produced no crash dump at all -- only a per-frame "getVisibility() failed"
+/// flood from the modelless object. Karkia's Ghost Seed, 2026-09-12.
 void
-CCharMODEL::DeleteBoneEFFECT(CEffect** ppEffect) {
+CCharMODEL::DeleteBoneEFFECT(CEffect**& ppEffect) {
     if (ppEffect) {
         for (short nE = 0; nE < m_nBoneEFFECT; nE++) {
             /// g_pEffectLIST->Del_EFFECT( ppEffect[ nE ] );

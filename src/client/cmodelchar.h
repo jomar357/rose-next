@@ -92,7 +92,9 @@ public:
 
     short GetBoneEffectCNT() { return m_nBoneEFFECT; }
     CEffect** CreateBoneEFFECT(HNODE hMODEL, CObjCHAR* pOwner);
-    void DeleteBoneEFFECT(CEffect** ppEffect);
+    /// By reference: this frees the array, so the caller's pointer must be nulled
+    /// with it or the next call double-frees. See the definition.
+    void DeleteBoneEFFECT(CEffect**& ppEffect);
     void LinkBoneEFFECT(HNODE hMODEL, CEffect** ppEffect);
     void UnlinkBoneEFFECT(CEffect** ppEffect);
 };

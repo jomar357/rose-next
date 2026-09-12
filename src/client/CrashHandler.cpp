@@ -207,6 +207,53 @@ WriteSummaryFile(const char* szPath, EXCEPTION_POINTERS* pExceptionInfo, const c
     ::CloseHandle(hFile);
 }
 
+/// Fatal codes that never reach an unhandled-exception filter.
+///
+/// `SetUnhandledExceptionFilter` is only consulted when an exception unwinds out
+/// of every SEH frame. The fail-fast path does not unwind: the raiser terminates
+/// the process on the spot, so these arrive nowhere and a real crash leaves no
+/// crash-*.txt, no crash-*.dmp, and a log that simply stops.
+///
+/// That is not hypothetical -- it is how the 2026-09-12 Karkia double-free
+/// presented. The heap detected the second free of a bone-effect array, raised
+/// STATUS_HEAP_CORRUPTION, and the installed handler never ran. The only evidence
+/// left was a truncated client.log.
+///
+/// A vectored handler runs *before* SEH, which is what makes it able to see these
+/// -- and also why it must be extremely selective. It is not a general net: an
+/// ordinary access violation that some frame goes on to handle, and every C++
+/// throw (0xE06D7363), also pass through here, so anything not on this list is
+/// handed straight back.
+bool
+IsFailFastCode(DWORD dwCode) {
+    switch (dwCode) {
+        case 0xC0000374: // STATUS_HEAP_CORRUPTION
+        case 0xC0000409: // STATUS_STACK_BUFFER_OVERRUN (__fastfail, /GS)
+        case 0xC0000429: // STATUS_FATAL_APP_EXIT
+            return true;
+        default:
+            return false;
+    }
+}
+
+LONG WINAPI
+CrashFilter(EXCEPTION_POINTERS* pExceptionInfo);
+
+LONG CALLBACK
+FailFastVectoredHandler(EXCEPTION_POINTERS* pExceptionInfo) {
+    if (pExceptionInfo == NULL || pExceptionInfo->ExceptionRecord == NULL) {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    if (!IsFailFastCode(pExceptionInfo->ExceptionRecord->ExceptionCode)) {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+
+    // Write the same dump the filter would have, then let the OS proceed with the
+    // termination it was always going to perform.
+    CrashFilter(pExceptionInfo);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
 LONG WINAPI
 CrashFilter(EXCEPTION_POINTERS* pExceptionInfo) {
     // A fault inside the handler must not recurse. First thread in wins; anyone
@@ -312,6 +359,10 @@ InstallCrashHandler(void) {
     }
 
     g_pPreviousFilter = ::SetUnhandledExceptionFilter(CrashFilter);
+
+    // First in the vectored chain, so a fail-fast is seen before anything can
+    // swallow it. It filters hard on the exception code -- see IsFailFastCode.
+    ::AddVectoredExceptionHandler(1, FailFastVectoredHandler);
 
     if (g_pfnMiniDumpWriteDump == NULL) {
         LOG_WARN("Crash handler installed, but dbghelp.dll!MiniDumpWriteDump did not resolve -- "
