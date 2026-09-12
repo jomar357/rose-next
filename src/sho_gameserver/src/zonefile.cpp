@@ -44,6 +44,7 @@ CZoneFILE::CZoneFILE(bool CreateSuspended): classTHREAD(CreateSuspended) {
         m_ppMoveATTR[nI] = NULL;
 
     m_iMovTilesLOADED = 0;
+    ::ZeroMemory(m_bMapTileLOADED, sizeof(m_bMapTileLOADED));
 
     m_iSectorXCnt = 0;
     m_iSectorYCnt = 0;
@@ -344,6 +345,13 @@ CZoneFILE::LoadMAP(char* szFileName, short nMapXIDX, short nMapYIDX) {
     fp = fopen(szFullPath, "rb");
     if (!fp)
         return;
+
+    // This tile has real terrain under it. LoadZONE uses the set of loaded tiles to
+    // bound the walkable area when the zone ships no *.MOV at all.
+    if (nMapXIDX >= 0 && nMapXIDX < MAP_COUNT_PER_ZONE_AXIS && nMapYIDX >= 0
+        && nMapYIDX < MAP_COUNT_PER_ZONE_AXIS) {
+        m_bMapTileLOADED[nMapYIDX][nMapXIDX] = true;
+    }
 
     int iLumpCNT, iType;
     int iOffset;
@@ -649,13 +657,41 @@ CZoneFILE::LoadZONE(char* szBaseDIR, short nZoneNO) {
     // nor does Lunar LZ02. Every other zone we ship has one per map tile -- none is
     // partially covered -- so opening the grid only where *nothing* loaded cannot
     // half-apply to a zone that meant to block something.
+    //
+    // Open only the cells that sit under a map tile that actually loaded, not the
+    // whole 2048x2048 grid. Opening everything also opens the void outside the map,
+    // and since SetCMD_MOVE2D is the only thing consulting this, monsters then
+    // wander off the terrain entirely -- which is what feeds a garbage position
+    // into the client's CTERRAIN::GetPATCH. Elsewhere .MOV bounds the walkable area
+    // to real ground by construction; this keeps that property.
+    //
+    // A *.MOV tile covers PATCH_COUNT_PER_MAP_AXIS * 2 grid cells per axis (the
+    // stride LoadMOV uses), and MAP_COUNT_PER_ZONE_AXIS of those is exactly
+    // MAP_MOVE_ATTR_GRID_CNT.
     if (0 == this->m_iMovTilesLOADED) {
-        for (nY = 0; nY < MAP_MOVE_ATTR_GRID_CNT; nY++)
-            this->m_ppMoveATTR[nY]->ClearAll();
+        const int iCellsPerTile = PATCH_COUNT_PER_MAP_AXIS * 2;
+        int iTiles = 0;
 
-        LOG_WARN("Zone {}: no .MOV walkability tiles found; defaulting the whole zone "
-                 "to walkable so monster leash/wander/flee still work",
-            (int)nZoneNO);
+        for (int iTileY = 0; iTileY < MAP_COUNT_PER_ZONE_AXIS; iTileY++) {
+            for (int iTileX = 0; iTileX < MAP_COUNT_PER_ZONE_AXIS; iTileX++) {
+                if (!this->m_bMapTileLOADED[iTileY][iTileX])
+                    continue;
+
+                iTiles++;
+                for (int iC = 0; iC < iCellsPerTile; iC++) {
+                    const int iGridY = iTileY * iCellsPerTile + iC;
+                    C1BITARRAY* pRow = this->m_ppMoveATTR[iGridY];
+
+                    for (int iR = 0; iR < iCellsPerTile; iR++)
+                        pRow->ClearBit(iTileX * iCellsPerTile + iR);
+                }
+            }
+        }
+
+        LOG_WARN("Zone {}: no .MOV walkability tiles found; opening {} map tile(s) of "
+                 "terrain as walkable so monster leash/wander/flee still work",
+            (int)nZoneNO,
+            iTiles);
     }
 
     this->m_iAgitCNT = 0;

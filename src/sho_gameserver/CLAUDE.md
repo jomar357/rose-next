@@ -147,9 +147,20 @@ missing AI data rather than a missing asset. It is not missing AI data: 379 of o
 509 `.aip` files declare a pattern-2 leash, and every Karkia monster has one
 (typically "≥50-80 m from spawn → run back to within 1-5 m").
 
-Since 2026-09-12 `LoadZONE` counts the tiles that actually loaded and, if **none**
-did, clears the grid (whole zone walkable) and logs a warning. This is the server-side
-form of the engine's "Missing Assets Must Degrade, Not Kill" rule. Things to know:
+Since 2026-09-12 `LoadZONE` counts the tiles that actually loaded and, if **none** did,
+opens the walkability grid and logs a warning. This is the server-side form of the engine's
+"Missing Assets Must Degrade, Not Kill" rule. Things to know:
+
+- **It opens only the cells under a map tile that actually loaded, not the whole grid.**
+  The first version cleared all 2048×2048 cells, which also opened the void *outside* the
+  map — and since `IsMovablePOS` gates nothing but `SetCMD_MOVE2D`, monsters promptly
+  wandered off the terrain. A position off the map is what feeds garbage into the client's
+  `CTERRAIN::GetPATCH`. `LoadMAP` records each tile in `m_bMapTileLOADED`; a tile is
+  `PATCH_COUNT_PER_MAP_AXIS * 2` grid cells per axis (`LoadMOV`'s own stride), and
+  `MAP_COUNT_PER_ZONE_AXIS` of those is exactly `MAP_MOVE_ATTR_GRID_CNT`.
+- **Do not use `m_nMinMapX`/`m_nMaxMapX`/`m_nMinMapY`/`m_nMaxMapY`** (`zonefile.h`). They
+  are declared and never assigned anywhere, so they hold uninitialised garbage. A per-tile
+  flag is also correct for a non-rectangular zone, which a min/max box is not.
 
 - It fires for all 9 Karkia zones and for **Lunar LZ02** — the only zones we ship with
   zero `.MOV`. Nothing else is affected; no zone has *partial* coverage, so the

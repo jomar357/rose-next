@@ -3664,6 +3664,20 @@ CMAP_PATCH*
 CTERRAIN::GetPATCH(int iZonePatchX, int iZonePatchY) {
     CMAP* pMAP;
 
+    /// m_pMAPS is CMAP*[MAP_COUNT_PER_ZONE_AXIS][MAP_COUNT_PER_ZONE_AXIS] and this
+    /// used to index it with no range test at all. Callers derive the patch indices
+    /// by dividing a world coordinate, so any bad coordinate reaching here read far
+    /// outside the array and then dereferenced whatever it found. That is exactly
+    /// what a NULL model node produced: ::getPosition() fills the caller's position
+    /// with ZZ_INFINITE (1e9), CObjCHAR_Collision::AdjustHeight_Monster divides it
+    /// by the patch size, truncates to short, and lands here. An out-of-range patch
+    /// is simply "no patch" -- every caller already handles NULL.
+    const int iMaxZonePatch = MAP_COUNT_PER_ZONE_AXIS * PATCH_COUNT_PER_MAP_AXIS;
+    if (iZonePatchX < 0 || iZonePatchX >= iMaxZonePatch || iZonePatchY < 0
+        || iZonePatchY >= iMaxZonePatch) {
+        return NULL;
+    }
+
     pMAP = m_pMAPS[iZonePatchY / PATCH_COUNT_PER_MAP_AXIS][iZonePatchX / PATCH_COUNT_PER_MAP_AXIS];
     if (pMAP)
         return pMAP->GetPATCH(iZonePatchX % PATCH_COUNT_PER_MAP_AXIS,

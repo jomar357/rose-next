@@ -60,6 +60,15 @@ CObjCHAR_Collision::UpdateHeight(CObjCHAR* pObj)
     }
 
     m_hNodeModel = m_pObj->GetZMODEL();
+
+    /// Every AdjustHeight_* below starts with ::getPosition(m_hNodeModel, ...), which
+    /// on a NULL node writes ZZ_INFINITE (1e9) into m_vCurrent and returns a value
+    /// none of them check. AdjustHeight_Monster then divides m_vCurrent straight into
+    /// a patch index for CTERRAIN::GetPATCH. Bail out here rather than in five places.
+    if (!m_pObj->HasModelNODEorReport("CObjCHAR_Collision::UpdateHeight")) {
+        return;
+    }
+
     int iObjTYPE = m_pObj->Get_TYPE();
 
     m_footCollisionPass = false;

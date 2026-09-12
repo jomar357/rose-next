@@ -93,6 +93,13 @@ protected:
     // move that goes through SetCMD_MOVE2D (leash, wander, flee). See LoadZONE().
     int m_iMovTilesLOADED;
 
+    // Which map tiles actually exist, set by LoadMAP. Used by LoadZONE to open the
+    // walkability grid over real terrain only when a zone ships no *.MOV at all.
+    // Note m_nMinMapX/m_nMaxMapX below are declared but never assigned anywhere --
+    // do not reach for them. A per-tile flag also handles a non-rectangular zone,
+    // which a min/max box would not.
+    bool m_bMapTileLOADED[MAP_COUNT_PER_ZONE_AXIS][MAP_COUNT_PER_ZONE_AXIS];
+
     short m_nSectorSIZE;
     int m_iSectorLIMIT;
 

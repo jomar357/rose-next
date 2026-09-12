@@ -521,6 +521,43 @@ folder. Keep the RmlUi debugger visible while authoring — RCSS errors are othe
 silent, and a discarded declaration (e.g. `transition: … linear`, which is invalid; RmlUi has only
 `linear-in`/`-out`/`-in-out`) looks exactly like one that works.
 
+## A Character Can Outlive Its Model Node
+
+`CObjCHAR::m_hNodeMODEL` can be NULL on a live object that is still in
+`CObjectMANAGER::m_CharLIST` and still `Proc()`'d every frame. `CObjMOB::Change_CHAR`
+(`cobjchar.cpp`) is the clearest producer: it calls `DeleteCHAR()` — which nulls the handle
+via `UnloadModelNODE()` — then `Create()`, and on failure simply `return false`s, leaving
+the object alive with no model. `CObjAVT::Update` has the same unload-then-reload shape with
+no failure handling.
+
+**This is not benign, because `getPosition()` fails loudly and quietly at the same time.**
+`zz_interface.cpp`'s `getPosition` logs `interface: getPosition() failed`, returns 0 — a
+value every hot caller ignores — **and writes `ZZ_INFINITE` (1e9) into the caller's
+out-parameter**. `CObjCHAR_Collision::AdjustHeight_Monster` then divides that into a patch
+index and hands it to `CTERRAIN::GetPATCH`, which indexed a 64×64 array with no range test
+at all until 2026-09-12. One broken object was an out-of-bounds read plus a likely garbage
+pointer dereference, every frame, for the life of the process.
+
+Rules:
+
+- **Test the model node before any per-frame model access.** `CObjCHAR::HasModelNODE()`, or
+  `HasModelNODEorReport(where)` which also names the object in the log exactly once. The
+  guard lives in `CObjCHAR_Collision::UpdateHeight`, which covers all five `AdjustHeight_*`
+  paths, and in `CObjCHAR::Proc`'s out-of-frustum branch.
+- **The engine's two log lines have no subject and no rate limit.** `getPosition() failed` /
+  `getVisibility() failed` name nothing and fire per frame per object — 32,107 and 6,838
+  lines from **three** objects in one session, 77% of `error.txt`, which buries every other
+  diagnostic. Never read a count of them as a count of broken objects; decode the per-frame
+  pattern instead. Fix the caller, don't touch the engine log.
+- **`getVisibility` is the stricter of the two** (it also runs an RTTI check) and returns
+  0.0 = invisible, which silently makes the object unclickable in `CTERRAIN::Pick_OBJECT`
+  and drops its nameplate in `CNameBox::Draw`. A nameless, unclickable monster is this bug's
+  visible symptom.
+- **Creation failures log at `LOG_WARN` now, not `LOG_DEBUG_`** (`Add_MobCHAR`'s "Mob
+  character creation failed", `LoadModelNODE`'s "no skeleton for"). At debug level they were
+  filtered out entirely, so the only evidence of a broken object was the subject-less engine
+  line. See [[reference-logstring-formats-before-filter]] — `LogString` is always Debug.
+
 ## Frame Timing & Timer Precision
 
 `g_GameDATA.GetElapsedFrameTime()` ([game.cpp:172,180](src/client/game.cpp#L172)) is built on `timeGetTime()`. By default Windows quantizes `timeGetTime()` to the system tick (~15.6 ms), which dominates anything driven by per-frame dt above 60 fps:

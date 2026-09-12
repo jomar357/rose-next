@@ -219,6 +219,10 @@ public:
     bool LoadModelNODE(char* szName);
     void UnloadModelNODE();
 
+    /// Set once HasModelNODEorReport() has warned about this object, so a
+    /// permanently broken object costs one log line instead of one per frame.
+    bool m_bReportedNoModelNODE;
+
     void Link_EFFECT(void);
     void Unlink_EFFECT(void);
 
@@ -760,6 +764,23 @@ public:
     virtual ~CObjCHAR();
 
     HNODE GetZMODEL() { return m_hNodeMODEL; }
+
+    /// True while this object has a live engine model node.
+    ///
+    /// A character can outlive its model node -- CObjMOB::Change_CHAR unloads the
+    /// old one and returns early if Create() fails, and CObjAVT::Update does the
+    /// same on a failed reload -- and the object then sits in
+    /// CObjectMANAGER::m_CharLIST being Proc'd every frame with m_hNodeMODEL NULL.
+    /// Every engine accessor rejects a NULL handle, but getPosition() also writes
+    /// ZZ_INFINITE (1e9) into the caller's out-parameter and its return value is
+    /// ignored at every hot call site, so the 1e9 propagates into terrain indices.
+    /// Test this before touching the model from any per-frame path.
+    bool HasModelNODE() const { return m_hNodeMODEL != NULL; }
+
+    /// As above, but reports the object once (never per frame) the first time it
+    /// is found without a model. The engine's own "interface: getPosition() failed"
+    /// has no subject and no rate limit; this names the object and logs once.
+    bool HasModelNODEorReport(const char* szWhere);
     CMODEL<CCharPART>* GetPartMODEL(short nPartIDX) { return m_pCharMODEL->GetCharPART(nPartIDX); }
     int Get_CharNO() { return m_nCharIdx; }
 

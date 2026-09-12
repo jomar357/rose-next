@@ -523,7 +523,13 @@ CObjectMANAGER::Add_MobCHAR(WORD wServerObjectIndex,
     }
 
     if (!pCHAR->Create(nCharIdx, Position, nQuestIDX, bRunMODE)) {
-        LogString(LOG_DEBUG_, "MOB Char[ %d ] create failed \n", nCharIdx);
+        /// WARN, not DEBUG -- see the skeleton failure in CObjCHAR::CreateCHAR. This
+        /// path itself is clean (the object is deleted, nothing is left behind in
+        /// m_CharLIST), but it names the monster that cannot be built, which is what
+        /// identifies a broken roster entry.
+        LOG_WARN("Mob character creation failed: char_no {} ({})",
+            (int)nCharIdx,
+            (nCharIdx > 0 && (size_t)nCharIdx < g_TblNPC.row_count) ? NPC_NAME(nCharIdx) : "?");
         delete pCHAR;
         return 0;
     }

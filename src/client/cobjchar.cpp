@@ -420,6 +420,7 @@ CObjCHAR::CObjCHAR(): m_EndurancePack(this), m_ChangeActionMode(this), m_ObjVibr
 
     m_fHeightOfGround = 0.0f;
     m_hNodeMODEL = NULL;
+    m_bReportedNoModelNODE = false;
 
     m_ppBoneEFFECT = NULL;
     m_hR_TRAIL = m_hL_TRAIL = NULL;
@@ -1302,7 +1303,13 @@ CObjCHAR::LoadModelNODE(char* szName) {
         tStep0 = tStep1;
     }
     if (hSkel == NULL) {
-        LogString(LOG_DEBUG_, "failed creat char.. SKEL == NULL !! \n");
+        /// WARN, not DEBUG: this is the usual reason a character ends up alive with
+        /// no model node (CObjMOB::Change_CHAR unloads the old model and returns
+        /// early when Create() fails), and at debug level it was filtered out
+        /// entirely -- leaving the engine's subject-less "interface: getPosition()
+        /// failed" as the only symptom.
+        LOG_WARN("Character model creation failed: no skeleton for \"{}\"",
+            szName ? szName : "?");
         return false;
     }
 
@@ -1314,7 +1321,11 @@ CObjCHAR::LoadModelNODE(char* szName) {
         tStep0 = tStep1;
     }
     if (!bMotionOk) {
-        LogString(LOG_DEBUG_, "failed creat char.. MOTION == NULL !! \n");
+        /// WARN for the same reason as the skeleton failure above: a caller that
+        /// already unloaded the old model (CObjMOB::Change_CHAR) leaves the object
+        /// alive with m_hNodeMODEL NULL when this returns false.
+        LOG_WARN("Character model creation failed: no motion for \"{}\"",
+            szName ? szName : "?");
         return false;
     }
 
@@ -1325,6 +1336,10 @@ CObjCHAR::LoadModelNODE(char* szName) {
             (double)(tStep1.QuadPart - tStep0.QuadPart) * 1000.0 / (double)qpfStep.QuadPart);
     }
     if (m_hNodeMODEL) {
+        /// Re-arm the one-shot warning: an object that regains a model and loses it
+        /// again later is worth reporting a second time.
+        m_bReportedNoModelNODE = false;
+
         ::setCollisionLevel(m_hNodeMODEL, 4);
 
         // 기본 지형에서 캐릭터 중심점 높이
@@ -1335,6 +1350,40 @@ CObjCHAR::LoadModelNODE(char* szName) {
         ::setPosition(m_hNodeMODEL, m_PosCUR.x, m_PosCUR.y, m_PosCUR.z);
 
         return true;
+    }
+
+    return false;
+}
+
+//--------------------------------------------------------------------------------
+/// class : CObjCHAR
+/// @brief  : 엔진모델노드가 없는 객체를 한 번만 보고한다.
+//--------------------------------------------------------------------------------
+
+bool
+CObjCHAR::HasModelNODEorReport(const char* szWhere) {
+    if (m_hNodeMODEL)
+        return true;
+
+    /// Once per object, not once per frame. A character that loses its model node
+    /// keeps it lost -- nothing re-creates it -- so this is otherwise a per-frame
+    /// log for the life of the process. The 2026-09-12 Karkia session wrote 32,107
+    /// "interface: getPosition() failed" lines from three such objects.
+    if (!m_bReportedNoModelNODE) {
+        m_bReportedNoModelNODE = true;
+
+        /// Bound the row before naming it: m_nCharIdx is only meaningful for NPC/MOB
+        /// objects, and NPC_NAME indexes a table with no range check of its own.
+        const int iCharIdx = m_nCharIdx;
+        const bool bNamed = (iCharIdx > 0 && (size_t)iCharIdx < g_TblNPC.row_count);
+
+        LOG_WARN("Character object has no engine model node at {}: client_idx {}, type {}, "
+                 "char_no {} ({}). It will be skipped by every per-frame model path.",
+            szWhere ? szWhere : "?",
+            (int)m_nIndex,
+            (int)Get_TYPE(),
+            iCharIdx,
+            bNamed ? NPC_NAME(iCharIdx) : "?");
     }
 
     return false;
@@ -4382,7 +4431,12 @@ CObjCHAR::Proc(void) {
     } else {
 
 #if (1) /// 현재, 이동 시작시 높이 보정이 되기 때문에, 높이 보정 필요 없음.
-        ::getPosition(this->m_hNodeMODEL, (float*)m_PosCUR);
+        /// getPosition() writes ZZ_INFINITE (1e9) into the out-parameter when the
+        /// node is NULL and its return value is ignored here, so an object without a
+        /// model would otherwise hand 1e9 to the distance test below -- and, through
+        /// Adjust_HEIGHT, to CTERRAIN::GetPATCH as an array index.
+        if (this->HasModelNODEorReport("CObjCHAR::Proc"))
+            ::getPosition(this->m_hNodeMODEL, (float*)m_PosCUR);
         // m_PosCUR.z = g_pAVATAR->Get_CurPOS().z; // 안보이는 캐릭터의 높이는 주인공 아바타의
         // 높이에 맞춤.
 
