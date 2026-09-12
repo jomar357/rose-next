@@ -467,23 +467,64 @@ MOB_ANI_MAX = 11                   # MAX_MOB_ANI; the client indexes with no bou
 # Fraction of a zone's regen points to KEEP. 1.0 (or absent) ships Jrose's layout.
 #
 # Karkia is authored as a carpet where our zones are clumps: one monster per regen
-# point, points ~5 m apart, against our 5-10 per point 20-45 m apart. Spire Village
-# packs 1111 monsters into 18 chunks, and measured at the radius the client
-# actually holds (~200 m, calibrated against an in-game HUD reading of Mob:659 at
-# Pos[515829, 506346]) that is 485 monsters and 964 mesh draws around a typical
-# standing spot -- 2.6x the bodies and 4x the mesh draws of Junon JG07, our densest
-# field zone. It measured 35 fps on a 5060, with render 11.5 ms + scnupd 7.0 +
-# shadow 4.1 of a 26.8 ms frame, all three of which scale with object count.
+# point, points ~5 m apart, against our 5-10 per point 20-45 m apart.
 #
-# 0.25 puts it just under JG07 on both bodies (122 vs 186) and mesh draws (230 vs
-# 239). 0.35 would match JG07 on bodies but still run 57% over on draws, because
-# Karkia's roster is multi-part humanoids where Junon's low-level field is jelly
-# beans -- same headcount, roughly double the per-frame work. Tune here and re-run
-# --stage 3; nothing else needs to change.
+# **Empty on purpose since 2026-09-12.** KSPIREVIL used to sit here at 0.25, sized
+# against a 200 m bodies-and-mesh-draws model that counted a point as one monster.
+# It is four (see regen_set_tacticpoint), so that model -- and every density number
+# in doc/karkia-roadmap.md -- was 4x low, which is why a 75% cut still played as a
+# wall. Both main maps now go through SPAWN_CAMPS below, which merges neighbouring
+# points instead of deleting them and so cannot lose a species. Thinning stays
+# available for a zone whose density genuinely *is* its point count.
+SPAWN_THINNING = {}
+
+# Camp consolidation, for the two main maps: folder -> (grid cell in cm, camp size).
 #
-# The Cemetery is deliberately absent: at 98 typical / 221 draws it already sits
-# inside what our own zones run, and it reads as a field rather than a brawl.
-SPAWN_THINNING = {"KSPIREVIL": 0.25}
+# These two zones are a *carpet* -- one regen point per monster, points ~5 m
+# apart, 847 of them in the Cemetery and 1,111 in Spire Village. Thinning alone
+# is the wrong lever for them, for two reasons found on 2026-09-12:
+#
+# 1. **Every point is single-species.** All five basic slots and both tactics
+#    slots of every one of those 1,958 points hold the *same* npc id. So the
+#    escalation machine buys nothing, and the only thing that makes the zone
+#    varied is which points happen to be near you -- which means deleting points
+#    deletes species. thin_regen is greedy on nearest-neighbour distance and
+#    completely species-blind: at 15% keep it drops Evil Fairy, Orgeid and D=Seed
+#    out of the Cemetery entirely.
+#
+# 2. **Each point holds four monsters, not one.** See regen_set_tacticpoint --
+#    tacticPoint 1 puts the very first tick in the top branch of the table.
+#
+# So instead of deleting points we *merge* them. Bin the zone on a grid, keep one
+# record per bin, and give it the species of everything that bin absorbed: the
+# result is one camp where there were six or seven singles, holding a mix rather
+# than a clone. Population falls because the bin's 6-7 points become one point of
+# five bodies; diversity *rises* because 85% of the camps come out multi-species
+# where every source point was single-species.
+#
+# Measured against the Jrose source with CRegenPOINT::Proc's real branch table:
+#
+#              camps  bodies   was   per 100m cell   vs JG07   camp gap   species
+#   KCEMETERY    113     565  3,388       8.8         0.27x     38.8 m     21/21
+#   KSPIREVIL     77     385  1,109      12.4         0.39x     37.8 m     10/10
+#
+# JG07, our densest field zone, is 32.2 bodies per cell. The ~38 m median gap
+# between camps sits well outside the 13-22 m aggro radii the Karkia .aip files
+# declare, so a pull is one camp of five.
+#
+# KSPIREVIL used to carry SPAWN_THINNING 0.25 (1,111 -> 278 points). That is gone:
+# consolidation supersedes it and running both would cut twice. thin_regen itself
+# stays -- it is still the right lever for a zone whose density really is its
+# point count.
+SPAWN_CAMPS = {"KCEMETERY": (6000, 5), "KSPIREVIL": (6000, 5)}
+
+# What a consolidated camp gets written with. interval paces the escalation as
+# well as the respawn -- a camp needs `size` ticks to fill, so 20 s means a
+# cleared camp is back in ~100 s. Jrose ran these maps at 20-565 s; JG07 runs
+# 5-12 s; Eldeon EZ01 runs 30-40 s.
+CAMP_INTERVAL = 20
+CAMP_RANGE = 12          # metres; five bodies need more room than Jrose's 5 m
+CAMP_TACTIC_POINT = 100  # the house value -- see regen_set_tacticpoint
 
 # Which monsters a zone's regen points actually spawn, as
 #   folder -> (basic [(npc, count), ...], tactics [(npc, count), ...])
@@ -873,12 +914,74 @@ def selftest(ours, src, src_index):
             got = regen_set_interval(regen_set_cap(extra, 5), 15)
             if len(got) != len(extra) or regen_get_params(got) != (15, 5, rng0, tp0):
                 field_ok = False
+            # All four trailing fields at once: each writer must land on its own
+            # i32 and leave the other three alone.
+            got = regen_set_tacticpoint(
+                regen_set_range(regen_set_interval(regen_set_cap(extra, 5), 20), 12), 100)
+            if len(got) != len(extra) or regen_get_params(got) != (20, 5, 12, 100):
+                field_ok = False
             # A no-op rewrite of the roster must reproduce the record exactly.
             basic, tactics = regen_roster_of(extra)
             if regen_set_roster(extra, basic, tactics) != extra:
                 field_ok = False
             probed += 1
     check("REGEN field writers", f"{probed} points", field_ok)
+
+    # Camp consolidation on the real Cemetery carpet: it must lose no species,
+    # leave every record the length it was, put every survivor on a sane cap and
+    # tacticPoint, and reproduce itself exactly on a second run.
+    camp_ok, camp_note = True, "no source"
+    csrc = os.path.join(src, "3DDATA", "MAPS", "KARKIA", "KCEMETERY")
+    if os.path.isdir(csrc):
+        per_file = {}
+        for fn in sorted(os.listdir(csrc)):
+            if not fn.upper().endswith(".IFO"):
+                continue
+            cbuf, cbounds = oro.read_ifo(os.path.join(csrc, fn))
+            if oro.lump_block(cbounds, oro.LUMP_REGEN)[0] is None:
+                continue
+            objs, _t = oro.read_lump(cbuf, cbounds, oro.LUMP_REGEN)
+            if objs:
+                per_file[("KCEMETERY", fn)] = objs
+
+        def species(pf):
+            out = set()
+            for objs in pf.values():
+                for o in objs:
+                    b, t = regen_roster_of(o["extra"])
+                    out |= {n for n, _c in b + t if n >= 1}
+            return out
+
+        before_sp = species(per_file)
+        lens = {(k, i): len(o["extra"])
+                for k, v in per_file.items() for i, o in enumerate(v)}
+        kept, absorbed, camps = consolidate_camps(per_file, 6000, 5)
+        after_sp = species(kept)
+        if after_sp != before_sp:
+            camp_ok = False
+            camp_note = f"species lost: {sorted(before_sp - after_sp)}"
+        for objs in kept.values():
+            for o in objs:
+                iv, cap, rng, tac = regen_get_params(o["extra"])
+                if (iv, cap, rng, tac) != (CAMP_INTERVAL, 5, CAMP_RANGE,
+                                           CAMP_TACTIC_POINT):
+                    camp_ok = False
+                b, t = regen_roster_of(o["extra"])
+                if any(c != 1 for n, c in b + t if n >= 1):
+                    camp_ok = False   # a per-slot count near the cap strands slots
+        if len(set(lens.values())) and any(
+                len(o["extra"]) not in set(lens.values())
+                for objs in kept.values() for o in objs):
+            camp_ok = False
+        # Deterministic: the same input must give byte-identical output twice.
+        again, _a2, c2 = consolidate_camps(per_file, 6000, 5)
+        if c2 != camps or [o["extra"] for k in sorted(again) for o in again[k]] !=                 [o["extra"] for k in sorted(kept) for o in kept[k]]:
+            camp_ok = False
+            camp_note = "not deterministic"
+        if camp_ok:
+            camp_note = (f"{absorbed} points -> {camps} camps, "
+                         f"{len(after_sp)} species kept")
+    check("REGEN camp consolidation", camp_note, camp_ok)
 
     # The economy splice: it must add exactly one lump, leave every other block
     # byte-identical, and produce something ReadECONOMY can walk.
@@ -1332,6 +1435,43 @@ def regen_set_interval(extra, seconds):
     return bytes(out)
 
 
+def regen_set_range(extra, metres):
+    """Force a REGEN record's spawn radius (m_iRange). Third trailing i32.
+
+    The file holds metres; CRegenPOINT::Load multiplies by 100 into cm. This is
+    how wide a point scatters the bodies it spawns, so it wants to grow with the
+    concurrent cap or a camp of five stacks on one spot.
+    """
+    out = bytearray(extra)
+    struct.pack_into("<i", out, regen_tail_offset(out) + 8, metres)
+    return bytes(out)
+
+
+def regen_set_tacticpoint(extra, points):
+    """Force a REGEN record's tactics divisor (m_iTacticsPOINT). Fourth i32.
+
+    **This is the field that decides whether limitCNT means anything.**
+    CRegenPOINT::Proc picks its escalation branch from
+
+        iVar = ((limitCNT*2 - liveCNT) * curTactics * 50) / (limitCNT * tacticPoint)
+
+    and CZoneTHREAD::RegenCharacter has no cap check of its own -- the only gate
+    is Proc's early return while liveCNT >= limitCNT. So tacticPoint scales the
+    whole table: at 100 an empty point starts at iVar == curTactics == 1, walks
+    the branches from the bottom and fills to exactly limitCNT. At 1 the very
+    first tick computes iVar = 100, lands in the top branch, and spawns
+    basic[4] + tactics[0]+1 + tactics[1] = four bodies into a cap of one.
+
+    Jrose shipped KCEMETERY and KSPIREVIL at tacticPoint 1 -- the only two zones
+    in the whole dataset that do; every other zone we ship uses 50-200 -- which
+    is why those maps held 3,388 and 1,109 monsters against a summed limitCNT of
+    847 and 278. Every density figure anyone measured from the tables was 4x low.
+    """
+    out = bytearray(extra)
+    struct.pack_into("<i", out, regen_tail_offset(out) + 12, points)
+    return bytes(out)
+
+
 def rotate(seq, by):
     """Roster order rotated left, for giving neighbouring points different leads."""
     if not seq:
@@ -1371,6 +1511,87 @@ def apply_spawn_roster(per_file, folder):
                 obj["extra"] = regen_set_interval(obj["extra"], interval)
             n += 1
     return n
+
+
+def consolidate_camps(per_file, cell_cm, size):
+    """Merge a carpet of single-monster points into fewer mixed-species camps.
+
+    Takes {(folder, name): [objects]} for one whole zone and returns the same
+    shape. Zone-wide rather than per-file for the reason thin_regen is: the
+    positions share one coordinate space (the server adds a single constant bias
+    at load), so a chunk-local decision would leave every seam between chunks as
+    dense as it started.
+
+    Bin on a `cell_cm` grid, keep one record per bin, and give that record the
+    species of everything the bin absorbed. The survivor is the point nearest the
+    bin centroid rather than the centroid itself -- an authored position is
+    guaranteed to be somewhere a monster already stood, where a computed centroid
+    can land in a chasm between two clusters or inside a building.
+
+    Slot assignment, given that every source point is single-species:
+      basic   = the bin's distinct species, most locally-common first, up to 5.
+                Fewer than 5 distinct repeats the most common to fill, which is
+                how a roster weights a species -- never by raising the count.
+      tactics = the spill (species 6 and 7) when a bin holds more than 5 distinct,
+                so consolidation cannot lose a species even locally; otherwise the
+                bin's rarest, which is what the tactics list is for -- it only
+                comes out in the top branches, after sustained clearing.
+
+    Every slot count stays 1. It has to: Proc returns early while
+    liveCNT >= limitCNT, so a count anywhere near the cap means slot 0 fills the
+    camp on tick one and the rest are unreachable until a player clears it by hand.
+
+    Points that are not part of the carpet are passed through untouched --
+    anything already on a non-1 tacticPoint was authored deliberately (Spire
+    Village's lone Deadly Drake Alpha point, tacticPoint 100 / interval 900 s /
+    its own point name). Deterministic throughout so a re-run reproduces it.
+    """
+    carpet, kept = [], {k: [] for k in per_file}
+    for key, objs in sorted(per_file.items()):
+        for i, o in enumerate(objs):
+            _iv, _cap, _rng, tac = regen_get_params(o["extra"])
+            if tac == 1:
+                x, y, _z = struct.unpack_from("<fff", o["fixed"], REGEN_POS_OFF)
+                basic, tactics = regen_roster_of(o["extra"])
+                ids = [n for n, _c in basic + tactics if n >= 1]
+                if ids:
+                    common = collections.Counter(ids).most_common(1)[0][0]
+                    carpet.append((key, i, x, y, common))
+                    continue
+            kept[key].append(o)          # not carpet: pass through verbatim
+
+    bins = collections.defaultdict(list)
+    for entry in carpet:
+        _key, _i, x, y, _sp = entry
+        bins[(int(x // cell_cm), int(y // cell_cm))].append(entry)
+
+    camps = 0
+    for _cell, members in sorted(bins.items()):
+        cx = sum(e[2] for e in members) / len(members)
+        cy = sum(e[3] for e in members) / len(members)
+        key, idx, _x, _y, _sp = min(
+            members, key=lambda e: ((e[2] - cx) ** 2 + (e[3] - cy) ** 2, e[0], e[1]))
+
+        ranked = [sp for sp, _n in
+                  collections.Counter(e[4] for e in members).most_common()]
+        basic = ranked[:size]
+        while len(basic) < 5:
+            basic.append(ranked[0])
+        basic = basic[:5]
+        tactics = ranked[5:7] if len(ranked) > 5 else [ranked[-1]]
+
+        obj = dict(per_file[key][idx])
+        obj["extra"] = regen_set_roster(obj["extra"],
+                                        [(n, 1) for n in basic],
+                                        [(n, 1) for n in tactics])
+        obj["extra"] = regen_set_cap(obj["extra"], size)
+        obj["extra"] = regen_set_interval(obj["extra"], CAMP_INTERVAL)
+        obj["extra"] = regen_set_range(obj["extra"], CAMP_RANGE)
+        obj["extra"] = regen_set_tacticpoint(obj["extra"], CAMP_TACTIC_POINT)
+        kept[key].append(obj)
+        camps += 1
+
+    return kept, len(carpet), camps
 
 
 def thin_regen(per_file, keep):
@@ -2057,6 +2278,30 @@ def stage3(ours, src, src_index, dry):
                 objs, thinned["trailing"].get(key, b""))
         print(f"    {'spawn thinning':26s} {folder}: {before} -> {before - removed} "
               f"points (keep {keep:.0%})")
+
+    # --- 3m. camp consolidation, for the two main maps. Same placement and same
+    # reason as the thinning above: this stage rebuilds every REGEN lump from
+    # Jrose's source on each run, so an .IFO edited by hand or in the map editor
+    # is silently reverted by the next --stage 3.
+    for folder in sorted({f for _r, f, _n, _k in ZONES}):
+        spec = SPAWN_CAMPS.get(folder.upper())
+        files_here = {k: v for k, v in regen_src.items() if k[0] == folder}
+        if not spec or not files_here:
+            continue
+        cell_cm, size = spec
+        per_file, trailing = {}, {}
+        for key, blob in files_here.items():
+            objs, tail = oro.parse_object_lump(blob, 0, len(blob),
+                                               oro.LUMP_REGEN, exact=False)
+            per_file[key] = objs
+            trailing[key] = tail
+        kept, absorbed, camps = consolidate_camps(per_file, cell_cm, size)
+        for key, objs in kept.items():
+            regen_src[key] = oro.build_object_lump(objs, trailing.get(key, b""))
+        passthru = sum(len(v) for v in kept.values()) - camps
+        print(f"    {'spawn camps':26s} {folder}: {absorbed} points -> {camps} camps "
+              f"x{size} = {camps * size} bodies "
+              f"({cell_cm // 100} m grid, {passthru} point(s) passed through)")
 
     # --- 3g. the spawn lumps, last, so a half-written run leaves no live spawns
     # pointing at rows that do not exist yet.

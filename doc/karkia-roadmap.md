@@ -968,69 +968,78 @@ output and ours — so the shape of their encounter survives; only the scale cha
 ### Spawn density is authored on a different philosophy from ours
 
 Reported from a first visit: *"Spire Village is an absolute hell, there is so many
-monsters."* Measured, it is not mainly a count problem — it is a **distribution**
-problem, and Karkia's two real zones are laid out unlike anything we ship.
+monsters."* Reported again on 2026-09-12, after the 75% thin below: both main maps
+still play as a wall, with "hundreds" of monsters chasing at once.
 
-`CRegenPOINT::Load` reads a per-point `m_iLimitCNT`, and `Proc()` only spawns while
-`m_iLiveCNT < m_iLimitCNT`, so that field is the concurrent cap. Pairing it with the
-spawn positions in the `.IFO` gives the shape of a zone:
+**Everything measured in this section before 2026-09-12 was 4x low.** The table
+below counted `sum(m_iLimitCNT)` as a zone's monster count, because `Proc()` only
+spawns while `m_iLiveCNT < m_iLimitCNT` and that reads like a cap. It is not one.
+`CZoneTHREAD::RegenCharacter` has **no cap check at all** — the only gate is the
+early return at the top of `Proc`, so a tick that decides to spawn three monsters
+into a point with one slot free spawns all three. How many a tick decides on comes
+from the escalation branch, which is chosen by
 
-| zone | points | monsters | per point | median gap to nearest point |
-|---|---:|---:|---:|---:|
-| **Karkia Spire Village** | 1111 | 1111 | **1.0** | **5.0 m** |
-| **Karkia Cemetery** | 847 | 847 | **1.0** | **7.5 m** |
-| Eldeon EZ01 | 2118 | 2118 | 1.0 | 8.9 m |
-| Junon JG07 | 81 | 798 | 9.9 | 21.5 m |
-| Oro ODE01 | 25 | 241 | 9.6 | 33.5 m |
-| Oro ODD01 | 65 | 350 | 5.4 | 45.0 m |
-| Lunar LP03 | 61 | 280 | 4.6 | 46.1 m |
+    iVar = ((limitCNT*2 - liveCNT) * curTactics * 50) / (limitCNT * tacticPoint)
 
-Ours are **clumps**: a handful of points, ~5-10 monsters each, 20-45 m of empty
-ground between them, so a player picks a clump, clears it, and walks to the next.
-Karkia is **a carpet**: one monster per point, points 5 m apart, 10th-percentile gap
-2.5 m. There is no quiet ground anywhere in Spire Village — you are never not in
-contact range of something. Only EZ01 is authored the same way here, and it is a
-low-level zone with harmless monsters.
+and **both main maps ship `tacticPoint = 1`** — the only two zones in the whole
+dataset that do; every other zone we ship uses 50-200. At `tacticPoint = 1` an empty
+point computes `iVar = 100` on its very first tick, lands in the *top* branch of the
+table, and spawns `basic[4] + tactics[0]+1 + tactics[1]` = **four bodies into a cap
+of one**, where it then sits.
 
-**Done, 2026-09-07: Spire Village thinned to 25%** (`SPAWN_THINNING` in
-`scripts/import-karkia.py`, applied when stage 3 writes the REGEN lump so a re-run
-cannot undo it). 1111 points -> 278.
+Simulating `CRegenPOINT::Proc`'s real branch table against the shipped bytes:
 
-The first version of this analysis used a 60 m radius and concluded Spire Village
-was only ~14% busier than Junon JG07. That was wrong, and an in-game screenshot
-disproved it: the HUD read **Mob:659** at Pos[515829, 506346] with a 26.8 ms frame
-(render 11.5, scnupd 7.0, shadow 4.1 -- all three scale with object count) on a
-5060. Matching that reading puts the client's real neighbourhood at **~200 m**, and
-at that radius the comparison inverts:
+| zone | points | Σ limitCNT | **real bodies** | |
+|---|---:|---:|---:|---|
+| **Karkia Cemetery** | 847 | 847 | **3,388** | 4.00x |
+| **Karkia Spire Village** *(at 25% thin)* | 278 | 278 | **1,109** | 3.99x |
+| Junon JG07 (our densest field zone) | 81 | 798 | 838 | 1.05x |
+| Eldeon EZ01 | 2,118 | 2,118 | 2,118 | 1.00x |
+| Oro ODE01 | 25 | 241 | 241 | 1.00x |
 
-| zone | typical bodies | worst | mesh draws |
-|---|---:|---:|---:|
-| Spire Village *(before)* | 485 | 736 | 964 |
-| **Spire Village *(after)*** | **116** | **174** | **225** |
-| Junon JG07 (our densest) | 186 | 286 | 239 |
-| Oro Gates of Muris | 160 | 221 | 340 |
-| Karkia Cemetery | 98 | 229 | 221 |
-| Eldeon EZ01 | 523 | 830 | 1233 |
+So the Cemetery was **1.6x** our densest zone and Spire Village **1.15x** — not the
+0.35x this document used to claim, and not something a 75% thin had fixed.
 
-Not 14% over JG07 — **2.6x the bodies and 4x the mesh draws**, because Karkia's
-roster is multi-part humanoids where Junon's low-level field is jelly beans: same
-headcount, roughly double the per-frame work. **Measure density at the radius the
-client actually loads, and weight it by mesh count.** A monster count alone, or a
-radius picked for convenience, gives the wrong answer confidently.
+Two further facts decided the shape of the fix:
 
-Thinning is spatial, not every-Nth: it removes whichever surviving point is closest
-to another survivor, so it eats the tight clusters and leaves the layout's outline.
-That shows in the result — the median gap went 5.0 -> 15.8 m but the 10th
-percentile went 2.5 -> 12.7 m, a 5x improvement against the median's 3.2x. Uniform
-sampling would have kept the worst clumps intact, which is what made the zone a
-brawl rather than a field.
+- **Every point is single-species.** All 847 Cemetery points and all 1,111 Spire
+  points repeat one npc id across all five basic and both tactics slots. So the
+  escalation machine bought nothing, variety came purely from which points were
+  near you — and `thin_regen`, which is greedy on nearest-neighbour distance and
+  completely species-blind, *deletes species*: at 15% keep it drops Evil Fairy,
+  Orgeid and D=Seed out of the Cemetery entirely.
+- **Ours are clumps, Karkia is a carpet.** One monster per point 5 m apart, against
+  our 5-10 per point 20-45 m apart. That part of the original analysis was right.
 
-The Cemetery is deliberately untouched: 98 typical / 221 draws already sits inside
-what our own zones run.
+**Done, 2026-09-12: both maps consolidated into mixed-species camps**
+(`SPAWN_CAMPS` in `scripts/import-karkia.py`, applied where stage 3 writes the REGEN
+lump so a re-run cannot undo it). Rather than deleting points, neighbouring points
+are *merged*: bin the zone on a 60 m grid, keep one record per bin at an authored
+position, and give it the species of everything that bin absorbed, at `limitCNT 5`,
+`tacticPoint 100`, 20 s tick, 12 m radius.
 
-**Eldeon EZ01 is worse than Spire Village ever was** (523 typical, 1233 draws) and
-is ours, not an import. Its monsters are low level and simple, so it may not bite
-the same way, but it is worth a look on its own.
+| | points | bodies | was | per 100 m cell | vs JG07 | camp gap (median) | species |
+|---|---:|---:|---:|---:|---:|---:|---|
+| Cemetery | 113 | **565** | 3,388 | 10.7 | 0.33x | 34.7 m | **21/21** |
+| Spire Village | 83 | **391** | 1,109 | 14.0 | 0.43x | 29.3 m | **10/10** |
+
+Population falls 6.0x and 2.8x while **diversity rises**: 85% of the camps come out
+multi-species where every source point was a clone. Merging also cannot lose a
+species the way thinning does, which is the whole reason it was chosen. Spire's six
+Deadly Drake Alpha points (`tacticPoint 100`, 15-20 minute timers, their own point
+names) are passed through untouched — the old thin had cut them to one.
+
+`SPAWN_THINNING` is now empty. It remains the right lever for a zone whose density
+genuinely *is* its point count, which is what the three flashback zones needed.
+
+**Measure bodies by simulating `Proc`, never by summing `limitCNT`.** And measure
+per unit area: the earlier 200 m-radius mesh-draw model was a real improvement over
+the 60 m one it replaced, but it was fed a body count that was 4x wrong, so it
+confidently endorsed a zone that was 1.15x our densest as 0.35x.
+
+**Eldeon EZ01 is still worth a look** — 2,118 bodies over 48 cells is 44.1 per cell,
+1.37x JG07 and above both Karkia maps now. Its monsters are low level and simple, so
+it may not bite the same way, but it is ours, not an import.
 
 ### The summon chain needs its own pass
 

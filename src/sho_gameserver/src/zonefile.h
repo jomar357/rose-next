@@ -87,6 +87,12 @@ protected:
     CZoneSECTOR** m_ppSECTOR;
     C1BITARRAY* m_ppMoveATTR[MAP_MOVE_ATTR_GRID_CNT];
 
+    // How many *.MOV tiles actually loaded. The grid starts FillAll'd (every cell
+    // blocked) and LoadMOV only ever clears bits, so a zone that ships no .MOV at
+    // all would otherwise be blocked everywhere -- which silently kills every AI
+    // move that goes through SetCMD_MOVE2D (leash, wander, flee). See LoadZONE().
+    int m_iMovTilesLOADED;
+
     short m_nSectorSIZE;
     int m_iSectorLIMIT;
 

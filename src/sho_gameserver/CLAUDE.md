@@ -124,6 +124,48 @@ Players can directly command their summons (phantom swords, companions) with CTR
 
 Move orders go through `CObjSUMMON::PlayerOrderMoveTo`, **not** `SetCMD_MOVE2D`. `CObjCHAR::SetCMD_MOVE2D` rejects destinations where `GetZONE()->IsMovablePOS()` is false (non-walkable cells) and silently keeps the old command — which made CTRL+click move orders "randomly" ignored depending on the exact terrain cell clicked. The avatar's own click-to-move has no such gate (it relies on client CANTMOVE collision feedback). `PlayerOrderMoveTo` replicates SetCMD_MOVE2D minus the IsMovablePOS check (calls `CObjAI::SetCMD_MOVE2D` + the now-`protected` `Send_gsv_MOVE`), so player orders are tolerant of non-walkable clicks like the avatar. Attack orders use the AI's `SetCMD_RUNnATTACK` (chase + attack). Keep the strict IsMovablePOS gate only for internal AI pathing.
 
+## Walkability, and why a missing .MOV killed every leash in Karkia
+
+`CZoneFILE::LoadZONE` allocates the move-attribute grid and `FillAll()`s it — **1 =
+blocked** — then clears bits from each map tile's `*.MOV`. `LoadMOV` returns silently
+when the file does not exist. So a zone that ships **no `.MOV` at all** is blocked on
+every cell, and `IsMovablePOS()` returns false everywhere in it.
+
+That gates exactly one thing that matters: `CObjCHAR::SetCMD_MOVE2D` rejects every
+destination. And `SetCMD_MOVE2D` is the move used by
+
+- the **leash** — `AIACT_16` → `CObjMOB::Run_AWAY()` → "flee to within N m of my
+  regen point",
+- idle wandering (`AIACT_03`/`AIACT_04`), and
+- fleeing on low HP.
+
+**Chase does not go through it.** `CObjAI::ProcCMD_ATTACK` uses
+`Goto_TARGET`/`Start_MOVE`, which has no walkability gate. The result in such a zone
+is a monster that chases perfectly and can never give up — and since `Run_AWAY`
+leaves the command as `CMD_ATTACK` when it fails, and nothing logs, it looks like
+missing AI data rather than a missing asset. It is not missing AI data: 379 of our
+509 `.aip` files declare a pattern-2 leash, and every Karkia monster has one
+(typically "≥50-80 m from spawn → run back to within 1-5 m").
+
+Since 2026-09-12 `LoadZONE` counts the tiles that actually loaded and, if **none**
+did, clears the grid (whole zone walkable) and logs a warning. This is the server-side
+form of the engine's "Missing Assets Must Degrade, Not Kill" rule. Things to know:
+
+- It fires for all 9 Karkia zones and for **Lunar LZ02** — the only zones we ship with
+  zero `.MOV`. Nothing else is affected; no zone has *partial* coverage, so the
+  "none loaded" test can never half-apply to a map that meant to block something.
+- Jrose never shipped Karkia's `.MOV` either, so there is nothing to import. Generating
+  them from terrain is the only way to get real per-cell walkability there.
+- The cost is that monsters in those zones can path into geometry a map author would
+  have blocked. That is the accepted trade against an unbounded chase.
+- `IsMovablePOS` has only two other callers and neither changes behaviour: a telemetry
+  flag in `gs_socketlsv.cpp` and a GM readout in `cheatcmd.cpp`.
+- Aggro radius and leash distance are **`.aip` data, not code** — metres in the file,
+  ×100 at load (`cai_file.cpp`). There is no sight/aggro/chase column in `LIST_NPC.STB`
+  and no server.toml knob. Karkia's idle-aggro radii are 13-22 m.
+- Same gate, same trap as `CObjSUMMON::PlayerOrderMoveTo` above, which exists because
+  player click-to-move must not be gated either.
+
 ## Dependencies
 
 - `common-server` — IOCP sockets, SQL thread base

@@ -43,6 +43,8 @@ CZoneFILE::CZoneFILE(bool CreateSuspended): classTHREAD(CreateSuspended) {
     for (short nI = 0; nI < MAP_MOVE_ATTR_GRID_CNT; nI++)
         m_ppMoveATTR[nI] = NULL;
 
+    m_iMovTilesLOADED = 0;
+
     m_iSectorXCnt = 0;
     m_iSectorYCnt = 0;
     m_pPosLIST = new classHASH<tagEVENTPOS*>(64);
@@ -319,6 +321,7 @@ CZoneFILE::LoadMOV(char* szFileName, short nMapXIDX, short nMapYIDX) {
     }
 
     fclose(fp);
+    this->m_iMovTilesLOADED++;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -632,6 +635,27 @@ CZoneFILE::LoadZONE(char* szBaseDIR, short nZoneNO) {
             this->LoadMAP(szMapFile, nX, nY);
             this->LoadMOV(szMapFile, nX, nY);
         }
+    }
+
+    // A missing *.MOV must degrade, not block. The grid above is FillAll'd (every
+    // cell blocked) and LoadMOV only clears bits, so a zone that ships no .MOV at
+    // all is blocked everywhere -- and IsMovablePOS() gates CObjCHAR::SetCMD_MOVE2D,
+    // which is the move every bit of monster AI uses for leashing (AIACT_16 ->
+    // CObjMOB::Run_AWAY), idle wandering and fleeing. Chase does NOT go through it
+    // (CObjAI::ProcCMD_ATTACK uses Goto_TARGET/Start_MOVE, ungated), so the result
+    // is a zone where monsters chase perfectly and never, ever give up.
+    //
+    // Karkia ships no .MOV at all (neither does the Jrose dump it came from), and
+    // nor does Lunar LZ02. Every other zone we ship has one per map tile -- none is
+    // partially covered -- so opening the grid only where *nothing* loaded cannot
+    // half-apply to a zone that meant to block something.
+    if (0 == this->m_iMovTilesLOADED) {
+        for (nY = 0; nY < MAP_MOVE_ATTR_GRID_CNT; nY++)
+            this->m_ppMoveATTR[nY]->ClearAll();
+
+        LOG_WARN("Zone {}: no .MOV walkability tiles found; defaulting the whole zone "
+                 "to walkable so monster leash/wander/flee still work",
+            (int)nZoneNO);
     }
 
     this->m_iAgitCNT = 0;
