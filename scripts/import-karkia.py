@@ -527,13 +527,36 @@ SPAWN_THINNING = {"KSPIREVIL": 0.25}
 # signed off as "much better, still an invasion feeling".
 SPAWN_CAP = {"KMEMORIES": 5, "KFLOWERGARDEN": 5, "KBURNEDFOREST": 5}
 
+# Seconds between regen ticks (CRegenPOINT m_iInterval). None means "leave
+# Jrose's", which for these three zones is 120 -- five to twenty times slower
+# than retail Junon's 5-25s. The interval is not just respawn speed: a point
+# advances *one step* of its escalation per tick (see SPAWN_ROSTER below), so
+# at 120s the second monster species in a nest is two minutes behind the first
+# and the fifth is ten.
+SPAWN_INTERVAL = {"KMEMORIES": 15, "KFLOWERGARDEN": 15, "KBURNEDFOREST": 15}
+
+# The per-slot counts below are 1 **on purpose, and they must stay well under
+# SPAWN_CAP.** CRegenPOINT::Proc is not a spawn list, it is an escalation state
+# machine: each tick it picks one or two slots -- never all five -- and it
+# returns early doing nothing at all while liveCNT >= limitCNT. Shipping count 5
+# against a cap of 5 meant slot 0 alone filled the point exactly on the first
+# tick, so slots 1-4 were unreachable until a player cleared the nest by hand.
+# In game that read as "the zone only has Woodnoids", then Dark Towers after you
+# killed them, then Evil Fairies -- one species at a time, forever.
+#
+# Retail is the model: JG01's points run counts of 1-2 against caps of 2-13. At
+# count 1 and cap 5 a point fills to four species in five ticks and holds the
+# same five bodies it held before, so this costs no density.
+#
+# A repeated id is how a roster weights a species (Memories wants twice as much
+# Melitta as Calaplasinos); repeat the slot, do not raise the count.
 SPAWN_ROSTER = {
-    "KMEMORIES": ([(2528, 5), (2528, 5), (2529, 5), (2529, 5), (2527, 5)],
-                  [(2530, 1), (2527, 5)]),
-    "KFLOWERGARDEN": ([(2539, 5), (2547, 5), (2549, 5), (2539, 5), (2547, 5)],
-                      [(2549, 5), (2539, 5)]),
-    "KBURNEDFOREST": ([(2719, 5), (2720, 5), (2725, 5), (2727, 5), (2728, 5)],
-                      [(2720, 5), (2725, 5)]),
+    "KMEMORIES": ([(2528, 1), (2528, 1), (2529, 1), (2529, 1), (2527, 1)],
+                  [(2530, 1), (2527, 1)]),
+    "KFLOWERGARDEN": ([(2539, 1), (2547, 1), (2549, 1), (2539, 1), (2547, 1)],
+                      [(2549, 1), (2539, 1)]),
+    "KBURNEDFOREST": ([(2719, 1), (2720, 1), (2725, 1), (2727, 1), (2728, 1)],
+                      [(2720, 1), (2725, 1)]),
 }
 
 # Where a synthetic LUMP_ECONOMY comes from. Any of our zones would do -- 50 of our
@@ -833,6 +856,29 @@ def selftest(ours, src, src_index):
                 print(f"        lump {lt} round-trip FAILED in {p}")
     check("IFO container rebuild", f"{len(probes)} files", cont_ok)
     check("IFO lump decode round-trip", "MOB/REGEN/WARP/EVENT_OBJECT", lump_ok)
+
+    # The three REGEN field writers. Each must leave the record's length alone
+    # (the lump is not repacked around them) and must not disturb the other two
+    # fields -- they share one offset walk over two variable-length mob lists,
+    # so an off-by-one here writes a plausible number into the wrong field.
+    field_ok, probed = True, 0
+    for p in probes:
+        buf, bounds = oro.read_ifo(p)
+        if oro.lump_block(bounds, oro.LUMP_REGEN)[0] is None:
+            continue
+        objs, _tail = oro.read_lump(buf, bounds, oro.LUMP_REGEN)
+        for obj in objs:
+            extra = obj["extra"]
+            _iv0, _cap0, rng0, tp0 = regen_get_params(extra)
+            got = regen_set_interval(regen_set_cap(extra, 5), 15)
+            if len(got) != len(extra) or regen_get_params(got) != (15, 5, rng0, tp0):
+                field_ok = False
+            # A no-op rewrite of the roster must reproduce the record exactly.
+            basic, tactics = regen_roster_of(extra)
+            if regen_set_roster(extra, basic, tactics) != extra:
+                field_ok = False
+            probed += 1
+    check("REGEN field writers", f"{probed} points", field_ok)
 
     # The economy splice: it must add exactly one lump, leave every other block
     # byte-identical, and produce something ReadECONOMY can walk.
@@ -1224,38 +1270,105 @@ def regen_set_roster(extra, basic, tactics):
     return bytes(out)
 
 
+def regen_tail_offset(extra):
+    """Byte offset of a REGEN record's four trailing i32s.
+
+    They are interval / limitCNT / range / tacticPoint, in that order, sitting
+    after the point name and the two mob lists (CRegenPOINT::Load).
+    """
+    o = 1 + extra[0]
+    for _ in range(2):
+        cnt, = struct.unpack_from("<i", extra, o)
+        o += 4
+        for _ in range(max(0, cnt)):
+            o += 1 + extra[o]
+            o += 8
+    return o
+
+
+def regen_get_params(extra):
+    """(interval, limitCNT, range, tacticPoint) as the record currently holds them."""
+    return struct.unpack_from("<4i", extra, regen_tail_offset(extra))
+
+
+def regen_roster_of(extra):
+    """(basic, tactics) as [(npc, count), ...], slots kept in file order.
+
+    oro.regen_mob_ids flattens both lists and drops empty slots; this keeps the
+    slot structure, which is what the escalation state machine indexes by.
+    """
+    o = 1 + extra[0]
+    lists = []
+    for _ in range(2):
+        cnt, = struct.unpack_from("<i", extra, o)
+        o += 4
+        slots = []
+        for _ in range(max(0, cnt)):
+            o += 1 + extra[o]
+            slots.append(struct.unpack_from("<ii", extra, o))
+            o += 8
+        lists.append(slots)
+    return lists[0], lists[1]
+
+
 def regen_set_cap(extra, cap):
     """Force a REGEN record's concurrent-alive cap (m_iLimitCNT).
 
-    It sits in the four i32s after the two mob lists -- interval, limitCNT,
-    range, tacticPoint -- so this is a single field write and the record's
-    length is unchanged.
+    A single field write, so the record's length is unchanged.
     """
     out = bytearray(extra)
-    o = 1 + out[0]
-    for _ in range(2):
-        cnt, = struct.unpack_from("<i", out, o)
-        o += 4
-        for _ in range(max(0, cnt)):
-            o += 1 + out[o]
-            o += 8
-    struct.pack_into("<i", out, o + 4, cap)
+    struct.pack_into("<i", out, regen_tail_offset(out) + 4, cap)
     return bytes(out)
 
 
+def regen_set_interval(extra, seconds):
+    """Force a REGEN record's tick interval (m_iInterval), in seconds.
+
+    First of the four trailing i32s. The server multiplies it by 1000 on load;
+    the file holds seconds.
+    """
+    out = bytearray(extra)
+    struct.pack_into("<i", out, regen_tail_offset(out), seconds)
+    return bytes(out)
+
+
+def rotate(seq, by):
+    """Roster order rotated left, for giving neighbouring points different leads."""
+    if not seq:
+        return seq
+    by %= len(seq)
+    return seq[by:] + seq[:by]
+
+
 def apply_spawn_roster(per_file, folder):
-    """Point every regen record in one zone at its roster, and cap it."""
+    """Point every regen record in one zone at its roster, cap it, and time it.
+
+    Each point gets the same roster **rotated by its own index**. Slot 0 is the
+    one CRegenPOINT::Proc always spawns first and leans on hardest, so an
+    unrotated zone leads with a single species everywhere at once -- every nest
+    in lockstep, which is what 23 identical points in the Burned Forest did.
+    Rotating spreads the lead across the roster the way retail's hand-authored
+    points do, without changing what any point eventually holds.
+
+    Ordering is `sorted()` rather than dict order so a re-run reproduces the
+    same assignment; this stage rebuilds the lumps from source every time.
+    """
     roster = SPAWN_ROSTER.get(folder.upper())
     cap = SPAWN_CAP.get(folder.upper())
-    if not roster and cap is None:
+    interval = SPAWN_INTERVAL.get(folder.upper())
+    if not roster and cap is None and interval is None:
         return 0
+    basic, tactics = roster if roster else ([], [])
     n = 0
-    for objs in per_file.values():
+    for _key, objs in sorted(per_file.items()):
         for obj in objs:
             if roster:
-                obj["extra"] = regen_set_roster(obj["extra"], *roster)
+                obj["extra"] = regen_set_roster(
+                    obj["extra"], rotate(basic, n), tactics)
             if cap is not None:
                 obj["extra"] = regen_set_cap(obj["extra"], cap)
+            if interval is not None:
+                obj["extra"] = regen_set_interval(obj["extra"], interval)
             n += 1
     return n
 
@@ -1918,10 +2031,12 @@ def stage3(ours, src, src_index, dry):
             regen_src[key] = oro.build_object_lump(objs, trailing.get(key, b""))
         basic, tactics = SPAWN_ROSTER.get(folder.upper(), ([], []))
         rostered[folder] = (n, sorted({m for m, _c in basic + tactics if m}),
-                            SPAWN_CAP.get(folder.upper()))
-    for folder, (n, mobs, cap) in sorted(rostered.items()):
+                            SPAWN_CAP.get(folder.upper()),
+                            SPAWN_INTERVAL.get(folder.upper()))
+    for folder, (n, mobs, cap, iv) in sorted(rostered.items()):
         capped = f", cap {cap}" if cap is not None else ""
-        print(f"    {'spawn roster':26s} {folder}: {n} points{capped} -> {mobs}")
+        timed = f", {iv}s tick" if iv is not None else ""
+        print(f"    {'spawn roster':26s} {folder}: {n} points{capped}{timed} -> {mobs}")
 
     thinned = {}
     for folder in {f for _r, f, _n, _k in ZONES}:
