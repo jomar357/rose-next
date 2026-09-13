@@ -133,6 +133,7 @@ namespace Map_Editor
         /// <param name="e">The <see cref="System.ComponentModel.CancelEventArgs"/> instance containing the event data.</param>
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
+            if (!ConfirmMovementChanges()) { e.Cancel = true; return; }
             ConfigurationManager.SetValue("UI", "RightSplitterWidth", RightColumn.Width);
             ConfigurationManager.SetValue("UI", "OutputExpanded", OutputExpander.IsExpanded);
 
@@ -174,9 +175,26 @@ namespace Map_Editor
         /// </summary>
         /// <param name="sender">The source of the event.</param>
         /// <param name="e">The <see cref="System.Windows.RoutedEventArgs"/> instance containing the event data.</param>
+        private bool ConfirmMovementChanges()
+        {
+            Engine.Tools.Movement movement = ToolManager.Tool as Engine.Tools.Movement;
+            if (movement != null) movement.FinishStroke();
+            if (!Engine.Terrain.MovementMaps.HasChanges) return true;
+            MessageBoxResult result = MessageBox.Show("Save movement changes before continuing?", "Movement files", MessageBoxButton.YesNoCancel);
+            if (result == MessageBoxResult.Cancel) return false;
+            if (result == MessageBoxResult.No) return true;
+            try { Engine.Terrain.MovementMaps.Save(false); return true; }
+            catch (Exception ex)
+            {
+                Output.WriteException("Movement files", ex);
+                MessageBox.Show("Could not save movement files: " + ex.Message);
+                return false;
+            }
+        }
+
         private void New_Click(object sender, RoutedEventArgs e)
         {
-            new New().ShowDialog();
+            if (ConfirmMovementChanges()) new New().ShowDialog();
         }
 
         /// <summary>
@@ -186,7 +204,7 @@ namespace Map_Editor
         /// <param name="e">The <see cref="System.Windows.RoutedEventArgs"/> instance containing the event data.</param>
         private void Open_Click(object sender, RoutedEventArgs e)
         {
-            new Open().ShowDialog();
+            if (ConfirmMovementChanges()) new Open().ShowDialog();
         }
 
         /// <summary>
@@ -196,6 +214,19 @@ namespace Map_Editor
         /// <param name="e">The <see cref="System.Windows.RoutedEventArgs"/> instance containing the event data.</param>
         private void Save_Click(object sender, RoutedEventArgs e)
         {
+            try
+            {
+                Engine.Tools.Movement movement = ToolManager.Tool as Engine.Tools.Movement;
+                if (movement != null) movement.FinishStroke();
+                if (Engine.Terrain.MovementMaps.HasChanges)
+                    Engine.Terrain.MovementMaps.Save(false);
+            }
+            catch (Exception ex)
+            {
+                Output.WriteException("Movement files", ex);
+                MessageBox.Show("Could not save movement files: " + ex.Message);
+                return;
+            }
             new Thread(new ThreadStart(delegate
             {
                 DateTime loadStart = DateTime.Now;
@@ -278,6 +309,8 @@ namespace Map_Editor
         /// <param name="e">The <see cref="System.Windows.RoutedEventArgs"/> instance containing the event data.</param>
         private void Undo_Click(object sender, RoutedEventArgs e)
         {
+            Engine.Tools.Movement movement = ToolManager.Tool as Engine.Tools.Movement;
+            if (movement != null) movement.FinishStroke();
             UndoManager.Undo();
         }
 
@@ -846,6 +879,11 @@ namespace Map_Editor
         /// </summary>
         /// <param name="sender">The source of the event.</param>
         /// <param name="e">The <see cref="System.Windows.RoutedEventArgs"/> instance containing the event data.</param>
+        private void Movement_Click(object sender, RoutedEventArgs e)
+        {
+            Tool_Click(MovementTool, e);
+        }
+
         private void Tool_Click(object sender, RoutedEventArgs e)
         {
             if (PreviewPanel.IsVisible)
@@ -961,6 +999,11 @@ namespace Map_Editor
 
             switch (toolButton.Name)
             {
+                case "MovementTool":
+                    ToolManager.SetToolMode(ToolManager.ToolMode.Movement);
+                    ToolHost.Content = new Forms.Controls.MovementTool();
+                    Manipulation_Click(NoManipulation, e);
+                    break;
                 case "HeightTool":
                     {
                         ToolManager.SetToolMode(ToolManager.ToolMode.Height);
@@ -1195,6 +1238,7 @@ namespace Map_Editor
             HeightTool.IsEnabled = false;
             TileTool.IsEnabled = false;
             BrushTool.IsEnabled = false;
+            MovementTool.IsEnabled = MovementMenu.IsEnabled = false;
             DecorationTool.IsEnabled = false;
             ConstructionTool.IsEnabled = false;
             NPCTool.IsEnabled = false;
@@ -1231,6 +1275,7 @@ namespace Map_Editor
             HeightTool.IsEnabled = true;
             TileTool.IsEnabled = true;
             BrushTool.IsEnabled = true;
+            MovementTool.IsEnabled = MovementMenu.IsEnabled = true;
             DecorationTool.IsEnabled = true;
             ConstructionTool.IsEnabled = true;
             NPCTool.IsEnabled = true;

@@ -1,93 +1,43 @@
-﻿using System.Text;
+﻿using System.IO;
 
 namespace Map_Editor.Engine.Map
 {
-    /// <summary>
-    /// MOV class..
-    /// </summary>
+    // Server format: width, height, then rows from south to north.
+    // Zero permits AI movement; every nonzero byte blocks it. Preserve raw values.
     public class MOV
     {
-        #region Member Declarations
-
-        /// <summary>
-        /// Gets or sets the is walkable.
-        /// </summary>
-        /// <value>The is walkable.</value>
+        public const int Size = 32;
         public byte[,] IsWalkable { get; set; }
-
-        /// <summary>
-        /// Gets or sets the file path.
-        /// </summary>
-        /// <value>The file path.</value>
         public string FilePath { get; set; }
-
-        #endregion
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="MOV"/> class.
-        /// </summary>
-        public MOV()
+        public MOV() { IsWalkable = new byte[Size, Size]; }
+        public MOV(string path) { Load(path); }
+        public void Load(string path)
         {
-
-        }
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="MOV"/> class.
-        /// </summary>
-        /// <param name="filePath">The file path.</param>
-        public MOV(string filePath)
-        {
-            Load(filePath);
-        }
-
-        /// <summary>
-        /// Loads the specified file.
-        /// </summary>
-        /// <param name="filePath">The file path.</param>
-        public void Load(string filePath)
-        {
-            FileHandler fh = new FileHandler(FilePath = filePath, FileHandler.FileOpenMode.Reading, Encoding.GetEncoding("EUC-KR"));
-
-            int height = fh.Read<int>();
-            int width = fh.Read<int>();
-
-            IsWalkable = new byte[height, width];
-
-            for (int y = 0; y < height; y++)
+            using (BinaryReader reader = new BinaryReader(File.OpenRead(path)))
             {
-                for (int x = 0; x < width; x++)
-                    IsWalkable[y, x] = fh.Read<byte>();
+                if (reader.BaseStream.Length != 8 + Size * Size ||
+                    reader.ReadInt32() != Size || reader.ReadInt32() != Size)
+                    throw new InvalidDataException("Expected a 32 x 32 movement grid: " + path);
+                byte[,] cells = new byte[Size, Size];
+                for (int y = 0; y < Size; y++)
+                    for (int x = 0; x < Size; x++) cells[y, x] = reader.ReadByte();
+                IsWalkable = cells;
+                FilePath = path;
             }
-
-            fh.Close();
         }
-
-        /// <summary>
-        /// Saves the file.
-        /// </summary>
-        public void Save()
+        public void Save() { Save(FilePath); }
+        public void Save(string path)
         {
-            Save(FilePath);
-        }
-
-        /// <summary>
-        /// Saves the specified file.
-        /// </summary>
-        /// <param name="filePath">The file path.</param>
-        public void Save(string filePath)
-        {
-            FileHandler fh = new FileHandler(FilePath = filePath, FileHandler.FileOpenMode.Writing, Encoding.GetEncoding("EUC-KR"));
-
-            fh.Write<int>(32);
-            fh.Write<int>(32);
-
-            for (int y = 0; y < 32; y++)
+            if (IsWalkable == null || IsWalkable.GetLength(0) != Size || IsWalkable.GetLength(1) != Size)
+                throw new InvalidDataException("Movement grids must be 32 x 32.");
+            using (BinaryWriter writer = new BinaryWriter(File.Create(path)))
             {
-                for (int x = 0; x < 32; x++)
-                   fh.Write<byte>(IsWalkable[y, x]);
+                writer.Write(Size);
+                writer.Write(Size);
+                for (int y = 0; y < Size; y++)
+                    for (int x = 0; x < Size; x++) writer.Write(IsWalkable[y, x]);
             }
-
-            fh.Close();
+            FilePath = path;
         }
     }
 }

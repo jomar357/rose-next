@@ -332,6 +332,9 @@
     <Compile Include="Engine\ToolManager\Manipulation\CursorTranslate.cs" />
     <Compile Include="Engine\ToolManager\Manipulation\Translate.cs" />
     <Compile Include="Engine\ToolManager\ToolManager.cs" />
+    <Compile Include="Engine\ToolManager\Tools\Terrain\Movement.cs" />
+    <Compile Include="Engine\MapManager\Terrain\MovementMaps.cs" />
+    <Compile Include="Forms\Controls\MovementTool.cs" />
     <Compile Include="Engine\ToolManager\Tools\Characters\Monsters.cs" />
     <Compile Include="Engine\ToolManager\Tools\Characters\NPCs.cs" />
     <Compile Include="Engine\ToolManager\Tools\Events\SpawnPoints.cs" />

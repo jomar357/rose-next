@@ -220,6 +220,7 @@ namespace Map_Editor.Engine
             DateTime loadStart = DateTime.Now;
 
             App.Form.ResetForm();
+            Terrain.MovementMaps.Blocks.Clear();
             App.Form.Freeze();
 
             ID = mapID;
@@ -293,6 +294,8 @@ namespace Map_Editor.Engine
 
                 for (int i = 0; i < himFiles.Length; i++)
                     Heightmaps.Add(himFiles[i]);
+
+                Terrain.MovementMaps.Load(Heightmaps);
 
                 #endregion
                 

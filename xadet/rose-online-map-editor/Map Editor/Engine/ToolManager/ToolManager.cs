@@ -94,7 +94,8 @@ namespace Map_Editor.Engine
             /// <summary>
             /// Animation.
             /// </summary>
-            Animation
+            Animation,
+            Movement
         }
 
         /// <summary>
@@ -188,12 +189,17 @@ namespace Map_Editor.Engine
         /// <param name="toolMode">The tool mode.</param>
         public static void SetToolMode(ToolMode toolMode)
         {
+            Movement movement = Tool as Movement;
+            if (movement != null) movement.Dispose();
             ToolManager.toolMode = toolMode;
 
             switch (toolMode)
             {
                 case ToolMode.None:
                     Tool = null;
+                    break;
+                case ToolMode.Movement:
+                    Tool = new Movement(device);
                     break;
                 case ToolMode.Height:
                     Tool = new Height(device);

@@ -135,6 +135,9 @@
                 </MenuItem>
             </MenuItem>
             <MenuItem Header="Tools">
+                <MenuItem Header="Movement (.MOV)" Name="MovementMenu" IsEnabled="False">
+                    <MenuItem Header="Paint movement permissions" Click="Movement_Click" />
+                </MenuItem>
                 <MenuItem Header="Options" Name="Options" Click="Options_Click" IsEnabled="True" />
             </MenuItem>
             <MenuItem Header="Help">
@@ -291,6 +294,7 @@
                 <ToggleButton Width="24" Height="24" Name="TileTool" Click="Tool_Click" IsEnabled="False" ToolTip="Tiles">
                     <Image Width="16" Height="16" Source="Resources\Icons\Tiles.png" />
                 </ToggleButton>
+                <ToggleButton Width="38" Height="24" Name="MovementTool" Click="Tool_Click" IsEnabled="False" ToolTip="Movement permissions (.MOV)" Content="MOV" />
                 <ToggleButton Width="24" Height="24" Name="BrushTool" Click="Tool_Click" IsEnabled="False" ToolTip="Brush">
                     <Image Width="16" Height="16" Source="Resources\Icons\Brush.png" />
                 </ToggleButton>

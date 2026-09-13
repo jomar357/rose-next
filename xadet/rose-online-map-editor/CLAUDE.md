@@ -162,6 +162,30 @@ Clear-Content '..\..\data\Map Editor.log'
 
 ## Compatibility Fixes Already Made
 
+- **Movement painting (2026-09-13).** Open a map, then **Tools > Movement (.MOV) >
+  Paint movement permissions**, or the **MOV** toolbar button. Left-drag paints
+  5 m cells with 1/3/5/7-cell square brushes; one drag is one undo command.
+  Green = allowed, red = blocked; blue/purple = missing-file allowed/blocked
+  defaults; yellow previews the brush. The overlay follows HIM triangles.
+  **The current game has two effective MOV states, not three:** `0` permits
+  `SetCMD_MOVE2D`; every nonzero byte blocks it. Players and attack chasing do not
+  consult MOV. Existing nonzero bytes are preserved until explicitly painted.
+  `MovementMaps.Find` follows the server: filename `x_y` maps to server block
+  `(x, 64-y)`, with MOV rows growing northwards (the reverse of HIM rows).
+  The panel's **Save / generate MOV files** writes only movement files; normal
+  Save includes pending MOV edits. Creating the first file also generates all
+  missing blocks, preserving the server's no-MOV fallback instead of accidentally
+  blocking untouched terrain. Existing partial coverage defaults missing blocks
+  to blocked. Each replacement is atomic and backs up the previous file under
+  `.mov-backups/<timestamp-id>/`; the whole map is not a single transaction.
+  Failed writes retain unsaved edits for retry. Malformed MOV disables movement
+  editing without preventing the rest of the map from opening. Closing/opening
+  another map prompts for unsaved movement edits. Restart the server to apply.
+  Run `tests/Run-MovementTests.ps1`: builds Release x86, checks actual MOV files
+  byte-for-byte, server coordinates, coverage generation, backup/retry behavior,
+  cross-block brush + undo/redo, and actual XNA rendering/state restoration.
+  Passed against 1,369 map MOV files; interactive in-editor/in-game retest pending.
+
 - **Karkia lightmap trailers and zero-height spawn previews (2026-09-12).** All 98
   Cemetery LITs end after the object records; the trailing DDS catalogue is optional
   and the game never reads it. `LIT.Load` accepts EOF there, preserves whether the
