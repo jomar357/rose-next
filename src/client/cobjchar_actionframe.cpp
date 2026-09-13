@@ -541,6 +541,27 @@ CObjCHAR::ActionSkill(int iActionIDX) {
                     SummonMob();
                 } break;
 
+                    /// Melee skill. Its authored hit moment is action frame 25, and
+                    /// avatar skill motions carry one -- but mob skill motions
+                    /// overwhelmingly carry frame 24 instead (157 of 339 referenced by
+                    /// LIST_NPC.CHR do, against 51 that carry 25, and 126 that carry no
+                    /// action frame at all). Without this case a monster's melee skill
+                    /// reached no ProcEffectedSkill() at all: the server-applied damage
+                    /// sat on the caster's m_EffectedSkillList until the 10 s
+                    /// ProcTimeOutEffectedSkill() fallback fired it, so the player took
+                    /// a digit, a hit effect and a skill hit sound ten seconds after the
+                    /// monster had disengaged. 120 casts across 88 .aip files were
+                    /// affected.
+                    ///
+                    /// Five motions carry both 24 and 25; the flag keeps those draining
+                    /// once, at their own authored frame, instead of twice.
+                case SKILL_ACTION_IMMEDIATE: {
+                    if (m_pCurMOTION && m_pCurMOTION->m_bHasSkillHitActionFrame)
+                        break;
+
+                    ProcImmediateSkillHit();
+                } break;
+
                 default:
                     break;
             }
@@ -752,6 +773,66 @@ CObjCHAR::FireEffectBullet(CObjCHAR* pTarget, int iBulletIDX, bool bDummy, int i
     }
 }
 
+/// The hit moment of a melee (SKILL_ACTION_IMMEDIATE) skill: drain the caster's
+/// queued skill payload, run the skill's own action, then present the hit.
+///
+/// Reached from two action frames. Frame 25 is the authored one and is what avatar
+/// skill motions carry. Mob skill motions overwhelmingly carry frame 24 instead --
+/// which ActionSkill() dispatches by SKILL_TYPE, and SKILL_ACTION_IMMEDIATE has no
+/// case there -- so a monster's melee skill reached no drain at all and its damage
+/// sat on m_EffectedSkillList until the 10 s ProcTimeOutEffectedSkill() fallback
+/// presented it, long after the monster had moved on.
+void
+CObjCHAR::ProcImmediateSkillHit() {
+    int iSkillIdx =
+        (this->m_nActiveSkillIDX) ? this->m_nActiveSkillIDX : this->m_nDoingSkillIDX;
+    if (iSkillIdx == 0)
+        return;
+
+    CObjCHAR* pTarget = g_pObjMGR->Get_ClientCharOBJ(this->m_iServerTarget, true);
+    if (pTarget) {
+        _ASSERT(this->m_iServerTarget
+            == g_pObjMGR->Get_ServerObjectIndex(pTarget->Get_INDEX()));
+    }
+
+    ProcEffectedSkill();
+    CSkillManager::ActionSkill(iSkillIdx, this, pTarget);
+
+    ///
+    /// 타격
+    ///
+
+    int iEffectIDX;
+
+    if (pTarget) {
+        iEffectIDX = SKILL_HIT_EFFECT(iSkillIdx);
+        if (iEffectIDX == 0) {
+            iEffectIDX = WEAPON_DEFAULT_EFFECT(this->Get_R_WEAPON());
+
+            /// 무기가 없을경우..
+            if (!this->Get_R_WEAPON()) {
+                if (this->IsA(OBJ_MOB))
+                    iEffectIDX = NPC_HAND_HIT_EFFECT(this->Get_CharNO());
+            }
+
+            pTarget->Hitted(this, iEffectIDX, 0, false, false, true);
+        } else {
+            pTarget
+                ->Hitted(this, iEffectIDX, this->m_nActiveSkillIDX, true, false, true);
+        }
+    }
+
+    /// 발사 사운드 설정
+    short nHittedSound = SKILL_HIT_SOUND(iSkillIdx);
+    if (nHittedSound) {
+        if (IsUSER())
+            // g_pSoundLIST->IDX_PlaySound( nHittedSound );
+            g_pSoundLIST->IDX_PlaySound3D(nHittedSound, Get_CurPOS());
+        else
+            g_pSoundLIST->IDX_PlaySound3D(nHittedSound, Get_CurPOS());
+    }
+}
+
 /// 근접 타격 스킬 공격 액션
 void
 CObjCHAR::ActionImmediateSkill(int iActionIDX) {
@@ -793,54 +874,7 @@ CObjCHAR::ActionImmediateSkill(int iActionIDX) {
 
                 ///타격
             case 25: {
-                int iSkillIdx =
-                    (this->m_nActiveSkillIDX) ? this->m_nActiveSkillIDX : this->m_nDoingSkillIDX;
-                if (iSkillIdx == 0)
-                    return;
-
-                CObjCHAR* pTarget = g_pObjMGR->Get_ClientCharOBJ(this->m_iServerTarget, true);
-                if (pTarget) {
-                    _ASSERT(this->m_iServerTarget
-                        == g_pObjMGR->Get_ServerObjectIndex(pTarget->Get_INDEX()));
-                }
-
-                ProcEffectedSkill();
-                CSkillManager::ActionSkill(iSkillIdx, this, pTarget);
-
-                ///
-                /// 타격
-                ///
-
-                int iEffectIDX;
-
-                if (pTarget) {
-                    iEffectIDX = SKILL_HIT_EFFECT(iSkillIdx);
-                    if (iEffectIDX == 0) {
-                        iEffectIDX = WEAPON_DEFAULT_EFFECT(this->Get_R_WEAPON());
-
-                        /// 무기가 없을경우..
-                        if (!this->Get_R_WEAPON()) {
-                            if (this->IsA(OBJ_MOB))
-                                iEffectIDX = NPC_HAND_HIT_EFFECT(this->Get_CharNO());
-                        }
-
-                        pTarget->Hitted(this, iEffectIDX, 0, false, false, true);
-                    } else {
-                        pTarget
-                            ->Hitted(this, iEffectIDX, this->m_nActiveSkillIDX, true, false, true);
-                    }
-                }
-
-                /// 발사 사운드 설정
-                short nHittedSound = SKILL_HIT_SOUND(iSkillIdx);
-                if (nHittedSound) {
-                    if (IsUSER())
-                        // g_pSoundLIST->IDX_PlaySound( nHittedSound );
-                        g_pSoundLIST->IDX_PlaySound3D(nHittedSound, Get_CurPOS());
-                    else
-                        g_pSoundLIST->IDX_PlaySound3D(nHittedSound, Get_CurPOS());
-                }
-
+                ProcImmediateSkillHit();
             } break;
 
                 /// 공격 사운드 설정

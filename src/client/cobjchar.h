@@ -176,6 +176,11 @@ private:
     void ActionSkill(int iActionIDX);
     void ActionImmediateSkill(int iActionIDX);
 
+    /// The melee-skill hit moment, shared by action frame 25 (authored, avatar
+    /// motions) and by ActionSkill()'s SKILL_ACTION_IMMEDIATE case on frame 24
+    /// (what most mob skill motions actually carry).
+    void ProcImmediateSkillHit();
+
     void FireEffectBullet(CObjCHAR* pTarget, int iBulletIDX, bool bDummy, int iSkillIDX);
 
     /// 44,64,75, 45,65,75 처리..
@@ -507,6 +512,15 @@ public:
         int iProjectileSkillIDX = 0,
         int iProjectileTargetObjIDX = 0);
     void ProcOneEffectedSkill(stEFFECT_OF_SKILL* pEffectOfSkill);
+
+    /// Can the cast that queued a payload for iSkillIDX still reach its action
+    /// frame? False means the payload is stranded and must be swept.
+    bool IsSkillCastStillLive(int iSkillIDX);
+
+    /// Retire a stranded skill payload: fold the server's HP checkpoint and apply
+    /// the status half, but present no damage digit, hit effect or hit sound. A
+    /// lethal payload is presented in full instead, so the defender still dies.
+    void ResolveEffectedSkillSilently(stEFFECT_OF_SKILL* pEffectOfSkill, const char* reason);
     void RegisterPendingProjectileSkill(int iServerTarget, int iSkillIDX);
     bool ConsumePendingProjectileSkill(int iServerTarget, int iSkillIDX);
     void ClearPendingProjectileSkill(int iServerTarget, int iSkillIDX);

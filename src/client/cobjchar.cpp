@@ -2024,6 +2024,138 @@ CObjCHAR::ClearPendingProjectileSkill(int iServerTarget, int iSkillIDX) {
 /// @brief  : 타임아웃 시간이 지난 스킬결과를 처리한다.
 //--------------------------------------------------------------------------------
 const int SKILL_PROC_LIMIT = 1000 * 10;
+
+// Grace before a skill payload whose cast is demonstrably over is resolved, matching
+// kOrphanedDamageGraceMs on the DamageEvent side. Anything shorter races a cast that
+// is merely slow to reach its action frame; anything longer is indistinguishable from
+// the old 10 s timeout the player experienced as a phantom hit.
+static const DWORD kAbandonedSkillPayloadGraceMs = 3000;
+
+// Is the cast that queued this payload still capable of reaching its action frame?
+//
+// Every abort path leaves m_EffectedSkillList untouched -- SetCMD_MOVE (the chase
+// packet the server sends when the player runs away) silently replaces CMD_SKILL2OBJ
+// without even calling Casting_END(), and SetCMD_STOP / SetCMD_ATTACK / target death
+// clear the skill indices but not the list. So the payload has to be swept, and this
+// is the liveness test that decides when. Deliberately generous: every term here
+// costs at most a deferred sweep, while a false negative throws away a hit that was
+// about to present normally.
+bool
+CObjCHAR::IsSkillCastStillLive(int iSkillIDX) {
+    // The casting or skill motion is playing. (Proc() already returns early on
+    // CS_BIT_INT before it reaches the sweep, so this is belt-and-braces -- but it
+    // keeps the predicate correct independent of where it is called from.)
+    if (this->Get_STATE() & CS_BIT_INT) {
+        return true;
+    }
+
+    // Queued or in-flight cast. m_nDoingSkillIDX is set when the skill motion starts
+    // and cleared by Proc() when the motion loop ends -- and that clear runs earlier
+    // in the same Proc() than this sweep, so it is an exact "motion still playing".
+    if (m_nActiveSkillIDX || m_nToDoSkillIDX || m_nDoingSkillIDX == iSkillIDX) {
+        return true;
+    }
+
+    // A command waiting in the queue may still be the cast: SetCMD_Skill2OBJ pushes
+    // instead of applying when CanApplyCommand() is false.
+    if (m_CommandQueue.IsEmpty() == false) {
+        return true;
+    }
+
+    // Still under a skill command -- which covers the whole cast, including the
+    // casting-repeat loop that waits on the server result (ProcCMD_Skill2OBJECT is
+    // only reached from these three).
+    //
+    // Deliberately not m_bCastingSTART: SetCMD_MOVE replaces CMD_SKILL2OBJ without
+    // calling Casting_END(), so an abandoned cast leaves that flag latched true for
+    // the life of the object and the payload would never be swept at all. The
+    // command is the honest signal.
+    switch (this->Get_COMMAND()) {
+        case CMD_SKILL2SELF:
+        case CMD_SKILL2OBJ:
+        case CMD_SKILL2POS:
+            return true;
+    }
+
+    return false;
+}
+
+// Resolve a skill payload that will never reach an action frame, without presenting
+// a hit: no floating digit, no SKILL_HIT_EFFECT, no SKILL_HIT_SOUND. The server has
+// already applied the damage, so the authoritative HP is folded into the defender's
+// shadow and the visible bar converges through the normal reconciliation -- the same
+// contract DiscardQueuedCombatDamageEvent honours for an interrupted normal swing.
+//
+// A lethal payload is the exception and is presented in full: dropping it silently
+// would leave the defender visually alive with the server considering it dead.
+void
+CObjCHAR::ResolveEffectedSkillSilently(stEFFECT_OF_SKILL* pEffectOfSkill, const char* reason) {
+    const gsv_DAMAGE_OF_SKILL& SkillDamage = pEffectOfSkill->EffectOfSkill;
+    const int iSkillIDX = pEffectOfSkill->iSkillIDX;
+    const int iObjIDX = SkillDamage.m_wObjectIDX;
+
+    CObjCHAR* pDefender = g_pObjMGR->Get_ClientCharOBJ(iObjIDX, true);
+    if (pDefender == NULL) {
+        LogString(LOG_DEBUG_,
+            "CombatTrace skill payload dropped (no target): caster %d target %d skill %d damage %d reason %s\n",
+            this->Get_INDEX(),
+            iObjIDX,
+            iSkillIDX,
+            SkillDamage.m_wDamage,
+            reason ? reason : "");
+        return;
+    }
+
+    uniDAMAGE Damage;
+    Damage.m_wDamage = SkillDamage.m_wDamage;
+    const bool bLethal = (Damage.m_wACTION & DMG_ACT_DEAD) != 0;
+    // m_wVALUE is a bitfield, so it cannot bind to the non-const reference
+    // LogString's variadic template deduces for a non-const lvalue.
+    const int iDamageVALUE = Damage.m_wVALUE;
+
+    if (pEffectOfSkill->bDamageOfSkill && bLethal) {
+        LogString(LOG_DEBUG_,
+            "CombatTrace lethal skill payload presented on cancel: caster %d target %d skill %d damage %d hp_after %d reason %s\n",
+            this->Get_INDEX(),
+            iObjIDX,
+            iSkillIDX,
+            iDamageVALUE,
+            SkillDamage.m_iHP_AFTER,
+            reason ? reason : "");
+        ProcOneEffectedSkill(pEffectOfSkill);
+        return;
+    }
+
+    if (pEffectOfSkill->bDamageOfSkill) {
+        // Fold the checkpoint only -- SetAuthoritativeHPFromDamageEvent is lower-only
+        // by default, so a payload the bar has already passed is a no-op rather than a
+        // rollback. Only hp_after and defender_seq are read.
+        Rose::Combat::DamageEvent Checkpoint;
+        Checkpoint.hp_after = SkillDamage.m_iHP_AFTER;
+        Checkpoint.defender_seq = pEffectOfSkill->arrival_seq;
+
+        pDefender->SetAuthoritativeHPFromDamageEvent(Checkpoint);
+        pDefender->DeferCombatHPDriftIfIdle(reason ? reason : "skill payload cancelled");
+
+        // The status half still has to land: the server applied the debuff whether or
+        // not the client ever animated the swing.
+        ProcEffectOfSkillInDamageOfSkill(iSkillIDX, iObjIDX, pDefender, pEffectOfSkill);
+    } else {
+        ApplyEffectOfSkill(iSkillIDX, iObjIDX, pDefender, pEffectOfSkill);
+    }
+
+    LogString(LOG_DEBUG_,
+        "CombatTrace skill payload cancelled: caster %d target %d skill %d type %d damage %d hp_after %d age %u reason %s\n",
+        this->Get_INDEX(),
+        iObjIDX,
+        iSkillIDX,
+        SKILL_TYPE(iSkillIDX),
+        iDamageVALUE,
+        SkillDamage.m_iHP_AFTER,
+        (unsigned int)(g_GameDATA.GetGameTime() - pEffectOfSkill->m_dwCreateTime),
+        reason ? reason : "");
+}
+
 void
 CObjCHAR::ProcTimeOutEffectedSkill() {
     stEFFECT_OF_SKILL* pEffectOfSkill = NULL;
@@ -2034,7 +2166,16 @@ CObjCHAR::ProcTimeOutEffectedSkill() {
         pEffectOfSkill = &(*begin);
 
         dwElapsedTime = g_GameDATA.GetGameTime() - pEffectOfSkill->m_dwCreateTime;
-        if (dwElapsedTime > SKILL_PROC_LIMIT) {
+
+        // The cast is over and the action frame never came. Resolving here rather
+        // than at SKILL_PROC_LIMIT is the whole fix for the phantom hit: a payload
+        // left to the 10 s timeout used to be presented in full, digit and sound and
+        // all, long after the monster had disengaged.
+        const bool bCastAbandoned = !pEffectOfSkill->bWaitForProjectileImpact
+            && dwElapsedTime >= kAbandonedSkillPayloadGraceMs
+            && !IsSkillCastStillLive(pEffectOfSkill->iSkillIDX);
+
+        if (dwElapsedTime > SKILL_PROC_LIMIT || bCastAbandoned) {
             const bool bTimedOutWaitingForProjectile = pEffectOfSkill->bWaitForProjectileImpact;
             if (bTimedOutWaitingForProjectile) {
                 int iObjIDX = pEffectOfSkill->EffectOfSkill.m_wObjectIDX;
@@ -2050,18 +2191,27 @@ CObjCHAR::ProcTimeOutEffectedSkill() {
                     pEffectOfSkill->iSkillIDX,
                     pEffectOfSkill->bDamageEventAlreadyQueued ? 1 : 0,
                     pEffectOfSkill->EffectOfSkill.m_wDamage);
+                begin = m_EffectedSkillList.erase(begin);
             } else {
-                ProcOneEffectedSkill(pEffectOfSkill);
+                // Never ProcOneEffectedSkill() here. Whether we got here by the 3 s
+                // abandon test or by the 10 s timeout, the caster's action frame is
+                // not coming -- presenting a digit, a hit effect and a hit sound at
+                // this point puts a hit on screen that the player can see did not
+                // happen. Fold the HP instead and let reconciliation carry the bar.
+                //
+                // Take a copy and drop the entry *before* resolving: the lethal branch
+                // presents the hit, which can kill the defender, and Dead() ->
+                // ClearAllEntityList() -> ProcEffectedSkill() erases from this very
+                // list when the defender is also the caster (a self-damage skill).
+                // That would leave `begin` dangling.
+                stEFFECT_OF_SKILL EffectOfSkill = *pEffectOfSkill;
+                begin = m_EffectedSkillList.erase(begin);
+                ResolveEffectedSkillSilently(&EffectOfSkill,
+                    bCastAbandoned ? "cast abandoned" : "skill payload timeout");
             }
-            begin = m_EffectedSkillList.erase(begin);
-#ifdef _DEBUG
-
-            if (!bTimedOutWaitingForProjectile) {
-                sprintf(g_MsgBuf, "ProcTimeOutEffectedSkill [ 대상 : %s ] ", this->Get_NAME());
-                /// assert( 0 && Buf );
-                MessageBox(NULL, g_MsgBuf, "WARNING", MB_OK);
-            }
-#endif //_DEBUG
+            // (The _DEBUG MessageBox that used to fire here is gone: a non-projectile
+            // payload outliving its action frame is now a handled, expected case that
+            // this function resolves, not a programming error worth a modal box.)
         } else
             ++begin;
     }

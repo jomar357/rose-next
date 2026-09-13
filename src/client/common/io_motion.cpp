@@ -14,6 +14,7 @@ tagMOTION::tagMOTION() {
     m_pFrameEvent = NULL;
     m_nActionPointCNT = 0;
     m_wTatalAttackFrame = 0;
+    m_bHasSkillHitActionFrame = false;
     m_iInterpolationInterval = 500;
 }
 
@@ -98,6 +99,16 @@ tagMOTION::LoadZMO(char* szFileName) {
                     case 67:
                         m_wTatalAttackFrame++;
                         break;
+                }
+
+                /// Frame 25 only. ActionEVENT() routes 35/10/20/26/56/66 to
+                /// ActionImmediateSkill() as well, but of those only case 25 calls
+                /// ProcEffectedSkill() -- case 35 is empty and the rest fire bullets
+                /// or repeat-hit effects. Widening this to the whole family would
+                /// make ActionSkill() skip its own drain for a motion that never
+                /// drains at all.
+                if (m_pFrameEvent[nF] == 25) {
+                    m_bHasSkillHitActionFrame = true;
                 }
             }
         }

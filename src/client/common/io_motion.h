@@ -25,6 +25,15 @@ struct tagMOTION {
     short m_nActionPointCNT;
     WORD m_wTatalAttackFrame;
 
+    /// True when this motion carries action frame 25 -- the melee-skill hit frame,
+    /// and the only frame whose handler drains the caster's queued skill payload.
+    /// Mob skill motions mostly carry frame 24 instead, which ActionSkill()
+    /// dispatches by SKILL_TYPE, and SKILL_ACTION_IMMEDIATE has no case there.
+    /// ActionSkill() reads this flag to know whether it must drain an immediate
+    /// skill itself or leave it to a real frame 25 later in the same motion.
+    /// Computed once, at load.
+    bool m_bHasSkillHitActionFrame;
+
 #ifdef __SERVER
     short* m_pActionPoint;
 #else
