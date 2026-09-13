@@ -5,6 +5,7 @@ include "combat.fbs";
 include "login_rep.fbs";
 include "login_req.fbs";
 include "update_stats.fbs";
+include "tuning_preview.fbs";
 
 namespace Rose.Network.Packets;
 
@@ -17,6 +18,8 @@ union PacketType {
 	UpdateStats,
 	CombatSwing,
 	DamageEvent,
+	TuningPreviewRequest,
+	TuningPreviewResponse,
 }
 
 table PacketData {

@@ -1,4 +1,6 @@
 #include "stdAFX.h"
+#include "rose/common/mounted_stats.h"
+#include "../mounted_item_bonuses.h"
 
 #include "rose/io/stb.h"
 #include "CUserDATA.h"
@@ -130,87 +132,14 @@ tagBankData::Sub_ITEM(short nSlotNO, tagITEM& sITEM) {
 
 void
 CUserDATA::Cal_AddAbility(tagITEM& sITEM, short nItemTYPE) {
-    if (sITEM.GetItemNO() < 1 || sITEM.GetLife() < 1) /// ¾ÆÀÌÅÛÀÌ ¾ø°Å³ª ¼ö¸íÀÌ ´ÙÇÑ°ÍÀº Åë°ú~
-        return;
-
-    short nI, nC, nType, nValue;
-
-    // ¿É¼Ç/¹ÚÈù º¸¼®¿¡ ´ëÇØ¼­...
-    if (sITEM.GetGemNO() && (sITEM.IsAppraisal() || sITEM.HasSocket())) {
-        for (nI = 0; nI < 2; nI++) {
-            nC = sITEM.GetGemNO();
-            nType = GEMITEM_ADD_DATA_TYPE(nC, nI);
-            nValue = GEMITEM_ADD_DATA_VALUE(nC, nI);
-
-            _ASSERT(nType <= AT_MAX);
-
-            this->m_iAddValue[nType] += nValue;
-        }
-    }
-
-    for (nI = 0; nI < 2; nI++) {
-        nType = ITEM_NEED_UNION(nItemTYPE, sITEM.m_nItemNo, nI);
-        if (nType && (nType != this->GetCur_UNION()))
-            continue;
-
-        nType = ITEM_ADD_DATA_TYPE(nItemTYPE, sITEM.m_nItemNo, nI);
-        nValue = ITEM_ADD_DATA_VALUE(nItemTYPE, sITEM.m_nItemNo, nI);
-
-        this->m_iAddValue[nType] += nValue;
-    }
+    accumulate_item_bonuses(sITEM, nItemTYPE, GetCur_UNION(), m_iAddValue);
 }
 
 /// ¾ÆÀÌÅÛ¿¡ ºÙÀº Ãß°¡ ´É·ÂÄ¡ °è»ê.
 void
 CUserDATA::Cal_AddAbility() {
-    tagITEM sITEM;
-
-    sITEM = this->Get_EquipITEM(EQUIP_IDX_FACE_ITEM);
-    Cal_AddAbility(sITEM, ITEM_TYPE_FACE_ITEM);
-
-    sITEM = this->Get_EquipITEM(EQUIP_IDX_HELMET);
-    Cal_AddAbility(sITEM, ITEM_TYPE_HELMET);
-
-    sITEM = this->Get_EquipITEM(EQUIP_IDX_ARMOR);
-    Cal_AddAbility(sITEM, ITEM_TYPE_ARMOR);
-
-    sITEM = this->Get_EquipITEM(EQUIP_IDX_KNAPSACK);
-    Cal_AddAbility(sITEM, ITEM_TYPE_KNAPSACK);
-
-    sITEM = this->Get_EquipITEM(EQUIP_IDX_GAUNTLET);
-    Cal_AddAbility(sITEM, ITEM_TYPE_GAUNTLET);
-
-    sITEM = this->Get_EquipITEM(EQUIP_IDX_BOOTS);
-    Cal_AddAbility(sITEM, ITEM_TYPE_BOOTS);
-
-    sITEM = this->Get_EquipITEM(EQUIP_IDX_WEAPON_R);
-    Cal_AddAbility(sITEM, ITEM_TYPE_WEAPON);
-
-    sITEM = this->Get_EquipITEM(EQUIP_IDX_WEAPON_L);
-    Cal_AddAbility(sITEM, ITEM_TYPE_SUBWPN);
-
-    sITEM = this->Get_EquipITEM(EQUIP_IDX_NECKLACE);
-    Cal_AddAbility(sITEM, ITEM_TYPE_JEWEL);
-
-    sITEM = this->Get_EquipITEM(EQUIP_IDX_RING);
-    Cal_AddAbility(sITEM, ITEM_TYPE_JEWEL);
-
-    /// 2004/02/21 icarus Ãß°¡ : ±Í°ÉÀÌ 2¹øÂ° ´É·ÂÄ¡ Àû¿ë¾ÈµÇ´ø»çÇ×.
-    sITEM = this->Get_EquipITEM(EQUIP_IDX_EARRING);
-    Cal_AddAbility(sITEM, ITEM_TYPE_JEWEL);
-
-    if (this->GetCur_MOVE_MODE() > MOVE_MODE_RUN) {
-        // Å¾½Â ¸ðµåÀÏ°æ¿ì ÃÖ´ë ¹«°Ô Áõ°¡Ä¡´Â ÄÉ¸¯ÅÍ¿¡¼­ »Ì¾Æ¼­ Àû¿ë.
-        int iCurAddWgt = this->m_iAddValue[AT_WEIGHT];
-        // ¹«°Ô»©°í ÃÊ±âÈ­.
-        ::ZeroMemory(this->m_iAddValue, sizeof(int) * AT_MONEY);
-        this->m_iAddValue[AT_WEIGHT] = iCurAddWgt;
-
-        for (short nI = 0; nI < MAX_RIDING_PART; nI++) {
-            sITEM = this->m_Inventory.m_ItemRIDE[nI];
-            Cal_AddAbility(sITEM, ITEM_TYPE_RIDE_PART);
-        }
-    }
+    accumulate_equipment_bonuses(m_Inventory.m_ItemEQUIP, m_Inventory.m_ItemRIDE,
+        GetCur_UNION(), m_iAddValue, GetCur_MOVE_MODE() > MOVE_MODE_RUN);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -474,20 +403,12 @@ CUserDATA::Cal_MaxMP() {
 //-------------------------------------------------------------------------------------------------
 int
 CUserDATA::Cal_MaxWEIGHT() {
-    // * ITEM = 800 + (LV * 4) + (STR * 6) + ½ºÅ³ ¼ÒÁö·®
-    this->m_Battle.m_nMaxWEIGHT =
-        (int)(1100 + (this->GetCur_LEVEL() * 5) + (this->GetCur_STR() * 6));
-    this->m_Battle.m_nMaxWEIGHT += this->m_iAddValue[AT_WEIGHT];
-
     tagITEM* pITEM = &m_Inventory.m_ItemEQUIP[EQUIP_IDX_KNAPSACK];
-    if (pITEM->GetHEADER() && pITEM->GetLife()
-        && ITEM_TYPE(pITEM->GetTYPE(), pITEM->GetItemNO()) == 162) {
-        // µîÁü ¹è³¶.
-        short nW = this->GetPassiveSkillValue(AT_PSV_WEIGHT)
-            + (short)(this->m_Battle.m_nMaxWEIGHT * this->GetPassiveSkillRate(AT_PSV_WEIGHT)
-                / 100.f);
-        this->m_Battle.m_nMaxWEIGHT += nW;
-    }
+    const bool backpack = pITEM->GetHEADER() && pITEM->GetLife()
+        && ITEM_TYPE(pITEM->GetTYPE(), pITEM->GetItemNO()) == 162;
+    this->m_Battle.m_nMaxWEIGHT = Rose::Tuning::weight_capacity(GetCur_LEVEL(), GetCur_STR(),
+        m_iAddValue[AT_WEIGHT], backpack ? GetPassiveSkillValue(AT_PSV_WEIGHT) : 0,
+        backpack ? GetPassiveSkillRate(AT_PSV_WEIGHT) : 0);
 
     return this->m_Battle.m_nMaxWEIGHT;
 }
@@ -550,9 +471,8 @@ CUserDATA::Cal_RESIST() {
         }
     }
 
-    this->m_Battle.m_nRES = (int)(iTotRES + (iTotGradeRES) + (this->GetCur_INT() + 5) * 0.6f
-        + (this->GetCur_LEVEL() + 15) * 0.8f);
-    this->m_Battle.m_nRES += this->m_iAddValue[AT_RES];
+    this->m_Battle.m_nRES = Rose::Tuning::resistance(iTotRES, iTotGradeRES,
+        GetCur_INT(), GetCur_LEVEL(), m_iAddValue[AT_RES]);
 
     iTotRES = this->GetPassiveSkillValue(AT_PSV_RES)
         + (short)(this->m_Battle.m_nRES * this->GetPassiveSkillRate(AT_PSV_RES) / 100.f);
@@ -599,10 +519,8 @@ CUserDATA::Cal_DEFENCE() {
         }
         this->m_Battle.m_iDefGrade = iTotGRADE;
 
-        this->m_Battle.m_nDEF = (int)((iTotDEF + (iTotGradeDEF) + (this->GetCur_STR() + 5) * 0.35f
-                                          + (this->GetCur_LEVEL() + 15) * 0.7f)
-                                    * 0.8f)
-            + this->m_iAddValue[AT_DEF];
+        this->m_Battle.m_nDEF = Rose::Tuning::defence(iTotDEF, iTotGradeDEF,
+            GetCur_STR(), GetCur_LEVEL(), m_iAddValue[AT_DEF]);
     }
 
     nE = this->GetPassiveSkillValue(AT_PSV_DEF_POW)
@@ -667,10 +585,8 @@ CUserDATA::Cal_RunSPEED() {
         tagITEM* pLEG = &this->m_Inventory.m_ItemRIDE[RIDE_PART_LEG];
         tagITEM* pENG = &this->m_Inventory.m_ItemRIDE[RIDE_PART_ENGINE];
 
-        if (pLEG->GetLife() && pENG->GetLife()) {
-            fMoveSpeed = PAT_ITEM_MOV_SPD(pLEG->GetItemNO())
-                * PAT_ITEM_MOV_SPD(pENG->GetItemNO()) / 10.f;
-        }
+        fMoveSpeed = Rose::Tuning::move_speed(pLEG->GetLife() && pENG->GetLife(),
+            PAT_ITEM_MOV_SPD(pLEG->GetItemNO()), PAT_ITEM_MOV_SPD(pENG->GetItemNO()), 0, false);
     }
         
     fMoveSpeed += this->m_iAddValue[AT_SPEED];

@@ -800,6 +800,8 @@ CNetwork::recv_packet(t_PACKET* packet) {
             case Packets::PacketType::CharacterMoveAttack: {
                 return this->recv_char_move_attack(p);
             }
+            case Packets::PacketType::TuningPreviewResponse:
+                return recv_tuning_preview(p);
             case Packets::PacketType::UpdateStats: {
                 return this->recv_update_stats(p);
             }
@@ -1189,4 +1191,33 @@ CNetwork::send_login_req(const std::string& username, const std::string& passwor
     Packet p(builder);
     this->send_packet(p, Server::Login);
     return;
+}
+
+void
+CNetwork::send_tuning_preview(uint32_t sequence) {
+    flatbuffers::FlatBufferBuilder builder;
+    const auto request = Packets::CreateTuningPreviewRequest(builder, sequence);
+    Packets::PacketDataBuilder data(builder);
+    data.add_data_type(Packets::PacketType::TuningPreviewRequest);
+    data.add_data(request.Union());
+    builder.Finish(data.Finish());
+    Packet packet(builder);
+    send_packet(packet, Server::Game);
+}
+
+void
+CNetwork::recv_tuning_preview(Packet& packet) {
+    const auto* response = packet.packet_data()->data_as_TuningPreviewResponse();
+    if (!response)
+        return;
+    Rose::Tuning::MountedStatsResult value;
+    value.vehicle_type = response->vehicle_type();
+    value.valid_fields = response->valid_fields();
+    value.defence = response->defense();
+    value.resistance = response->resistance();
+    value.fuel = response->fuel();
+    value.speed = response->move_speed();
+    value.attack = response->attack_power();
+    value.attack_speed = response->attack_speed();
+    tuning_preview.accept(response->sequence(), value);
 }

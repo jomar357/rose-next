@@ -1,4 +1,6 @@
 #include "stdafx.h"
+#include <chrono>
+#include "../CToolTipMgr.h"
 
 #include ".\citemdlg.h"
 #include "../../GameData/Event/CTEventItem.h"
@@ -193,6 +195,7 @@ CItemDlg::Draw() {
 
     int iSlot = 0;
     if (m_iEquipTab == EQUIPMENT_TAB_TUNING) {
+        DrawTuningStats();
         for (iSlot = 0; iSlot < MAX_RIDING_PART; ++iSlot)
             m_PatEquipSlots[iSlot].Draw();
 
@@ -525,6 +528,7 @@ CItemDlg::MoveWindow(POINT pt) {
 }
 void
 CItemDlg::Update(POINT ptMouse) {
+    UpdateTuningStats(ptMouse);
     if (!IsVision())
         return;
     CTDialog::Update(ptMouse);
@@ -901,4 +905,93 @@ CItemDlg::RemoveActionEventListener2Slots() {
 bool
 CItemDlg::is_costume_tab_open() {
     return this->m_iEquipTab == EQUIPMENT_TAB_COSTUME;
+}
+void
+CItemDlg::Hide() {
+    if (g_pNet)
+        g_pNet->tuning_preview.set_active(false);
+    CTDialog::Hide();
+}
+
+void
+CItemDlg::UpdateTuningStats(POINT mouse) {
+    if (!g_pNet)
+        return;
+    auto& cache = g_pNet->tuning_preview;
+    const bool active = IsVision() && m_iEquipTab == EQUIPMENT_TAB_TUNING && g_pAVATAR;
+    cache.set_active(active);
+    if (!active)
+        return;
+
+    // Detect condition/grade/gem changes as well as equip/unequip. All bytes are
+    // from packed item records, not object pointers or C++ padding.
+    uint64_t signature = 14695981039346656037ULL;
+    const auto hash = [&signature](const void* data, size_t size) {
+        const auto* bytes = static_cast<const unsigned char*>(data);
+        for (size_t i = 0; i < size; ++i) {
+            signature ^= bytes[i];
+            signature *= 1099511628211ULL;
+        }
+    };
+    hash(g_pAVATAR->m_Inventory.m_ItemEQUIP, sizeof(g_pAVATAR->m_Inventory.m_ItemEQUIP));
+    hash(g_pAVATAR->m_Inventory.m_ItemRIDE, sizeof(g_pAVATAR->m_Inventory.m_ItemRIDE));
+    const BYTE mode = g_pAVATAR->GetCur_MOVE_MODE();
+    hash(&mode, sizeof(mode));
+    if (signature != m_TuningEquipmentSignature) {
+        m_TuningEquipmentSignature = signature;
+        cache.invalidate();
+    }
+    const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    if (const uint32_t sequence = cache.request(static_cast<uint64_t>(now)))
+        g_pNet->send_tuning_preview(sequence);
+
+    const int x = mouse.x - m_sPosition.x;
+    const int y = mouse.y - m_sPosition.y;
+    if (x >= 210 && x < 262 && y >= 116 && y < 241) {
+        CInfo tooltip;
+        if (y >= 170 && y < 188) {
+            tooltip.AddString("Engine fuel consumption per deduction.");
+            tooltip.AddString("Deducted on mounting, fuel ticks and attacks.");
+            tooltip.AddString("This is not a per-second rate.");
+        } else {
+            tooltip.AddString(cache.result.vehicle_type == 2
+                ? "Mounted stats: Castle Gear" : "Mounted stats: Cart");
+            tooltip.AddString("Mounting removes beneficial buffs.");
+            tooltip.AddString("Surviving effects and weight penalties apply.");
+            tooltip.AddString("Missing parts leave dependent stats unavailable.");
+        }
+        POINT position = {mouse.x + 12, mouse.y + 18};
+        tooltip.SetPosition(position);
+        CToolTipMgr::GetInstance().RegistInfo(tooltip);
+    }
+}
+
+void
+CItemDlg::DrawTuningStats() {
+    if (!g_pNet)
+        return;
+    const auto& value = g_pNet->tuning_preview.result;
+    D3DXMATRIX transform;
+    D3DXMatrixTranslation(&transform, (float)m_sPosition.x, (float)m_sPosition.y, 0);
+    ::setTransformSprite(transform);
+    const int numbers[] = {0, value.defence, value.resistance, value.fuel,
+        value.speed, 0, value.attack_speed};
+    for (int row = 0; row < 7; ++row) {
+        char text[32];
+        if (!(value.valid_fields & (1 << row))) {
+            // The engine's font API uses DrawTextA, so encode for its code page.
+            if (!WideCharToMultiByte(CP_ACP, 0, L"\x2014", -1, text, sizeof(text), NULL, NULL)
+                || strcmp(text, "?") == 0)
+                strcpy_s(text, "-");
+        } else if (row == 0)
+            strcpy_s(text, value.vehicle_type == 2 ? "C. Gear" : "Cart");
+        else if (row == 5)
+            sprintf_s(text, "%u", value.attack);
+        else
+            sprintf_s(text, "%d", numbers[row]);
+        RECT rect = {211, 117 + row * 18, 261, 134 + row * 18};
+        ::drawFont(g_GameDATA.m_hFONT[FONT_NORMAL], true, &rect, g_dwWHITE,
+            DT_CENTER | DT_VCENTER | DT_SINGLELINE, text);
+    }
 }

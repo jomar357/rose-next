@@ -96,6 +96,7 @@
     <ClCompile Include="src\gs_socketlsv.cpp" />
     <ClCompile Include="src\gs_threadsql.cpp" />
     <ClCompile Include="src\gs_threadzone.cpp" />
+    <ClCompile Include="src\tuning_preview.cpp" />
     <ClCompile Include="src\gs_user.cpp" />
     <ClCompile Include="src\lib_gsmain.cpp" />
     <ClCompile Include="src\main.cpp" />

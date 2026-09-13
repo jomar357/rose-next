@@ -1,0 +1,17 @@
+namespace Rose.Network.Packets;
+
+table TuningPreviewRequest {
+    sequence: uint32;
+}
+
+table TuningPreviewResponse {
+    sequence: uint32;
+    vehicle_type: uint8;
+    valid_fields: uint8;
+    defense: int32;
+    resistance: int32;
+    fuel: int32;
+    move_speed: int32;
+    attack_power: uint32;
+    attack_speed: int32;
+}

@@ -7833,6 +7833,13 @@ classUSER::HandlePACKET(t_PACKETHEADER* pPacketHeader) {
     //  Get_INDEX(), pPacket->m_HEADER.m_wType, pPacket->m_HEADER.m_nSize);
 
     if (!this->GetZONE()) {
+        // A preview already in flight may arrive during zone teardown.
+        if (pPacket->size >= 8) {
+            flatbuffers::Verifier verifier(&pPacket->m_pDATA[2], pPacket->size - 2);
+            if (Packets::VerifyPacketDataBuffer(verifier)
+                && Packets::GetPacketData(&pPacket->m_pDATA[2])->data_as_TuningPreviewRequest())
+                return true;
+        }
         switch (pPacketHeader->m_wType) {
             case MON_SERVER_LIST_REQ:
                 this->m_bVerified = true;
@@ -7924,6 +7931,16 @@ classUSER::HandlePACKET(t_PACKETHEADER* pPacketHeader) {
 #define LOGOUT_WAIT_SECOND 10
 int
 classUSER::Proc_ZonePACKET(t_PACKET* pPacket) {
+    // FlatBuffers packets have a two-byte length prefix, not a legacy type.
+    if (pPacket->size >= 8) {
+        flatbuffers::Verifier verifier(&pPacket->m_pDATA[2], pPacket->size - 2);
+        if (Packets::VerifyPacketDataBuffer(verifier)) {
+            const auto* data = Packets::GetPacketData(&pPacket->m_pDATA[2]);
+            if (const auto* request = data->data_as_TuningPreviewRequest())
+                return recv_tuning_preview(request->sequence());
+            return true;
+        }
+    }
     switch (pPacket->m_HEADER.m_wType) {
         case CLI_CLAN_COMMAND:
             return this->Recv_cli_CLAN_COMMAND(pPacket);
@@ -8582,6 +8599,9 @@ classUSER::Proc(void) {
     }
 
     m_csRecvQ.Unlock();
+
+    if (!process_tuning_preview())
+        return 0;
 
     if (this->GetZONE()->GetTimeGetTIME() - SOCKET_KEEP_ALIVE_TIME >= this->Get_CheckTIME()) {
         return 0;

@@ -49,6 +49,7 @@ fn main() {
     "login_req.fbs",
     "packet_data.fbs",
     "update_stats.fbs",
+    "tuning_preview.fbs",
   ];
 
   eprintln!("{}", flatc_path.display());

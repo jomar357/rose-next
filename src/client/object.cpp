@@ -2,6 +2,7 @@
     $Header: /Client/OBJECT.cpp 68    05-08-30 5:18p Gioend $
 */
 #include "stdAFX.h"
+#include "network/cnetwork.h"
 
 #include "OBJECT.h"
 #include "CObjMORPH.h"
@@ -198,6 +199,10 @@ CObjectMANAGER::Set_EmptySlot(short nSlotNO, WORD wServerObjectIndex, CGameOBJ* 
 //-------------------------------------------------------------------------------------------------
 void
 CObjectMANAGER::Clear(short nExceptObjIndex) {
+    if (g_pNet) {
+        g_pNet->tuning_preview.set_active(false);
+        g_pNet->tuning_preview.invalidate();
+    }
     //	WORD wMyServerObjIDX = m_wClient2ServerOBJ[ nExceptObjIndex ];
 
     /// Zone change wipes every object except the avatar, so nothing is left that

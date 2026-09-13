@@ -5,6 +5,8 @@
  */
 #ifndef __GS_USER_H
 #define __GS_USER_H
+#include "rose/common/tuning_preview_cache.h"
+#include "rose/network/packet.h"
 #include "CObjAVT.h"
 #include "CObjCHAR.h"
 #include "CObjNPC.h"
@@ -140,6 +142,11 @@ public:
     // Utility functions
     void level_up(int amount);
 
+    Rose::Tuning::MountedStatsInput mounted_stats_input();
+    bool recv_tuning_preview(uint32_t sequence);
+    bool process_tuning_preview();
+    Rose::Tuning::PreviewRequestGate m_TuningRequests;
+
     // Stats functions
     uint16_t total_move_speed() override;
     uint16_t total_attack_speed() override;
@@ -164,12 +171,12 @@ public:
         flatbuffers::Offset<T> offset,
         Rose::Network::Packets::PacketType type) {
 
-        Packets::PacketDataBuilder pd(builder);
+        Rose::Network::Packets::PacketDataBuilder pd(builder);
         pd.add_data_type(type);
         pd.add_data(offset.Union());
         builder.Finish(pd.Finish());
 
-        Packet p(builder);
+        Rose::Network::Packet p(builder);
         return this->send_packet(p);
     }
 
@@ -695,6 +702,7 @@ public:
     }
 
     void InitUSER() {
+        m_TuningRequests = {};
         ::ZeroMemory(m_dwCoolTIME, sizeof(m_dwCoolTIME));
 
         CObjTARGET::Set_TargetIDX(0);

@@ -1,5 +1,6 @@
 #ifndef CNETWORK_H
 #define CNETWORK_H
+#include "rose/common/tuning_preview_cache.h"
 
 #include "NET_Prototype.h"
 #include "../util/CClientSOCKET.h"
@@ -64,6 +65,9 @@ public:
     void recv_packet(t_PACKET* packet);
     void recv_char_move(Rose::Network::Packet& p);
     void recv_char_move_attack(Rose::Network::Packet& p);
+    Rose::Tuning::PreviewCache tuning_preview;
+    void send_tuning_preview(uint32_t sequence);
+    void recv_tuning_preview(Rose::Network::Packet& packet);
     void recv_update_stats(Rose::Network::Packet& p);
     void recv_combat_swing(Rose::Network::Packet& p);
     void recv_damage_event(Rose::Network::Packet& p);

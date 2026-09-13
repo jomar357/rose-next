@@ -27,6 +27,7 @@ public:
     virtual void Draw();
     virtual void Update(POINT ptMouse);
     virtual void Show();
+    virtual void Hide();
     virtual void MoveWindow(POINT pt);
     virtual unsigned Process(unsigned uiMsg, WPARAM wParam, LPARAM lParam);
 
@@ -49,6 +50,9 @@ public:
     bool is_costume_tab_open();
 
 private:
+    void DrawTuningStats();
+    void UpdateTuningStats(POINT mouse);
+    uint64_t m_TuningEquipmentSignature = 0;
     void SwitchIcon(int iReal,
         int iVirtual); /// 실제 인벤토리 인덱스와 가상 인벤토리인덱스로 아이콘 위치 이동
     CSlot* GetInvenSlotByRealIndex(int iIndex); /// 실제 인벤토리 인덱스로 슬롯 인덱스를 구한다.

@@ -1,5 +1,6 @@
 ﻿
 #include "stdAFX.h"
+#include "rose/common/mounted_stats.h"
 
 #include "CObjAVT.h"
 #include "GS_ThreadZONE.h"
@@ -31,9 +32,8 @@ CObjAVT::update_speed() {
         m_fRunAniSPEED = (this->stats.move_speed + 500) / 1000.f;
 
         nWeaponSpeed = PAT_ITEM_ATK_SPD(m_RideITEM[RIDE_PART_ARMS].m_nItemNo) + 5;
-        fSpeed = 1500.f / nWeaponSpeed;
-        this->stats.attack_speed = floor_int(fSpeed);
-        this->stats.attack_speed += this->m_iAddValue[AT_ATK_SPD];
+        this->stats.attack_speed = Rose::Tuning::attack_speed(nWeaponSpeed - 5,
+            this->m_iAddValue[AT_ATK_SPD]);
     }
 
     Cal_AruaAtkSPD();
@@ -847,9 +847,9 @@ CObjAVT::Cal_ATTACK() {
         int iWeaponTERM = iWeaponAP + ITEMGRADE_ATK(pRightWPN->GetGrade())
             + PAT_ITEM_ATK_POW(this->m_Inventory.m_ItemRIDE[RIDE_PART_ARMS].GetItemNO());
 
-        iAP = (GetCur_LEVEL() * 3) + GetCur_CON()
-            + PAT_ITEM_ATK_POW(this->m_Inventory.m_ItemRIDE[RIDE_PART_ARMS].GetItemNO());
-        this->stats.attack_power = iAP + this->m_iAddValue[AT_ATK];
+        this->stats.attack_power = Rose::Tuning::attack_power(GetCur_LEVEL(), GetCur_CON(),
+            PAT_ITEM_ATK_POW(this->m_Inventory.m_ItemRIDE[RIDE_PART_ARMS].GetItemNO()),
+            this->m_iAddValue[AT_ATK]);
     }
 
     this->Cal_AruaATTACK();
