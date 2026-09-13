@@ -110,8 +110,11 @@ def fit_def_trend(stb):
     """
     pts = []
     for lo in range(60, FIT_BELOW, 10):
+        # 2100-2399 is Oro's id band. Its Shadow Ghost ladder (2230-2239) runs
+        # 183-219, inside this window, with values rebalance-oro-667.py wrote --
+        # our own authoring, not the retail curve this fit is meant to measure.
         vals = [gi(stb, i, COL_DEF) for i in range(1, stb.rows)
-                if stb.get(i, COL_NAME).strip()
+                if stb.get(i, COL_NAME).strip() and not 2100 <= i < 2400
                 and lo <= gi(stb, i, COL_LEVEL) < lo + 10 and gi(stb, i, COL_DEF) > 0]
         if len(vals) >= 4:
             pts.append((lo + 5, statistics.median(vals)))

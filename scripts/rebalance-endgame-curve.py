@@ -108,6 +108,8 @@ BOSS_MULTIPLIER = 1.2
 BOSS_SIDECARS = [
     os.path.join(ROOT, "data", "3DDATA", "STB", "LIST_NPC.oro-bosses.json"),
     os.path.join(ROOT, "data", "3DDATA", "STB", "LIST_NPC.karkia-bosses.json"),
+    # the 667-build Oro (rebalance-oro-667.py), 2026-09-13
+    os.path.join(ROOT, "data", "3DDATA", "STB", "LIST_NPC.oro667-bosses.json"),
 ]
 
 

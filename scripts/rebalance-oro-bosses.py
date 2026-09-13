@@ -107,8 +107,12 @@ def fit_hp_trend(stb, bosses):
     return slope, (sy - sx * slope) / n, len(pts)
 
 
-ORO_MAP_DIRS = {"TOWN", "OROIP", "ODP01", "ODC01", "ODD01", "ODD02", "ODD03",
-                "ODD04", "ODD05", "ODOS01", "ODRP01", "ODE01"}
+# The 667-build zone set (2026-09-13): ODC01/ODD01-03/ODE01 are gone, ODGR01,
+# ODFS01 and COLOSSEUM are new. rebalance-oro-667.py now budgets the Oro bosses
+# itself and leaves their HP column under BOSS_HP_COLUMN, so this scope no longer
+# finds any; the pass keeps its job for EXTRA_BOSS_ROWS.
+ORO_MAP_DIRS = {"TOWN", "OROIP", "ODP01", "ODD04", "ODD05", "ODOS01", "ODRP01",
+                "ODGR01", "ODFS01", "COLOSSEUM"}
 
 # Named monsters outside Oro that share the same problem, opted in one at a time
 # rather than by widening the rule -- Luna's other big-HP monsters are deliberate

@@ -197,7 +197,12 @@ def fit(stb, col, karkia, value=None):
     """
     band = collections.defaultdict(list)
     for r in range(1, stb.rows):
-        if not stb.get(r, 0).strip() or r in karkia:
+        # 2100-2399 is Oro's band: its Shadow Ghost ladder (183-219) sits inside
+        # the fit window with values rebalance-oro-667.py authored, not retail's.
+        # 3001-3003 are the Lucky Pig / Leprechaun event summons the same import
+        # brought in for its AI closure: level 100 with HP 50 / ATK 10, i.e.
+        # placeholder stats that would drag the 100-band median down.
+        if not stb.get(r, 0).strip() or r in karkia or 2100 <= r < 2400 or 3001 <= r <= 3003:
             continue
         lv = gi(stb, r, COL_LEVEL)
         if not (60 <= lv < FIT_BELOW):

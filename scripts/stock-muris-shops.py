@@ -104,12 +104,17 @@ ARMOUR_SLOTS = [
 CLASSES = ["Soldier", "Muse", "Hawker", "Dealer"]
 
 # Huzam's tabs: (label, table, item type, required level, expected item count).
+# lv210 is 19, not 13, since 2026-09: the Jrose weapon import (rows 1420-1425)
+# added six more at that level, and no other shop sells them -- imported ids
+# above 999 can never drop, so a shop is the only way they reach a player.
 WEAPON_TABS = [
-    ("Weapons lv210", "LIST_WEAPON", 8, 210, 13),
+    ("Weapons lv210", "LIST_WEAPON", 8, 210, 19),
     ("Weapons lv230", "LIST_WEAPON", 8, 230, 13),
 ]
 SHIELD_LEVELS = (210, 230)
-SHIELD_EXPECTED = 2
+# 8 since the Jrose shield import (rows 308-342) put six more at these levels;
+# same reasoning as the lv210 weapons above.
+SHIELD_EXPECTED = 8
 
 
 def encode_item(item_type, item_no):
