@@ -16,7 +16,8 @@ than from the tables:
 Karkia conversations do it in the shipped data: EM86-001 (Nemo), EM86-013
 (Gelt), EM02-114 (Orentark), EM03-002 (Ginias) and EM03-011 (Astraea). Belfa
 did **not**, and was given one by `quest-editor con-store` (a QEX1 appendix)
-in a later pass; his tabs are wired here.
+in a later pass; his tabs are wired here. Sulfa (4017, EM86-011) is the same
+case, added 2026-09-13 to sell the second lv230 armour set.
 
 The two that still have no store call are recorded so nobody re-investigates
 them:
@@ -240,6 +241,13 @@ NEW_TABS = [
     # down. Astraea is the only armour seller Karkia has, so both hang off her.
     (566, "Refined Steam lv225", armour_grid(254)),
     (567, "Unit Core lv230", armour_grid(258)),
+    # The second lv230 set (import-legionnaire-armour.py, rows 262-265). It is
+    # deliberately NOT Astraea's: her three tabs are full, and a fourth would be
+    # col 24, which the client draws only for openStore(npc, 1). Splitting the
+    # tier across two sellers in two zones is better than the alternative anyway
+    # -- the choice between the two lv230 sets is the point, and a player who
+    # sees both on one counter picks by the bigger number instead of by profile.
+    (568, "Forgotten Armors", armour_grid(262)),
 ]
 
 # npc row -> the three drawable tabs, in order
@@ -253,6 +261,14 @@ NEW_TABS = [
 # stock in a level 215-240 zone. Repointing leaves Crune untouched.
 NPC_TABS = {
     4019: (561, 562, 564),   # [Spire Warrior] Gelt  -- arms and ammunition
+    # Sulfa stands beside Gelt in Spire Village and sold nothing: no tabs, and a
+    # dialog with no store call. She is a Spire *warrior*, so plate is in
+    # character, and the village is the first Karkia zone a player reaches --
+    # which puts the heavier lv230 set on the road in and the lighter one deep
+    # in Memories, where you need it against the casters. Her store call is a
+    # QEX1 append (`quest-editor con-store ../data 4017 sulfa`), the same
+    # mechanism Belfa got.
+    4017: (568, 0, 0),       # [Spire Warrior] Sulfa -- the Legionnaire tier
     4103: (561, 562, 564),   # [Master Smith] Belfa  -- the Tower staging shop
     4142: (563, 0, 0),       # [Shrine Maiden] Nemo  -- "short of supplies"
     # Memories, reachable since stage 7a. Ginias is the General Store, so he
@@ -267,6 +283,7 @@ NPC_TABS = {
 # every player alive. See the union note in the module docstring.
 CLEAR_UNION = {4108}
 NPC_NAMES = {4019: "[Spire Warrior] Gelt", 4103: "[Master Smith] Belfa",
+             4017: "[Spire Warrior] Sulfa",
              4142: "[Shrine Maiden] Nemo", 4089: "[General Store] Ginias",
              4108: "[Starsteel Armourer] Astraea"}
 
@@ -299,6 +316,21 @@ def encode(item_type, item_no):
             else item_type * WIDE_BASE + item_no)
 
 
+def authored():
+    """{row: caption} as of the last successful run, from the sidecar.
+
+    A caption is only safe to *change* if we wrote it. Without this the two
+    guards below cannot tell "renaming our own tab" from "stealing a retail
+    key", and both refuse -- which is right for the second case and wrong for
+    the first. Empty before the first run, which is also correct: nothing is
+    ours yet.
+    """
+    if not os.path.exists(SIDECAR):
+        return {}
+    with open(SIDECAR, encoding="utf-8") as fh:
+        return {int(r): n for r, n in json.load(fh).get("tabs", [])}
+
+
 def check_captions(oro):
     """A pre-existing STL key must say what we think it says.
 
@@ -308,6 +340,7 @@ def check_captions(oro):
     """
     stl = oro.Stl(SELL_STL)
     lookup = {k.decode("latin-1"): j for j, (k, _i) in enumerate(stl.keys)}
+    mine = authored()
     bad = []
     for row, name, _items in NEW_TABS:
         key = f"LSEL{row}"
@@ -315,9 +348,12 @@ def check_captions(oro):
         if j is None:
             continue                      # we will append it ourselves
         texts = {r[j][0].decode("latin-1") for r in stl.langs if r[j][0]}
-        if texts != {name}:
-            bad.append(f"{key} already reads {sorted(texts)}, "
-                       f"but this tab is {name!r}")
+        if texts == {name}:
+            continue
+        if texts == {mine.get(row)}:
+            continue                      # our own caption, being renamed
+        bad.append(f"{key} already reads {sorted(texts)}, "
+                   f"but this tab is {name!r}")
     return bad
 
 
@@ -384,10 +420,11 @@ def apply(oro, dry):
         report.append(f"LIST_SELL.STB {sell.rows} -> {want_rows} rows")
         sell.grow_to(want_rows)
 
+    mine = authored()
     for row, name, items in NEW_TABS:
         if sell.occupied(row):
             cur = sell.get(row, 0).decode("latin-1")
-            if cur != name:
+            if cur != name and cur != mine.get(row):
                 raise SystemExit(
                     f"LIST_SELL row {row} is occupied by {cur!r} -- refusing "
                     "to overwrite a row we did not author")
@@ -397,9 +434,16 @@ def apply(oro, dry):
         for slot, packed in enumerate(tab_slots(items)):
             sell.set(row, 2 + slot, str(packed).encode("latin-1") if packed
                      else b"")
+        # The client draws the STL text, never col 0, so a caption change that
+        # updates only the STB is invisible -- the tab keeps its old name and
+        # nothing says why.
         if not stl.has(key):
             stl.append(key, row, name)
             report.append(f"  STL +{key} = {name!r}")
+        elif stl.name(key) != name:
+            was = stl.name(key)
+            stl.set_name(key, name)
+            report.append(f"  STL ~{key} = {was!r} -> {name!r}")
         report.append(f"  row {row} {name!r}: {len(stock_pairs(items))} items")
 
     for nid, tabs in NPC_TABS.items():
@@ -432,6 +476,10 @@ def verify(oro, rd):
                        f"{sell.get(row, 0).decode('latin-1')!r}")
         if not stl.has(f"LSEL{row}"):
             bad.append(f"row {row}: no STL key LSEL{row}")
+        elif stl.name(f"LSEL{row}") != name:
+            bad.append(f"row {row}: STL caption is "
+                       f"{stl.name(f'LSEL{row}')!r}, not {name!r} -- the client "
+                       "draws this one, so the tab would show the old name")
         got = [int(sell.get(row, 2 + s) or 0) for s in range(SLOTS)]
         want = tab_slots(items)
         if got != want:

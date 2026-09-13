@@ -382,6 +382,31 @@ class Stl:
         for rows in self.langs:
             rows.append([n] + [b""] * (nfields - 1))
 
+    def name(self, key, lang=0):
+        """Field 0 of an entry, as str; "" if the key is absent."""
+        k = key.encode("latin-1") if isinstance(key, str) else key
+        j = next((i for i, (x, _) in enumerate(self.keys) if x == k), None)
+        if j is None:
+            return ""
+        return self.langs[lang][j][0].decode("latin-1")
+
+    def set_name(self, key, name):
+        """Retitle an existing entry in every language block. False if absent.
+
+        The counterpart to append(), for renaming a key we authored ourselves.
+        Only field 0 (the name) moves; a description in field 1 is left alone,
+        and entry lengths are free to change because to_bytes() rebuilds the
+        per-language offset table from scratch.
+        """
+        k = key.encode("latin-1") if isinstance(key, str) else key
+        j = next((i for i, (x, _) in enumerate(self.keys) if x == k), None)
+        if j is None:
+            return False
+        n = name.encode("latin-1")
+        for rows in self.langs:
+            rows[j][0] = n
+        return True
+
     def to_bytes(self):
         out = io.BytesIO()
         write_pstr(out, self.fmt)
