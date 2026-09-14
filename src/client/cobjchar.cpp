@@ -579,6 +579,7 @@ CObjCHAR::CObjCHAR(): m_EndurancePack(this), m_ChangeActionMode(this), m_ObjVibr
     m_dwPendingAuthoritativeDeathTime = 0;
     m_dwPendingLethalSkillPayloadTime = 0;
     m_iPendingLethalSkillPayloadCaster = 0;
+    m_iQueuedSkillStarts = 0;
     m_dwPendingCombatSwingEventId = 0;
     m_iPendingCombatSwingDefenderIndex = 0;
     m_bPendingCombatSwingProjectile = false;
@@ -3611,6 +3612,7 @@ CObjCHAR::ClearAllDamage() {
     m_CombatDamageQueue.clear();
     m_iPendingCombatHPCorrection = 0;
     ClearPendingAuthoritativeDeath();
+    m_iQueuedSkillStarts = 0;
     // Death / revive resets combat presentation wholesale; a flinch deferred behind
     // a swing that no longer exists must not survive into the next life.
     m_bOwedHitReaction = false;
@@ -5409,7 +5411,18 @@ CObjCHAR::ProcQueuedCommand() {
                 SetEffectedSkillFlag(true);
             }
         }
+    
+    // A remote caster's queued cast whose GSV_SKILL_START already arrived while it
+    // was waiting: grant the start now. m_bCanStartSkill is one flag per object and
+    // the previous cast's action (ProcSkillAction -> SetStartSkill(false)) clears
+    // it, so a start received mid-queue was lost and the popped cast waited in
+    // CS_STOP for a packet that had already come -- the boss's Fireball at
+    // 16:14:48 never launched and the avatar died by the 6 s timeout.
+    if (pCommand && bSkillCommand && this != (CObjCHAR*)g_pAVATAR && m_iQueuedSkillStarts > 0) {
+        --m_iQueuedSkillStarts;
+        SetStartSkill(true);
     }
+}
 }
 
 //--------------------------------------------------------------------------------
@@ -5559,19 +5572,23 @@ CObjCHAR::PushCommandSkill2Self(short nSkillIDX) {
 
     if (pCommand) {
         ((CObjSkill2SelfCommand*)pCommand)->SetCMD_Skill2SELF(nSkillIDX);
-        // Server-confirmed for anyone but the avatar: mark it as having its result
-        // (PushCommand would otherwise erase it as "no result yet" when the next
-        // command is queued behind it) AND as valid (PopCommand deletes an invalid
-        // skill command, and GSV_SKILL_START -- the avatar-flow validator -- can
-        // arrive after an owed swing has already popped the queue; measured on
-        // Terrasaurus King: the held Fireball at 16:00:14 was popped and deleted a
-        // second before its start packet, so it never played and its damage was
-        // consumed by the next melee hit frame). SKILL_START still gates when the
-        // popped cast may *begin* (SetStartSkill), so a cast the server cancels
-        // before Casting_START simply waits until the next server command.
+        // Remote caster (anyone but the avatar). Valid at push: PopCommand deletes
+        // an unvalidated skill command, and GSV_SKILL_START -- the avatar-flow
+        // validator -- can arrive after an owed swing has already popped the queue
+        // (a held Fireball was popped and deleted a second before its start packet;
+        // it never played and its damage was eaten by the next melee hit frame).
+        // NOT marked as "result received": PushCommand erases older result-less
+        // skill commands, and that is wanted -- the server's newest skill command
+        // replaces its previous one (SetCMD_Skill2OBJ is single-valued), and two
+        // queued skill commands deadlock here: a popped command re-queues itself
+        // while the queue is non-empty (CanApplyCommand), so neither ever applies
+        // (the boss's Charge and Fireball, superseded within the same second,
+        // reshuffled forever and the fireball damage landed on a melee frame).
+        // The start permission for the new command is counted from its own
+        // SKILL_START, so forget starts that belonged to the command just dropped.
         if (this != (CObjCHAR*)g_pAVATAR) {
-            pCommand->SetResultOfSkill(true);
             pCommand->SetValid(true);
+            m_iQueuedSkillStarts = 0;
         }
 
         m_CommandQueue.PushCommand(pCommand);
@@ -5594,19 +5611,23 @@ CObjCHAR::PushCommandSkill2Obj(WORD wSrvDIST,
     if (pCommand) {
         ((CObjSkill2ObjCommand*)pCommand)
             ->SetCMD_Skill2OBJ(wSrvDIST, PosTO, iServerTarget, nSkillIDX);
-        // Server-confirmed for anyone but the avatar: mark it as having its result
-        // (PushCommand would otherwise erase it as "no result yet" when the next
-        // command is queued behind it) AND as valid (PopCommand deletes an invalid
-        // skill command, and GSV_SKILL_START -- the avatar-flow validator -- can
-        // arrive after an owed swing has already popped the queue; measured on
-        // Terrasaurus King: the held Fireball at 16:00:14 was popped and deleted a
-        // second before its start packet, so it never played and its damage was
-        // consumed by the next melee hit frame). SKILL_START still gates when the
-        // popped cast may *begin* (SetStartSkill), so a cast the server cancels
-        // before Casting_START simply waits until the next server command.
+        // Remote caster (anyone but the avatar). Valid at push: PopCommand deletes
+        // an unvalidated skill command, and GSV_SKILL_START -- the avatar-flow
+        // validator -- can arrive after an owed swing has already popped the queue
+        // (a held Fireball was popped and deleted a second before its start packet;
+        // it never played and its damage was eaten by the next melee hit frame).
+        // NOT marked as "result received": PushCommand erases older result-less
+        // skill commands, and that is wanted -- the server's newest skill command
+        // replaces its previous one (SetCMD_Skill2OBJ is single-valued), and two
+        // queued skill commands deadlock here: a popped command re-queues itself
+        // while the queue is non-empty (CanApplyCommand), so neither ever applies
+        // (the boss's Charge and Fireball, superseded within the same second,
+        // reshuffled forever and the fireball damage landed on a melee frame).
+        // The start permission for the new command is counted from its own
+        // SKILL_START, so forget starts that belonged to the command just dropped.
         if (this != (CObjCHAR*)g_pAVATAR) {
-            pCommand->SetResultOfSkill(true);
             pCommand->SetValid(true);
+            m_iQueuedSkillStarts = 0;
         }
 
         m_CommandQueue.PushCommand(pCommand);
@@ -5625,19 +5646,23 @@ CObjCHAR::PushCommandSkill2Pos(const D3DVECTOR& PosGOTO, short nSkillIDX) {
 
     if (pCommand) {
         ((CObjSkill2PosCommand*)pCommand)->SetCMD_Skill2POS(PosGOTO, nSkillIDX);
-        // Server-confirmed for anyone but the avatar: mark it as having its result
-        // (PushCommand would otherwise erase it as "no result yet" when the next
-        // command is queued behind it) AND as valid (PopCommand deletes an invalid
-        // skill command, and GSV_SKILL_START -- the avatar-flow validator -- can
-        // arrive after an owed swing has already popped the queue; measured on
-        // Terrasaurus King: the held Fireball at 16:00:14 was popped and deleted a
-        // second before its start packet, so it never played and its damage was
-        // consumed by the next melee hit frame). SKILL_START still gates when the
-        // popped cast may *begin* (SetStartSkill), so a cast the server cancels
-        // before Casting_START simply waits until the next server command.
+        // Remote caster (anyone but the avatar). Valid at push: PopCommand deletes
+        // an unvalidated skill command, and GSV_SKILL_START -- the avatar-flow
+        // validator -- can arrive after an owed swing has already popped the queue
+        // (a held Fireball was popped and deleted a second before its start packet;
+        // it never played and its damage was eaten by the next melee hit frame).
+        // NOT marked as "result received": PushCommand erases older result-less
+        // skill commands, and that is wanted -- the server's newest skill command
+        // replaces its previous one (SetCMD_Skill2OBJ is single-valued), and two
+        // queued skill commands deadlock here: a popped command re-queues itself
+        // while the queue is non-empty (CanApplyCommand), so neither ever applies
+        // (the boss's Charge and Fireball, superseded within the same second,
+        // reshuffled forever and the fireball damage landed on a melee frame).
+        // The start permission for the new command is counted from its own
+        // SKILL_START, so forget starts that belonged to the command just dropped.
         if (this != (CObjCHAR*)g_pAVATAR) {
-            pCommand->SetResultOfSkill(true);
             pCommand->SetValid(true);
+            m_iQueuedSkillStarts = 0;
         }
 
         m_CommandQueue.PushCommand(pCommand);

@@ -358,6 +358,11 @@ public:
     /// command is held in m_CommandQueue while this is true, so the swing plays out
     /// (animation + digit at its hit frame) before the cast starts.
     bool OwesConfirmedSwingHitFrame(DWORD now);
+    /// GSV_SKILL_START packets received for a remote caster while its skill command
+    /// was still queued. m_bCanStartSkill is a single flag that the *current* cast's
+    /// action clears, so a start that arrived for the queued cast used to be lost;
+    /// count them instead and grant the flag when the queued command executes.
+    void OnRemoteSkillStartWhileQueued() { ++m_iQueuedSkillStarts; }
     /// Set by PresentPreemptedCombatSwing when the attack motion was still running
     /// at the time of the skill command: the hit frame may yet consume the swing,
     /// so the presentation waits for either that frame or Attack_END (the motion
@@ -944,6 +949,7 @@ protected:
     DWORD m_dwPendingAuthoritativeDeathTime; /// Tick when pending authoritative death was first flagged (0 = not pending). Backstop timeout source.
     DWORD m_dwPendingLethalSkillPayloadTime; /// Tick a lethal legacy skill payload for the avatar was received (0 = none).
     int m_iPendingLethalSkillPayloadCaster; /// Client index of that payload's caster.
+    int m_iQueuedSkillStarts; /// Remote caster: SKILL_STARTs received while a skill command was queued.
     uint32_t m_dwPendingCombatSwingEventId;
     int m_iPendingCombatSwingDefenderIndex;
     bool m_bPendingCombatSwingProjectile;

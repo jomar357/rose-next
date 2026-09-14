@@ -47,6 +47,10 @@ public:
     void SetValidResultOfSkill();
     CObjCommand* PopCommand(bool& bSkillCommand);
     CObjCommand* PopLastCommand(bool& bSkillCommand);
+    /// Is a skill command for this skill index waiting in the queue? Used by the
+    /// legacy skill-damage receive path: a payload for a cast that is still queued
+    /// on a remote caster must wait for that cast's action frame, not present now.
+    bool HasSkillCommand(int iSkillIDX);
 
     void ClearCommand();
 };
@@ -72,13 +76,12 @@ public:
 
     int GetType() { return m_iType; }
     bool bGetResultOfSkil() { return m_bGetResultOfSkill; }
-    /// A remote caster's queued skill command is server-confirmed by construction;
-    /// mark it so PushCommand does not erase it as "no result yet" when a second
-    /// command is queued behind it.
-    void SetResultOfSkill(bool bResult) { m_bGetResultOfSkill = bResult; }
-    /// Likewise valid at push for a remote caster: PopCommand deletes an invalid
-    /// skill command, and GSV_SKILL_START (the avatar-flow validator) can arrive
-    /// after the queue has already been popped behind an owed swing.
+    /// A remote caster's queued skill command is server-confirmed by construction,
+    /// so it is valid at push: PopCommand deletes an invalid skill command, and
+    /// GSV_SKILL_START (the avatar-flow validator) can arrive after the queue has
+    /// already been popped behind an owed swing. Deliberately NOT a "result
+    /// received" setter: PushCommand erasing older result-less skill commands is
+    /// what keeps a remote caster's queue to the newest server command.
     void SetValid(bool bValid) { m_bValid = bValid; }
 
     virtual bool Execute(CObjCHAR* pObjCHAR) = 0 { *(int*)0 = 10; };

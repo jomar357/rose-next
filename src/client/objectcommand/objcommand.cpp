@@ -248,6 +248,28 @@ CObjCommandManager::PopCommand(bool& bSkillCommand) {
 /// @brief 처리해야할 마지막 컴맨드.. 중간에 활성화된 스킬 명령이 있다면 스킬명령 수행..
 //----------------------------------------------------------------------------------------------------
 
+bool
+CObjCommandManager::HasSkillCommand(int iSkillIDX) {
+    std::list<CObjCommand*>::iterator it = m_ObjCommandList.begin();
+    for (; it != m_ObjCommandList.end(); ++it) {
+        switch ((*it)->m_iType) {
+            case OBJECT_COMMAND_Skill2SELF:
+                if (((CObjSkill2SelfCommand*)*it)->GetSkillIndex() == iSkillIDX)
+                    return true;
+                break;
+            case OBJECT_COMMAND_Skill2OBJ:
+                if (((CObjSkill2ObjCommand*)*it)->GetSkillIndex() == iSkillIDX)
+                    return true;
+                break;
+            case OBJECT_COMMAND_Skill2POS:
+                if (((CObjSkill2PosCommand*)*it)->GetSkillIndex() == iSkillIDX)
+                    return true;
+                break;
+        }
+    }
+    return false;
+}
+
 CObjCommand*
 CObjCommandManager::PopLastCommand(bool& bSkillCommand) {
     if (IsEmpty())

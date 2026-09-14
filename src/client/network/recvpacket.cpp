@@ -2878,9 +2878,12 @@ CRecvPACKET::Recv_gsv_SKILL_START() {
         // time -- see PushCommandSkill2Obj -- because this packet can arrive after
         // an owed swing has already popped the queue; the SetValidFlag here is then
         // a no-op and SetStartSkill is what matters.)
+        // Count it for the queued command rather than setting the shared flag:
+        // the cast currently playing clears that flag when its action begins,
+        // which used to eat the queued cast's start.
         if (pCHAR != (CObjCHAR*)g_pAVATAR && !pCHAR->m_CommandQueue.IsEmpty()) {
             pCHAR->m_CommandQueue.SetValidFlag();
-            pCHAR->SetStartSkill(true);
+            pCHAR->OnRemoteSkillStartWhileQueued();
         } else if (pCHAR->bCanStartSkill()) {
             /// assert( 0 && "Recv_gsv_SKILL_START" );
             /// 그렇다면 명령큐를 뒤져라..
@@ -3218,6 +3221,14 @@ CRecvPACKET::Recv_gsv_DAMAGE_OF_SKILL() {
 
     if (pChar && pChar->m_nToDoSkillIDX)
         iDoingSkillIDX = pChar->m_nToDoSkillIDX;
+
+    // A remote caster whose cast is still queued (held behind an owed swing, or
+    // behind its previous cast) is "doing" it too: its payload must wait for the
+    // action frame like a running cast's, or the digit shows a second before the
+    // animation starts (the boss's Charge presented at :45, its motion began at :46).
+    if (!iDoingSkillIDX && pChar && pChar != (CObjCHAR*)g_pAVATAR
+        && pChar->m_CommandQueue.HasSkillCommand(iSkillIDX))
+        iDoingSkillIDX = iSkillIDX;
 
     /*if( pChar && pChar->m_nToDoSkillIDX )
     iDoingSkillIDX = pChar->m_nDoingSkillIDX;   */
