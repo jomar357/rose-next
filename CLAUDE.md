@@ -526,7 +526,16 @@ and Stun Blast, like the source, has no success ratio, so the stun always lands
 when the event fires. The audit's release-clip warning now covers every cast,
 split into *projectile* (bullet never fires) and *payload* (resolves silently
 ~3 s late); ~110 retail self-buffs are in the payload list and are left alone.
-Not yet validated in game. Still stripped, none spawned: Inguz 654 (3044),
+First test (2026-09-14): the four imported casts never rolled — they live on
+the *attack-move* pattern (evaluated only while the boss chases) behind 25/8/8/5%
+rolls and extra gates (a buff on you; a second attacker; an enemy in reach) —
+and what read as "a spell with no status" was the boss's when-damaged
+self-casts 3596/3597, the same RoseZA rows imported nameless by the old Oro
+import with the column-88 status lost; re-imported over them (`overwrite`),
+which also repairs the Eldeon/Karkia casters sharing them. ~25 more
+RoseZA-lineage rows cast by shipped AI have the same loss (several stuns on
+Eldeon/Karkia monsters, see the importer docstring) — their own session.
+Still stripped, none spawned: Inguz 654 (3044),
 Penguin Artillery 1458 (2980), Gangster Pangs 1456/1457 (2979). Mini-Devourer
 2225 casts 3042 from a model with no skill clip at all (slots 0-5) — needs a
 model change. Two client rules came out of validating the kit: a remote caster's queued

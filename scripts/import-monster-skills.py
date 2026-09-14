@@ -109,6 +109,21 @@ clip. Fixed in the AI, not the CHR:
 Dispel is the retail design (a boss that strips your buffs); it cancels every
 buff, where 667 rolls 3-8. Tune with `set` if it plays too mean.
 
+The first in-game test (2026-09-14) never rolled the four: they sit on the
+"attack move" pattern behind 25% (dispel, and only while you carry a buff),
+8% (slow, and only when someone other than its target hit it), 8% and 5% (the
+two damage casts, with an enemy in reach) -- and that pattern is evaluated only
+while the boss is chasing, which a melee fighter standing on it rarely makes it
+do. What the tester saw instead was the boss winding up, playing a spell sound
+and applying nothing: its when-damaged self-casts **3596 / 3597**, the same
+RoseZA rows as 3609 / 3610 imported nameless by the old Oro import with the
+column-88 status lost. They are re-imported here over the identical rows
+(`overwrite`), which also fixes the Eldeon/Karkia casters sharing them
+(ed_s_kera01, ed_s_woman02, ks_2685). Survey note: ~25 more RoseZA-lineage rows
+cast by shipped AI carry a column-88 status our column 11 lacks or disagrees
+with -- several stuns (3527, 3551, 3560, 3562, 3572, 3582, 3595 -> 32) on
+Eldeon and Karkia monsters. Left for their own session.
+
 Usage
 -----
     python scripts/import-monster-skills.py --selftest
@@ -193,6 +208,11 @@ SKILLS = {
     3610: dict(name="Area Slow", source="RoseZA", set={11: 15, 21: 23, 23: 40}),
     3611: dict(name="Stun Blast", source="RoseZA", dmgtype=2, power=150, set={11: 32}),
     3613: dict(name="Range Attack", source="RoseZA", dest=7013, dmgtype=2, power=200),
+    # The boss's when-damaged self-casts: the same rows as 3609/3610, already here
+    # nameless and status-less from the old Oro import. `overwrite` lets the
+    # importer replace a row that matches the source cell-for-cell.
+    3596: dict(name="Dispel Buffs", source="RoseZA", set={11: 37}, overwrite=True),
+    3597: dict(name="Area Slow", source="RoseZA", set={11: 15, 21: 23, 23: 40}, overwrite=True),
 }
 
 # LIST_SKILL columns (io_skill.h)
@@ -319,9 +339,17 @@ class Plan:
         if dest < o.rows and not blank_row(o, dest):
             if o.get(dest, C_NAME) == spec["name"].encode("latin-1"):
                 self.skipped.append(sid)       # already imported on an earlier run
-            else:
-                self.problems.append("%s: our row %d is occupied (%r)" % (why, dest, o.get(dest, 0)))
-            return
+                return
+            # A row an earlier import copied verbatim (no name, status lost): the
+            # same source cells everywhere the spec does not rewrite.
+            skip_cols = {C_NAME, C_STATUS1, C_STATUS2, *spec.get("set", {}), *spec.get("clear", ())}
+            verbatim = all(o.get(dest, c).strip() == s.get(sid, c).strip()
+                           for c in range(o.cols) if c not in skip_cols)
+            if not (spec.get("overwrite") and verbatim):
+                self.problems.append("%s: our row %d is occupied (%r)%s"
+                                     % (why, dest, o.get(dest, 0),
+                                        "" if verbatim else " and differs from the source"))
+                return
         cells = [s.get(sid, c) for c in range(o.cols)]
         cells[C_NAME] = spec["name"].encode("latin-1")
         if "power" in spec:
