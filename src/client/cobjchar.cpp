@@ -3725,6 +3725,32 @@ CObjCHAR::Hitted(CObjCHAR* pFromOBJ,
                     pos.y,
                     pos.z + m_fStature,
                     this->IsA(OBJ_USER));
+                return true;
+            }
+
+            // The mirror image: the *avatar* (or its mount) swinging while it is
+            // pending authoritative death. The server committed our death before it
+            // sent the lethal packet, and every swing of ours it did run was sent
+            // before that on the same socket -- so a hit frame of ours arriving now
+            // with nothing queued is a swing the server never ran. Since the death
+            // now waits for the killer's real hit frame / projectile impact, this
+            // window is up to a couple of seconds of the player visibly connecting
+            // with no digit at all, which reads as "my attacks stopped reaching the
+            // monster". Present it as the miss it is. Digit only, then out: no
+            // damage, no HP change, no hit effect, no sound, nothing to the meter --
+            // and no ClearStateByHitted(), which would strip the target's buffs for a
+            // swing that never happened.
+            if (ShouldSuppressOutgoingDamageForPendingDeath(pFromOBJ)) {
+                LogString(LOG_DEBUG_,
+                    "CombatTrace pending-dead avatar swing presented as miss: attacker %d target %d\n",
+                    pFromOBJ->Get_INDEX(),
+                    this->Get_INDEX());
+
+                g_UIMed.CreateDamageDigit(0,
+                    pos.x,
+                    pos.y,
+                    pos.z + m_fStature,
+                    this->IsA(OBJ_USER));
             }
             return true;
         }
@@ -4301,6 +4327,53 @@ CObjCHAR::Proc(void) {
         - m_dwLastRecoveryUpdateTime; /// 이전프레임에서 현재 프레임 사이에 흐른시간을 더해준다.
     m_dwLastRecoveryUpdateTime = dwCurrentTime;
 
+    // "Can this deferred event still be presented?" -- shared by the avatar's
+    // pending-death backstop and the defender-side orphaned-damage sweep below, so
+    // there is exactly one definition of a live presentation vehicle.
+    auto fnPresentationStillLive = [](const Rose::Combat::DamageEvent& event) -> bool {
+        CObjCHAR* pAtkOBJ = g_pObjMGR->Get_CharOBJ(event.attacker_id, true);
+        if (!pAtkOBJ) {
+            return false;
+        }
+
+        // Still holding this exact event as its pending swing -- including a
+        // projectile already in flight, whose timing belongs to the bullet rather
+        // than to the attack motion.
+        if (pAtkOBJ->HasPendingCombatSwingEvent(event.event_id)) {
+            return true;
+        }
+        if (pAtkOBJ->IsPET()) {
+            CObjCHAR* pRider = ((CObjCART*)pAtkOBJ)->GetParent();
+            if (pRider && pRider->HasPendingCombatSwingEvent(event.event_id)) {
+                return true;
+            }
+        }
+
+        // A projectile's timing belongs to the bullet, not to the attack motion, so
+        // an idle attacker proves nothing -- and a skill projectile arrives as a
+        // FlatBuffer DamageEvent, which never records a pending swing to check
+        // against. The attacker still existing is all we can ask; the hard cap is
+        // what bounds it.
+        if (event.presentation_kind
+            == Rose::Combat::DamagePresentationKind::ProjectileImpact) {
+            return true;
+        }
+
+        // Otherwise: an attacker that is still swinging keeps producing hit frames,
+        // and the queue drains oldest-first, so an older event of its own is still
+        // reachable. The hard cap bounds this -- an attacker that swings forever at
+        // somebody else must not pin an event here for good.
+        return pAtkOBJ->Get_COMMAND() == CMD_ATTACK
+            || (pAtkOBJ->GetCombatSwingMotionOBJ()->Get_STATE() & CS_BIT_ATTACK) != 0;
+    };
+
+    // Slow attack motions (cart / castle gear weapons, low attack speed) and
+    // projectile flight put a killer's hit frame legitimately later than the
+    // pending-death grace. Deferring a death behind a live presentation is bounded
+    // by this cap so a consumer that never fires still resolves. Shared by the
+    // avatar backstop and the spectator stale-lethal fallback below.
+    static const DWORD kStaleLethalSwingHardCapMs = 6000;
+
     // Pending-authoritative-death backstop. The avatar can be flagged dead by the
     // server (Reconcile_HP(DEAD_HP)) or by a mid-swing kill, yet present nothing if
     // no incoming hit ever arrives to fold the death in -- e.g. a no-attacker kill
@@ -4308,13 +4381,34 @@ CObjCHAR::Proc(void) {
     // (mutual-death-on-kill in DrainQueuedCombatDamageFromAttacker) handles the
     // common case instantly; this is the catch-all so the player is never left
     // alive-client / dead-server and frozen. Wrap-safe DWORD subtraction.
+    //
+    // It must NOT fire while the death is still going to be presented by its own
+    // killer. PushCombatDamageEvent arms this flag for every lethal deferred event,
+    // and those have a real consumer coming: the killer's hit frame, or the bullet
+    // impact. Measured 2026-09-14 against a ranged monster: every shot landed ~2 s
+    // after its CombatSwing was received (wind-up plus flight), so a flat 1.5 s
+    // timer presented the death first -- with attacker 0, before the arrow had
+    // even been fired; the now-dead avatar then made the monster drop its attack
+    // (no-target branch of ProcCMD_ATTACK -> SetCMD_STOP), so the shot never
+    // appeared at all. Melee kills hit the same race whenever the hit frame is past
+    // 1.5 s (measured swing->hit-frame latency: median 1 s, 23% at 2 s or more).
+    // So while the queue holds a lethal deferred event whose presentation vehicle
+    // is still live, defer -- exactly the spectator stale-lethal rule below --
+    // bounded by the same hard cap. The moment the event leaves the queue (impact
+    // presented it, or the discard paths presented the death themselves) or its
+    // attacker can no longer present it, the 1.5 s grace applies again at once. A
+    // pending death with nothing queued (DoT / fall via Reconcile_HP) is unchanged.
     static const DWORD kPendingAuthoritativeDeathTimeoutMs = 1500;
     if (this == g_pAVATAR
         && m_bPendingAuthoritativeDeath
         && m_dwPendingAuthoritativeDeathTime != 0
         && this->Get_HP() > DEAD_HP
         && (dwCurrentTime - m_dwPendingAuthoritativeDeathTime)
-            >= kPendingAuthoritativeDeathTimeoutMs) {
+            >= kPendingAuthoritativeDeathTimeoutMs
+        && !m_CombatDamageQueue.has_live_lethal_pending(dwCurrentTime,
+            kStaleLethalSwingHardCapMs,
+            DEAD_HP,
+            fnPresentationStillLive)) {
         PresentPendingAuthoritativeDeath(NULL, "pending death timeout");
     }
 
@@ -4400,8 +4494,8 @@ CObjCHAR::Proc(void) {
     // event as its pending confirmed swing, the hit frame is coming -- defer the
     // stale pop instead of killing the defender mid-swing. Mounted swings key the
     // event to the cart but track the pending swing on the rider, so check both.
-    // The hard cap keeps the fallback alive for swings whose consumer never fires.
-    static const DWORD kStaleLethalSwingHardCapMs = 6000;
+    // The hard cap (kStaleLethalSwingHardCapMs, above) keeps the fallback alive
+    // for swings whose consumer never fires.
     auto fnSwingStillPending = [](const Rose::Combat::DamageEvent& event) -> bool {
         CObjCHAR* pAtkOBJ = g_pObjMGR->Get_CharOBJ(event.attacker_id, true);
         if (!pAtkOBJ || pAtkOBJ->Get_HP() <= DEAD_HP
@@ -4463,44 +4557,10 @@ CObjCHAR::Proc(void) {
     // Resolve exactly like a discarded projectile: fold the server-applied HP into
     // the shadow silently. No digit, no hit effect, no hit feedback -- the damage
     // was never presented and inventing it late would be a phantom hit.
+    // The liveness predicate (fnPresentationStillLive) is defined above the
+    // pending-death backstop, which shares it.
     static const DWORD kOrphanedDamageGraceMs = 3000;
     static const DWORD kOrphanedDamageHardCapMs = 8000;
-    auto fnPresentationStillLive = [](const Rose::Combat::DamageEvent& event) -> bool {
-        CObjCHAR* pAtkOBJ = g_pObjMGR->Get_CharOBJ(event.attacker_id, true);
-        if (!pAtkOBJ) {
-            return false;
-        }
-
-        // Still holding this exact event as its pending swing -- including a
-        // projectile already in flight, whose timing belongs to the bullet rather
-        // than to the attack motion.
-        if (pAtkOBJ->HasPendingCombatSwingEvent(event.event_id)) {
-            return true;
-        }
-        if (pAtkOBJ->IsPET()) {
-            CObjCHAR* pRider = ((CObjCART*)pAtkOBJ)->GetParent();
-            if (pRider && pRider->HasPendingCombatSwingEvent(event.event_id)) {
-                return true;
-            }
-        }
-
-        // A projectile's timing belongs to the bullet, not to the attack motion, so
-        // an idle attacker proves nothing -- and a skill projectile arrives as a
-        // FlatBuffer DamageEvent, which never records a pending swing to check
-        // against. The attacker still existing is all we can ask; the hard cap is
-        // what bounds it.
-        if (event.presentation_kind
-            == Rose::Combat::DamagePresentationKind::ProjectileImpact) {
-            return true;
-        }
-
-        // Otherwise: an attacker that is still swinging keeps producing hit frames,
-        // and the queue drains oldest-first, so an older event of its own is still
-        // reachable. The hard cap bounds this -- an attacker that swings forever at
-        // somebody else must not pin an event here for good.
-        return pAtkOBJ->Get_COMMAND() == CMD_ATTACK
-            || (pAtkOBJ->GetCombatSwingMotionOBJ()->Get_STATE() & CS_BIT_ATTACK) != 0;
-    };
 
     if (this->Get_HP() > DEAD_HP) {
         Rose::Combat::DamageEvent orphanEvent;

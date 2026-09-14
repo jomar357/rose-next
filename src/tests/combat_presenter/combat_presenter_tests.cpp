@@ -251,6 +251,33 @@ struct HpHarness {
         pending_correction = 0;
     }
 
+    // Mirrors the CObjCHAR::Proc() pending-death backstop decision for the local
+    // avatar: flagged pending-dead, still alive on screen, past the grace -- and no
+    // queued lethal deferred event whose presentation vehicle is still live (that
+    // one will present the death itself; the hard cap bounds the wait).
+    template <typename StillLive>
+    bool backstop_fires(uint32_t now_ms,
+        uint32_t pending_since_ms,
+        uint32_t grace_ms,
+        uint32_t hard_cap_ms,
+        StillLive&& still_live) const {
+        static const int kDeadHp = 0;
+        return pending_authoritative_death && visible_hp > 0
+            && (now_ms - pending_since_ms) >= grace_ms
+            && !queue.has_live_lethal_pending(now_ms, hard_cap_ms, kDeadHp, still_live);
+    }
+
+    // Mirrors PushCombatDamageEvent for the local avatar: stamp the queue time and
+    // arm the pending-death flag when the event is lethal.
+    void queue_on_avatar(DamageEvent e, uint32_t now_ms) {
+        e.queued_at_ms = now_ms;
+        queue.push(e);
+        if (e.lethal || e.hp_after <= 0) {
+            pending_authoritative_death = true;
+            pending_correction = 0;
+        }
+    }
+
     PresentationResult present_stale_lethal(uint32_t now_ms, uint32_t grace_ms) {
         static const int kDeadHp = 0;
         DamageEvent e;
@@ -403,6 +430,16 @@ private:
     PresentationResult hit_internal(uint32_t attacker, bool suppress_for_pending_dead_attacker, HpHarness* pending_dead_attacker) {
         DamageEvent e;
         if (!queue.pop_for_attacker(attacker, e)) {
+            // Mirrors Hitted()'s NoEvent branch for a pending-dead avatar attacker:
+            // the server never ran this swing (it committed our death first), so
+            // it is presented as a bare MISS digit -- no HP, no feedback.
+            if (suppress_for_pending_dead_attacker && pending_dead_attacker
+                && pending_dead_attacker->pending_authoritative_death) {
+                displayed_damage = 0;
+                ++displayed_digits;
+                ++suppressed_outgoing_attacks;
+                return PresentationResult::PresentedMiss;
+            }
             return PresentationResult::NoEvent;
         }
         return present_event(e, suppress_for_pending_dead_attacker, pending_dead_attacker);
@@ -1085,6 +1122,125 @@ main() {
         h.present_pending_authoritative_death();
         expect(h.visible_hp == 0, "backstop timeout presents the pending death");
         expect(!h.pending_authoritative_death, "backstop present clears the pending flag");
+    }
+
+    {
+        // Backstop vs a live lethal presentation -- the 2026-09-14 ranged repro. A
+        // ranged monster's shot lands ~2 s after its CombatSwing is received, and the
+        // lethal one is queued as ProjectileImpact exactly like the shots before it.
+        // The flat 1.5 s backstop used to present the death first, before the arrow
+        // had even been fired. While the killer can still present the event, the
+        // backstop must wait for the impact.
+        static const uint32_t kGrace = 1500;
+        static const uint32_t kHardCap = 6000;
+        auto live = [](const DamageEvent&) { return true; };
+        auto dead_vehicle = [](const DamageEvent&) { return false; };
+
+        HpHarness h;
+        DamageEvent shot = event(165, 1007, 89, -30000, true);
+        shot.presentation_kind = DamagePresentationKind::ProjectileImpact;
+        h.queue_on_avatar(shot, 0);
+        expect(h.pending_authoritative_death, "queueing a lethal event arms the pending flag");
+        expect(!h.backstop_fires(1500, 0, kGrace, kHardCap, live),
+            "ranged: the backstop must not fire at the grace while the bullet is coming");
+        expect(!h.backstop_fires(2000, 0, kGrace, kHardCap, live),
+            "ranged: still waiting at the measured impact time");
+        expect(h.visible_hp == 100, "ranged: the avatar is visibly alive until the impact");
+        expect(h.hit(1007) == PresentationResult::PresentedDeath,
+            "ranged: the bullet impact presents the death through the normal hit path");
+        expect(h.visible_hp == 0 && !h.pending_authoritative_death,
+            "ranged: impact kills and clears the pending flag");
+        expect(!h.backstop_fires(9000, 0, kGrace, kHardCap, live),
+            "ranged: nothing left for the backstop once the death was presented");
+
+        // Melee with a slow hit frame: same rule, MeleeHitFrame kind.
+        h = HpHarness();
+        h.queue_on_avatar(event(166, 1008, 120, 0, true), 0);
+        expect(!h.backstop_fires(1500, 0, kGrace, kHardCap, live),
+            "melee: a live swing defers the backstop past the grace");
+        expect(h.hit(1008) == PresentationResult::PresentedDeath,
+            "melee: the hit frame presents the death");
+
+        // The presentation vehicle is gone (attacker despawned / motion never
+        // started): the grace applies immediately.
+        h = HpHarness();
+        h.queue_on_avatar(shot, 0);
+        expect(!h.backstop_fires(1499, 0, kGrace, kHardCap, dead_vehicle),
+            "dead vehicle: still inside the grace");
+        expect(h.backstop_fires(1500, 0, kGrace, kHardCap, dead_vehicle),
+            "dead vehicle: fires at the grace, nothing is coming to present it");
+
+        // Hard cap: a vehicle that claims to be live forever cannot pin the death.
+        h = HpHarness();
+        h.queue_on_avatar(shot, 0);
+        expect(!h.backstop_fires(5999, 0, kGrace, kHardCap, live),
+            "hard cap: still deferring just under the cap");
+        expect(h.backstop_fires(6000, 0, kGrace, kHardCap, live),
+            "hard cap: fires at the cap regardless of the vehicle");
+
+        // The event left the queue without presenting (exact discard presents the
+        // death itself in the client; here the discard path clears the flag).
+        h = HpHarness();
+        h.queue_on_avatar(shot, 0);
+        expect(h.discard_event(165, true) == PresentationResult::PresentedDeath,
+            "discard: the lethal avatar discard presents the death itself");
+        expect(!h.backstop_fires(1500, 0, kGrace, kHardCap, live),
+            "discard: nothing pending afterwards");
+
+        // No event at all (DoT / fall damage via reconcile-to-dead): unchanged 1.5 s.
+        h = HpHarness();
+        h.reconcile(0);
+        expect(!h.backstop_fires(1499, 0, kGrace, kHardCap, live),
+            "no event: inside the grace");
+        expect(h.backstop_fires(1500, 0, kGrace, kHardCap, live),
+            "no event: an empty queue never defers the backstop");
+
+        // A queued NON-lethal event does not hold the backstop, even if live: only a
+        // lethal presentation can fold the death in on its own schedule.
+        h = HpHarness();
+        h.reconcile(0);
+        DamageEvent chip = event(167, 1009, 5, 40);
+        chip.presentation_kind = DamagePresentationKind::ProjectileImpact;
+        h.queue_on_avatar(chip, 0);
+        expect(h.backstop_fires(1500, 0, kGrace, kHardCap, live),
+            "non-lethal queued damage must not defer the backstop");
+
+        // An immediate kind is never deferred, so it never counts either.
+        h = HpHarness();
+        DamageEvent tick = event(168, 1010, 5, 0, true);
+        tick.presentation_kind = DamagePresentationKind::StatusTick;
+        h.queue_on_avatar(tick, 0);
+        expect(h.backstop_fires(1500, 0, kGrace, kHardCap, live),
+            "an immediate-kind lethal event has no vehicle to wait for");
+
+        // While the death waits for the impact, the avatar keeps swinging and the
+        // server -- which already killed us -- sends nothing for those swings. An
+        // event-less hit frame of ours presents as a MISS digit, not as nothing;
+        // the target's HP and everything else stay untouched. Once the death is
+        // presented the rule stops (the swing is then a corpse's, handled elsewhere).
+        h = HpHarness();
+        h.queue_on_avatar(shot, 0);
+        HpHarness target;
+        expect(target.outgoing_hit_while_pending_dead(374, &h) == PresentationResult::PresentedMiss,
+            "pending-dead avatar: an event-less hit frame presents a MISS digit");
+        expect(target.displayed_damage == 0 && target.displayed_digits == 1
+                && target.visible_hp == 100 && target.suppressed_outgoing_attacks == 1,
+            "pending-dead avatar: the miss is digit-only");
+        expect(h.hit(1007) == PresentationResult::PresentedDeath,
+            "pending-dead avatar: the impact still presents the death normally");
+        expect(target.outgoing_hit_while_pending_dead(374, &h) == PresentationResult::NoEvent,
+            "after the death is presented the event-less hit frame is silent again");
+        HpHarness alive;
+        expect(target.outgoing_hit_while_pending_dead(374, &alive) == PresentationResult::NoEvent,
+            "an alive avatar's event-less hit frame stays silent (no false MISS)");
+
+        // Wrap-safe: a tick counter that wrapped between queue and check still ages.
+        h = HpHarness();
+        h.queue_on_avatar(shot, 0xFFFFFF00u);
+        expect(!h.backstop_fires(0x000005DCu, 0xFFFFFF00u, kGrace, kHardCap, live),
+            "wrap: 1500 ms across the DWORD wrap still defers behind a live vehicle");
+        expect(h.backstop_fires(0x00001770u + 0x100u, 0xFFFFFF00u, kGrace, kHardCap, live),
+            "wrap: the hard cap across the wrap still fires");
     }
 
     {

@@ -404,6 +404,42 @@ public:
         return false;
     }
 
+    // Is a committed death still waiting on a presentation that can actually
+    // arrive? Deferred kinds only (MeleeHitFrame / ProjectileImpact -- the two
+    // that wait for a hit frame or a bullet impact); still_live(event) is the
+    // caller's liveness test for that presentation vehicle; hard_cap_ms bounds
+    // the wait from queued_at_ms so a consumer that never fires still resolves.
+    //
+    // This is what lets the avatar's pending-death backstop wait for the killer's
+    // real hit frame / projectile impact instead of presenting the death on a flat
+    // timer: a ranged monster's shot lands ~2 s after the swing is received, and a
+    // 1.5 s backstop killed the player before the arrow had even been fired.
+    template <typename StillLive>
+    bool has_live_lethal_pending(uint32_t now_ms,
+        uint32_t hard_cap_ms,
+        int32_t dead_hp,
+        StillLive&& still_live) const {
+        // Not is_deferred_presentation(): that helper deliberately answers false
+        // for lethal events, and lethal events are the only ones asked about here.
+        for (const auto& event: m_events) {
+            if (event.presentation_kind != DamagePresentationKind::MeleeHitFrame
+                && event.presentation_kind != DamagePresentationKind::ProjectileImpact) {
+                continue;
+            }
+            if (!event.lethal && event.hp_after > dead_hp) {
+                continue;
+            }
+            const uint32_t age_ms = now_ms - event.queued_at_ms;
+            if (age_ms >= hard_cap_ms) {
+                continue;
+            }
+            if (still_live(event)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     // Is this exact event still queued? Used by the attacker side to tell "my
     // confirmed swing has not been presented yet" from "the pending-swing id is
     // stale because the hit frame already consumed it".
