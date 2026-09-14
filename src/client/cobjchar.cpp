@@ -2978,9 +2978,31 @@ CObjCHAR::ApplyPresentedCombatDamage(CObjCHAR* pAtkOBJ, Rose::Combat::DamageEven
 
     const int visibleBefore = this->Get_HP();
     const int displayDamage = max(0, static_cast<int>(event.damage_value));
+
+    // Pending authoritative death is normally folded into the next incoming hit
+    // (a death announced by a stat sync has no consumer of its own). Not when the
+    // killing blow itself is still queued behind this event, though: then this is
+    // simply the earlier swing of a two-swing backlog, and folding here shows the
+    // death at the wrong HP with the wrong digit (2026-09-14, Terrasaurus King:
+    // event 116 for 477 presented death from a visible 843 while the real 619
+    // killing blow, event 119, sat queued for its hit frame one second later).
+    // The lethal event keeps its own presentation; the stale-lethal fallback and
+    // the Proc() backstop still cover it if that consumer never fires.
+    const bool bLethalStillQueued = this == g_pAVATAR
+        && m_CombatDamageQueue.has_lethal_pending(DEAD_HP);
     bool lethal = event.lethal || event.hp_after <= DEAD_HP
         || ((m_bPendingAuthoritativeDeath || (m_bHasAuthoritativeHP && m_iAuthoritativeHP <= DEAD_HP))
-            && displayDamage > 0);
+            && displayDamage > 0 && !bLethalStillQueued);
+    if (bLethalStillQueued && !lethal && m_bPendingAuthoritativeDeath) {
+        LogString(LOG_DEBUG_,
+            "CombatTrace pending death left to queued lethal event: target %d event %u seq %u damage %d hp_after %d visible hp %d\n",
+            this->Get_INDEX(),
+            event.event_id,
+            event.defender_seq,
+            displayDamage,
+            event.hp_after,
+            visibleBefore);
+    }
 
     if (displayDamage <= 0 && !lethal) {
         return;

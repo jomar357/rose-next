@@ -488,8 +488,12 @@ private:
         displayed_damage = display_damage;
         ++displayed_digits;
 
+        // The pending-death fold stands down while the killing blow itself is
+        // still queued: that event presents the death at its own hit frame.
+        const bool lethal_still_queued = queue.has_lethal_pending(0);
         bool lethal = e.lethal || e.hp_after <= 0
-            || ((pending_authoritative_death || authoritative_hp <= 0) && display_damage > 0);
+            || ((pending_authoritative_death || authoritative_hp <= 0) && display_damage > 0
+                && !lethal_still_queued);
         int hp_after_delta = visible_hp;
         int hp_delta = display_damage;
 
@@ -2148,6 +2152,39 @@ main() {
         expect(h.present_preempted_event(99) == PresentationResult::NoEvent,
             "unknown event id presents nothing");
         expect(h.visible_hp == 100 && h.queue.size() == 1, "queue and bar untouched");
+    }
+
+    {
+        // Two-swing backlog ending in a kill (Terrasaurus King fight 2, 2026-09-14):
+        // the non-lethal 477 and the lethal 619 are both queued when the killing
+        // blow is received. The 477 must present as an ordinary hit; the death
+        // belongs to the 619 at its own hit frame, with its own digit.
+        HpHarness h;
+        h.visible_hp = 843;
+        h.authoritative_hp = 843;
+        h.queue_on_avatar(event(116, 10, 477, 366), 0);
+        h.queue_on_avatar(event(119, 10, 619, -30000, true), 0);
+        expect(h.pending_authoritative_death, "queued lethal event arms pending death");
+        expect(h.hit(10) == PresentationResult::PresentedDamage,
+            "earlier swing of the backlog presents as damage, not as the death");
+        expect(h.visible_hp == 366, "earlier swing lands on its own checkpoint");
+        expect(h.displayed_damage == 477, "earlier swing shows its own digit");
+        expect(h.pending_authoritative_death, "death stays pending for the killing blow");
+        expect(h.hit(10) == PresentationResult::PresentedDeath, "killing blow presents the death");
+        expect(h.displayed_damage == 619, "death digit is the killing blow");
+        expect(h.visible_hp == 0 && !h.pending_authoritative_death, "avatar is dead, nothing pending");
+    }
+
+    {
+        // Control: pending death with NO lethal event queued (announced by a stat
+        // sync) still folds into the next incoming hit, as before.
+        HpHarness h;
+        h.reconcile(0);
+        expect(h.pending_authoritative_death, "stat-sync death is pending");
+        h.queue.push(event(1, 10, 25, 75));
+        expect(h.hit(10) == PresentationResult::PresentedDeath,
+            "with no queued killing blow the next hit presents the death");
+        expect(h.visible_hp == 0, "avatar is dead");
     }
 
     std::cout << "combat_presenter_tests passed\n";
