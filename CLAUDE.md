@@ -471,8 +471,16 @@ the same lineage as RoseZA's (it refuses if an index is occupied by something
 else), and **does not copy `SKILL_POWER`** — RoseZA's 3500/2000 would one-shot at
 our stat scale, our own monster attack skills run 25-100, and for a 2900-ATK
 boss the weapon formula floors at ~1400 regardless of power, so both use the
-magic formula at 450/350 (~a quarter of a same-level player's HP). Sequence:
-import → `audit-ai-skill-refs.py --restore` → `audit-ai-skill-refs.py` again.
+magic formula. The first cut (450/350, sized on balance-sim's synthetic Knight)
+measured 2x too hot on the real tester (6.4 damage per power point); they are
+now **230/190**, which landed Fireball at 1436-1447 on a 6102-HP character.
+Sequence: import → `audit-ai-skill-refs.py --restore` → `audit-ai-skill-refs.py`
+again. Two client rules came out of validating the kit: a remote caster's queued
+skill command must be validated on `GSV_SKILL_START` (a mob's second cast was
+being deleted, its lethal projectile then died by the 6 s timeout), and a lethal
+legacy `GSV_DAMAGE_OF_SKILL` payload arms pending death at receive (else the
+avatar's swings in the 2 s before the caster's action frame are silent instead
+of MISS). Both in client `CLAUDE.md`.
 
 ### Debugging a Client Crash or Freeze
 
