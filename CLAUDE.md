@@ -535,6 +535,18 @@ import with the column-88 status lost; re-imported over them (`overwrite`),
 which also repairs the Eldeon/Karkia casters sharing them. ~25 more
 RoseZA-lineage rows cast by shipped AI have the same loss (several stuns on
 Eldeon/Karkia monsters, see the importer docstring) — their own session.
+**The fifth failure class is a gate nobody can pass**: even at a 100% roll
+(`--rechance FILE.aip:SKILL=PCT`, for testing) the two damage casts never
+fired, because their condition 02 ("N enemies within D m with level diff in
+[lo, hi]") is authored as [100, 100] — our server reads it through the 2004
+`short nLevelDiff/nLevelDiff2` layout, and a target exactly 100 levels below
+the boss does not exist. RoseZA's server evidently read that as "any". Fixed
+with `--rewindow FILE.aip:SKILL=LO,HI` (-100,100); the audit warns about any
+cast behind a lo >= hi window (only these two in the tree; 18 more such
+windows gate retail movement). Also: a pattern's events are first-match-wins,
+so a 100% event starves everything after it — bump one at a time. All four
+casts plus the self-casts validated in game 2026-09-14: bolt ~1200 with a
+real projectile, Stun Blast ~820 with the stun, slow and dispel with icons.
 Still stripped, none spawned: Inguz 654 (3044),
 Penguin Artillery 1458 (2980), Gangster Pangs 1456/1457 (2979). Mini-Devourer
 2225 casts 3042 from a model with no skill clip at all (slots 0-5) — needs a
