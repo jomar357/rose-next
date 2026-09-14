@@ -44,6 +44,9 @@ What the dangling ids are (RoseZA / 667 LIST_SKILL), for the day they get import
   or_gmdevourer1.aip  3609 AOE movement-speed reduction (667: "Dispell (3-8) Buffs"), type 12/8
                       3610 Slow (AOE)    type 8, duration 30
                       3611 Stun + Damage AOE, type 17, power 400
+                      3613 Range Attack, type 6 projectile, power 300 -- collides with our
+                                         Karkia Stun (Jrose 3613); imported at 7013 and
+                                         re-pointed with --remap (2026-09-14)
   inguz.aip           3044 (type 7 area magic, power 200, Korean name)
   kh_2676.aip         871  Voltage Jolt  type 6, Jrose power 700 -- Karkia's AI is Jrose's,
                                          so the id is Jrose's (RoseZA's 871 is a different row)
@@ -61,16 +64,49 @@ stripped. The restore is whole-file, so do it before re-running, not after.
 The third failure mode: a cast that can never present itself
 --------------------------------------------------------------
 A monster casts with the AI action's nMotion: CHR slot nMotion plays the wind-up
-and slot nMotion+1 the release, and a projectile skill lands on screen only if
-the release clip carries an action frame that presents it -- 24/34 (ActionSkill
-launches the bullet), 26 (FireEffectBullet) or 25 (ProcImmediateSkillHit). A
-release clip with none of them never fires: the server's damage lands on some
-later melee frame with no visual and the queued status payload times out. Found
-2026-09-14 on Mukuroji (pig attack clip as the release) and Orgeid (Jrose's own
-CHR holds the event-less casting clip in both slots). The audit walks every
-monster's AI casts and WARNS about these (it never strips them -- the fix is a
-CHR slot, see import-karkia.py CHR_MOTION_OVERRIDE / fix-chr-skill-slots.py).
+and slot nMotion+1 the release, on the client (CObjMOB::GetANI_Casting/GetANI_Skill)
+and on the server (CObjNPC) alike -- 1498 of the 1565 casts we ship follow it. The
+server sends the skill's result (GSV_DAMAGE_OF_SKILL / GSV_EFFECT_OF_SKILL) when
+its own casting motion ends, and the client parks that payload on the caster
+until the release clip's action frame: 24/34 (ActionSkill -- for a projectile
+skill this is what launches the bullet), or 25/35/26/10/20/56/66
+(ActionImmediateSkill). A release clip with none of them never presents:
+
+  * projectile skill -> the bullet never fires; the damage lands on a later melee
+    frame with no visual and the status payload times out (Mukuroji, whose
+    release is the pig attack clip; Orgeid, whose Jrose CHR held the event-less
+    casting clip in both slots -- fixed by a CHR slot, see import-karkia.py
+    CHR_MOTION_OVERRIDE / fix-chr-skill-slots.py);
+  * any other skill -> the parked payload is resolved *silently* after the 3 s
+    abandon grace (CObjCHAR::ProcTimeOutEffectedSkill): HP folds with no digit,
+    no hit effect, and the status lands late with no cast to explain it.
+
+Two shapes cause it. A CHR slot holding the wrong clip (Orgeid) is fixed in the
+CHR. An AI authored against a different slot layout is fixed in the AI: Grand
+Master Devourer's model has (charge, skill01, charge, skill02) in slots 6-9 --
+two wind-up/release pairs at 6/7 and 8/9 -- and RoseZA's OR_GMdevourer1.aip
+casts on 7 and 9 (release = the event-less charge clip, and slot 10 does not
+exist) and its self-buffs on 2 (release = the hit clip). `--remotion
+FILE.aip:OLD=NEW` re-points every cast on nMotion OLD to NEW (7=6, 9=8, 2=6 for
+the Devourer), recorded in the manifest like --remap. Mini-Devourer 2225 is the
+model with no skill clip at all (slots 0-5) casting 3042 on 8; that needs a
+model change and is only reported.
+
+The audit walks every monster's AI casts and WARNS about both classes (it never
+strips them). Retail ships ~110 such casts (self-buffs on Smoulys, Kaiman, the
+Salamander Flames, ...) whose release clip has no event -- their status arrives
+~3 s late and silently; listed, not fixed.
+
 Warnings do not fail --verify unless --strict-motions is given.
+
+Re-pointing casts (both recorded in build/ai-skill-refs/manifest.json, both undone
+by --restore; `--restore --only FILE.aip` undoes one file and leaves the rest of
+the manifest alone -- the whole-manifest restore also reverts KH_2676's 923 remap):
+
+    python scripts/audit-ai-skill-refs.py --remap    or_gmdevourer1.aip:3613=7013
+    python scripts/audit-ai-skill-refs.py --remotion or_gmdevourer1.aip:7=6 \
+                                          --remotion or_gmdevourer1.aip:9=8 \
+                                          --remotion or_gmdevourer1.aip:2=6
 
 What it does
 ------------
@@ -124,7 +160,8 @@ NPC_STB = os.path.join("data", "3DDATA", "STB", "LIST_NPC.STB")
 AI_STB = os.path.join("data", "3DDATA", "STB", "FILE_AI.STB")
 NPC_CHR = os.path.join("data", "3DDATA", "NPC", "LIST_NPC.CHR")
 NPC_AI_COL = 16
-PRESENTER_FRAMES = {24, 34, 26, 25}
+PRESENTER_FRAMES = {24, 34, 26, 25}                    # frames that launch a projectile skill
+PAYLOAD_FRAMES = {24, 34, 25, 35, 26, 10, 20, 56, 66}  # frames that drain a parked skill payload
 
 
 def load(name):
@@ -280,29 +317,54 @@ def remap(b, old_id, new_id):
     return mon.build_aip(hdr, title, newpats, tail), n
 
 
-def do_remap(root, specs, dry):
+def remotion(b, old_motion, new_motion):
+    """Rewrite every AIACT24 nMotion == old_motion to new_motion. Returns (bytes, count)."""
+    hdr, title, pats, tail = mon.parse_aip(b)
+    n = 0
+    newpats = []
+    for pn, evs in pats:
+        newevs = []
+        for en, cs, acts in evs:
+            out = []
+            for a in acts:
+                s = act_skill(a)
+                if s and s[2] == old_motion:
+                    a = a[:MOTION_OFF] + struct.pack("<h", new_motion) + a[MOTION_OFF + 2:]
+                    n += 1
+                out.append(a)
+            newevs.append((en, cs, out))
+        newpats.append((pn, newevs))
+    return mon.build_aip(hdr, title, newpats, tail), n
+
+
+def do_remap(root, specs, motion_specs, dry):
     """specs: ['file.aip:OLD=NEW', ...] -- re-point casts whose id collides with one
-    of our own skills to the row the importer put the real skill on."""
+    of our own skills to the row the importer put the real skill on.
+    motion_specs: the same syntax for nMotion -- re-point casts authored against a
+    slot layout the model does not have (see the docstring)."""
     bdir = os.path.join(root, BACKUP_DIR)
     mpath = os.path.join(bdir, MANIFEST)
     man = json.load(open(mpath)) if os.path.isfile(mpath) else {"files": {}}
     files = {os.path.basename(p).lower(): p for p in mon.aip_files(root)}
-    for spec in specs:
+    jobs = [("remapped", remap, "skill", sp) for sp in specs] + \
+           [("remotioned", remotion, "motion", sp) for sp in motion_specs]
+    for key, fn_apply, what, spec in jobs:
         fn, ids = spec.split(":")
-        old_id, new_id = (int(x) for x in ids.split("="))
+        old_v, new_v = (int(x) for x in ids.split("="))
         p = files.get(fn.lower())
         if not p:
             print("no such AI file: %s" % fn)
             return 1
         b = open(p, "rb").read()
-        out, n = remap(b, old_id, new_id)
-        print("   %-28s %d -> %d : %d record(s)%s" % (fn, old_id, new_id, n, "  (dry run)" if dry else ""))
+        out, n = fn_apply(b, old_v, new_v)
+        print("   %-28s %s %d -> %d : %d record(s)%s"
+              % (fn, what, old_v, new_v, n, "  (dry run)" if dry else ""))
         if dry or n == 0:
             continue
         rel = os.path.relpath(p, root).replace("\\", "/")
         man["files"].setdefault(rel, {})
         man["files"][rel].setdefault("original", base64.b64encode(b).decode("ascii"))
-        man["files"][rel].setdefault("remapped", []).append({"from": old_id, "to": new_id, "count": n})
+        man["files"][rel].setdefault(key, []).append({"from": old_v, "to": new_v, "count": n})
         open(p, "wb").write(out)
     if not dry:
         os.makedirs(bdir, exist_ok=True)
@@ -350,8 +412,10 @@ def resolve_ci(root, rel):
 
 
 def motion_warnings(root):
-    """[(npc, name, aip, skill, slot, clip, events)] for casts whose release clip
-    cannot present a projectile skill. Read-only; the fix is a CHR slot."""
+    """[(npc, name, aip, skill, type, kind, slot, clip, events)] for casts whose
+    release clip (CHR slot nMotion+1) carries no frame that presents the skill.
+    kind is "projectile" (bullet never launches) or "payload" (the parked result
+    resolves silently ~3 s late). Read-only; the fix is a CHR slot or --remotion."""
     oro = load("import-oro")
     npc = rd.Stb(os.path.join(root, NPC_STB))
     ai = rd.Stb(os.path.join(root, AI_STB))
@@ -379,12 +443,19 @@ def motion_warnings(root):
             casts_cache[p] = casts
         entry = chr_.chars[r] if r < len(chr_.chars) else None
         anims = dict(entry["anims"]) if entry else {}
+        name = npc.get(r, 0).decode("latin-1", "replace")
         for sid, motion in sorted(casts_cache[p]):
-            if sid <= 0 or sid >= skills.rows or not projectile_presented(skills, sid):
+            if sid <= 0 or sid >= skills.rows:
                 continue
+            t = skills.get(sid, 5).strip()
+            t = int(t) if t.isdigit() else 0
+            if t == 0:
+                continue                      # a dangling cast: the strip pass reports it
+            proj = projectile_presented(skills, sid)
+            kind, need = ("projectile", PRESENTER_FRAMES) if proj else ("payload", PAYLOAD_FRAMES)
             slot = motion + 1
             if slot not in anims:
-                out.append((r, npc.get(r, 0).decode("latin-1", "replace"), fn, sid, slot, "<no clip in slot>", ()))
+                out.append((r, name, fn, sid, t, kind, slot, "<no clip in slot>", ()))
                 continue
             rel = chr_.motions[anims[slot]].decode("latin-1")
             if rel not in ev_cache:
@@ -392,21 +463,25 @@ def motion_warnings(root):
                 ev_cache[rel] = zmo_events(path) if path else None
             ev = ev_cache[rel]
             if ev is None:
-                out.append((r, npc.get(r, 0).decode("latin-1", "replace"), fn, sid, slot, os.path.basename(rel), "<file missing>"))
-            elif not (ev & PRESENTER_FRAMES):
-                out.append((r, npc.get(r, 0).decode("latin-1", "replace"), fn, sid, slot, os.path.basename(rel), tuple(sorted(ev))))
+                out.append((r, name, fn, sid, t, kind, slot, os.path.basename(rel), "<file missing>"))
+            elif not (ev & need):
+                out.append((r, name, fn, sid, t, kind, slot, os.path.basename(rel), tuple(sorted(ev))))
     return out
 
 
 def report_motion_warnings(warns):
     if not warns:
-        print("\nrelease clips: every projectile-presented cast has a frame that presents it.")
+        print("\nrelease clips: every cast's release clip carries a frame that presents it.")
         return
-    print("\nWARNING: %d cast(s) whose release clip cannot present a projectile skill "
-          "(fix = CHR slot, see import-karkia.py CHR_MOTION_OVERRIDE):" % len(warns))
-    for r, name, fn, sid, slot, clip, ev in warns:
-        print("   npc %4d %-24s %-22s skill %4d  slot %d = %-36s %s"
-              % (r, name[:24] or "(nameless)", fn, sid, slot, clip, ev if isinstance(ev, str) else "frames %s" % list(ev)))
+    nproj = sum(1 for w in warns if w[5] == "projectile")
+    print("\nWARNING: %d cast(s) whose release clip (slot nMotion+1) cannot present the skill "
+          "-- %d projectile (bullet never fires), %d payload (result resolves silently ~3 s late).\n"
+          "   fix = CHR slot (import-karkia.py CHR_MOTION_OVERRIDE) or --remotion; never stripped:"
+          % (len(warns), nproj, len(warns) - nproj))
+    for r, name, fn, sid, t, kind, slot, clip, ev in warns:
+        print("   npc %4d %-24s %-22s skill %4d type %2d %-10s slot %2d = %-34s %s"
+              % (r, name[:24] or "(nameless)", fn, sid, t, kind, slot, clip,
+                 ev if isinstance(ev, str) else "frames %s" % list(ev)))
 
 
 def report(todo):
@@ -416,7 +491,10 @@ def report(todo):
                   % (os.path.basename(p), skill, TARGET_LABEL.get(tgt, tgt), motion, why))
 
 
-def do_restore(root):
+def do_restore(root, only=None):
+    """Put the manifest's originals back. `only` restores one file (matched by
+    basename) and keeps the manifest for the others -- the whole-file restore
+    would also undo every other file's strip and remap."""
     bdir = os.path.join(root, BACKUP_DIR)
     mpath = os.path.join(bdir, MANIFEST)
     if not os.path.isfile(mpath):
@@ -425,9 +503,18 @@ def do_restore(root):
     man = json.load(open(mpath))
     n = 0
     for rel, rec in sorted(man["files"].items()):
+        if only and os.path.basename(rel).lower() != only.lower():
+            continue
         open(os.path.join(root, rel), "wb").write(base64.b64decode(rec["original"]))
+        del man["files"][rel]
         n += 1
-    os.remove(mpath)
+    if only and n == 0:
+        print("no such file in the manifest: %s" % only)
+        return 1
+    if man["files"]:
+        json.dump(man, open(mpath, "w"), indent=1)
+    else:
+        os.remove(mpath)
     print("restored %d file(s) from %s" % (n, bdir))
     return 0
 
@@ -441,18 +528,22 @@ def main():
     ap.add_argument("--selftest", action="store_true", help="prove the rewriter round-trips")
     ap.add_argument("--remap", action="append", default=[], metavar="FILE.aip:OLD=NEW",
                     help="re-point a cast whose id collides with one of our skills")
+    ap.add_argument("--remotion", action="append", default=[], metavar="FILE.aip:OLD=NEW",
+                    help="re-point every cast on nMotion OLD to NEW (model slot layout)")
+    ap.add_argument("--only", default=None, metavar="FILE.aip",
+                    help="with --restore: restore just this file, keep the rest of the manifest")
     ap.add_argument("--strict-motions", action="store_true",
                     help="make release-clip warnings fail --verify")
     a = ap.parse_args()
     root = os.path.abspath(a.root)
 
     if a.restore:
-        return do_restore(root)
-    if a.remap:
+        return do_restore(root, a.only)
+    if a.remap or a.remotion:
         print("self-test (the rewriter must reproduce every file byte-identically):")
         if not mon.selftest(root):
             return 1
-        return do_remap(root, a.remap, a.dry_run)
+        return do_remap(root, a.remap, a.remotion, a.dry_run)
 
     print("self-test (the rewriter must reproduce every file byte-identically):")
     if not mon.selftest(root):

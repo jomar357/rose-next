@@ -66,7 +66,48 @@ Two things fix the scale:
     `magic_skill_damage` re-derives the synthetic side.
 
 The status columns (11/12) are cleared: 667 attaches LIST_STATUS 150/120 there and
-our status table has 62 rows. Everything else in the row is the source's.
+our status table has 62 rows. Everything else in the row is the source's. A skill
+whose point *is* a status gets it back through `set` from OUR LIST_STATUS -- see
+the Devourer below.
+
+Grand Master Devourer (LIST_NPC 2226, the Oro odd04/05 boss; RoseZA's
+OR_GMdevourer1.aip), third use, 2026-09-14
+-------------------------------------------------------------------------------
+Four casts on cur-target from its attack-move pattern: 3609 dispel, 3610 slow,
+3611 stun+damage AOE, 3613 ranged bolt. Three things had to be re-based:
+
+  * **RoseZA authors the status in column 88, which our 87-column table never
+    reads.** Its rows carry 37 (Cancel Buffs) / 15 (Slow Run) / 32 (Stun) there
+    and only a legacy 38 in column 11 on 3609; 667 moved the same ids to column
+    90 (and its own 117 for the dispel). Copied verbatim the kit would be a stun
+    that does not stun. `set` writes the same ids into our column 11 -- rows 15,
+    32 and 37 are identical here and in RoseZA (the server's
+    `Skill_ApplyIngSTATUS` reads SKILL_STATE_STB1/2, cols 11/12). The slow also
+    needs a magnitude: `Get_SkillAdjustVALUE` takes ability (col 21) x rate
+    (col 23), and every slow we ship is authored as AT_SPEED (23) at 30-70% --
+    40% for 30 s here, the retail duration.
+  * **3613 collides**: ours is Karkia Stun (the Jrose port, type 17); RoseZA's
+    is a type-6 projectile (bullet LIST_EFFECT 162, casting fx 1358, hit fx 94,
+    all present here at the same index). Appended at **7013** and the AI
+    re-pointed: `audit-ai-skill-refs.py --remap or_gmdevourer1.aip:3613=7013`.
+  * **Power**: 3611 (400) and 3613 (300) are weapon-formula (type 1) rows, which
+    for a 2700-ATK boss floor around 1400 regardless of power (see the boss
+    notes above). Both go to the magic formula; the Devourer's ATK/INT are ~93%
+    of Terrasaurus King's, so ~6.0 damage per power point on the tester:
+    Stun Blast 150 -> ~900 plus a 3 s stun, Range Attack 200 -> ~1200. 3609 and
+    3610 deal no damage (types 12/8).
+
+The rows import cleanly but the boss still could not *present* them: its model
+has two wind-up/release clip pairs at CHR slots 6/7 and 8/9 (charge, skill01,
+charge, skill02) and RoseZA's AI casts on nMotion 7 and 9 -- so our client
+(cast = nMotion, release = nMotion+1) released on the event-less charge clip
+and on a slot that does not exist, and the self-buffs on 2 released on the hit
+clip. Fixed in the AI, not the CHR:
+    audit-ai-skill-refs.py --remotion or_gmdevourer1.aip:7=6 \
+                           --remotion or_gmdevourer1.aip:9=8 \
+                           --remotion or_gmdevourer1.aip:2=6
+Dispel is the retail design (a boss that strips your buffs); it cancels every
+buff, where 667 rolls 3-8. Tune with `set` if it plays too mean.
 
 Usage
 -----
@@ -143,6 +184,15 @@ SKILLS = {
     # support cast that does little is the honest port; tune with `set`.
     923: dict(name="Heal Ally", source="Jrose", dest=7012, set={21: 16, 22: 370},
               clear=(2, 3, 4, 16, 17, 39, 40, 45, 46, 86)),
+    # Grand Master Devourer 2226 (or_gmdevourer1.aip, RoseZA). RoseZA keeps the
+    # status in its column 88 (37 / 15 / 32), which we never read; `set` puts the
+    # same LIST_STATUS ids into our column 11. The slow's magnitude is AT_SPEED
+    # (21) x rate (23), the house 40%. 3613 is occupied by Karkia Stun -> 7013.
+    # Powers re-based to the magic formula like the boss's above (~6.0/pt here).
+    3609: dict(name="Dispel Buffs", source="RoseZA", set={11: 37}),
+    3610: dict(name="Area Slow", source="RoseZA", set={11: 15, 21: 23, 23: 40}),
+    3611: dict(name="Stun Blast", source="RoseZA", dmgtype=2, power=150, set={11: 32}),
+    3613: dict(name="Range Attack", source="RoseZA", dest=7013, dmgtype=2, power=200),
 }
 
 # LIST_SKILL columns (io_skill.h)

@@ -505,11 +505,31 @@ without a `--stage 3` by `scripts/fix-chr-skill-slots.py`); `--strict-motions`
 makes them fail `--verify`. Current list: Mukuroji 2539 (kept aside, its donor
 AI and model disagree) and the seven nameless, unspawned `sur_mon_s1.aip` rows
 944-959.
-Three files still carry stripped casts, none spawned anywhere: Inguz 654 (3044),
-Penguin Artillery 1458 (2980), Gangster Pangs 1456/1457 (2979); Grand Master
-Devourer 2226 (3609-3611, spawned in Oro odd04/05) is the one to do next and the
-one to go slowly on — its skills are AOE *status* skills whose LIST_STATUS rows we
-may not have. Two client rules came out of validating the kit: a remote caster's queued
+**The fourth failure class is an AI authored against a slot layout the model
+does not have.** Grand Master Devourer 2226 (third importer use: 3609 Dispel
+Buffs, 3610 Area Slow, 3611 Stun Blast, RoseZA's 3613 Range Attack at **7013**
+because ours is Karkia Stun) casts on nMotion 7 and 9, but its model's clip
+pairs sit at 6/7 and 8/9 — with our cast = `nMotion` / release = `nMotion+1`
+rule (client `CObjMOB` and server `CObjNPC` agree; 1498 of 1565 shipped casts
+follow it) the boss released on an event-less charge clip or on no clip at all,
+and its self-buffs on 2 released on the hit clip. A parked payload with no
+action frame is not lost, it is *folded silently* after the 3 s abandon grace
+(`ProcTimeOutEffectedSkill`), so the failure reads as damage with no cast. The
+fix is the AI, not the CHR: `audit-ai-skill-refs.py --remotion FILE.aip:OLD=NEW`
+(7=6, 9=8, 2=6 here), recorded in the manifest like `--remap`; `--restore
+--only FILE.aip` undoes one file without reverting every other file's strip and
+remap. Two more data traps from that kit: **RoseZA/667 author a skill's status
+in column 88/90**, which our 87-column table never reads (a verbatim copy is a
+stun that does not stun — the importer's `set` puts the id back into column
+11, and a slow also needs `AT_SPEED` 23 in 21 and a rate in 23, house 30-70%);
+and Stun Blast, like the source, has no success ratio, so the stun always lands
+when the event fires. The audit's release-clip warning now covers every cast,
+split into *projectile* (bullet never fires) and *payload* (resolves silently
+~3 s late); ~110 retail self-buffs are in the payload list and are left alone.
+Not yet validated in game. Still stripped, none spawned: Inguz 654 (3044),
+Penguin Artillery 1458 (2980), Gangster Pangs 1456/1457 (2979). Mini-Devourer
+2225 casts 3042 from a model with no skill clip at all (slots 0-5) — needs a
+model change. Two client rules came out of validating the kit: a remote caster's queued
 skill command must be validated on `GSV_SKILL_START` (a mob's second cast was
 being deleted, its lethal projectile then died by the 6 s timeout), and a lethal
 legacy `GSV_DAMAGE_OF_SKILL` payload arms pending death at receive (else the
