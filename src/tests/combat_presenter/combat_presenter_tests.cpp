@@ -117,6 +117,9 @@ struct HpHarness {
     int displayed_digits = 0;
     bool pending_authoritative_death = false;
     int suppressed_outgoing_attacks = 0;
+    // Mirrors HasLiveLethalSkillPayloadPending(): a lethal legacy skill payload
+    // received but not yet queued (still waiting for the caster's action frame).
+    bool lethal_skill_payload_live = false;
     CombatPresentationQueue queue;
 
     // Mirrors CObjCHAR::SetAuthoritativeHPFromDamageEvent. Lower-only unless the
@@ -264,7 +267,8 @@ struct HpHarness {
         static const int kDeadHp = 0;
         return pending_authoritative_death && visible_hp > 0
             && (now_ms - pending_since_ms) >= grace_ms
-            && !queue.has_live_lethal_pending(now_ms, hard_cap_ms, kDeadHp, still_live);
+            && !queue.has_live_lethal_pending(now_ms, hard_cap_ms, kDeadHp, still_live)
+            && !lethal_skill_payload_live;
     }
 
     // Mirrors PushCombatDamageEvent for the local avatar: stamp the queue time and
@@ -276,6 +280,18 @@ struct HpHarness {
             pending_authoritative_death = true;
             pending_correction = 0;
         }
+    }
+
+    // Mirrors MarkPendingLethalSkillPayload: a lethal legacy skill payload arms
+    // pending death at receive; when it is later queued the queue takes over.
+    void receive_lethal_skill_payload() {
+        lethal_skill_payload_live = true;
+        pending_authoritative_death = true;
+        pending_correction = 0;
+    }
+    void queue_lethal_skill_payload(DamageEvent e, uint32_t now_ms) {
+        lethal_skill_payload_live = false;
+        queue_on_avatar(e, now_ms);
     }
 
     PresentationResult present_stale_lethal(uint32_t now_ms, uint32_t grace_ms) {
@@ -490,7 +506,7 @@ private:
 
         // The pending-death fold stands down while the killing blow itself is
         // still queued: that event presents the death at its own hit frame.
-        const bool lethal_still_queued = queue.has_lethal_pending(0);
+        const bool lethal_still_queued = queue.has_lethal_pending(0) || lethal_skill_payload_live;
         bool lethal = e.lethal || e.hp_after <= 0
             || ((pending_authoritative_death || authoritative_hp <= 0) && display_damage > 0
                 && !lethal_still_queued);
@@ -2185,6 +2201,49 @@ main() {
         expect(h.hit(10) == PresentationResult::PresentedDeath,
             "with no queued killing blow the next hit presents the death");
         expect(h.visible_hp == 0, "avatar is dead");
+    }
+
+    // ---------------------------------------------------------------------------
+    // Lethal legacy skill payload (Terrasaurus King's Charge, 2026-09-14): the
+    // GSV_DAMAGE_OF_SKILL arrives 2 s before its caster's action frame queues it.
+    // Pending death is armed at receive, so our own hit frames present MISS in the
+    // gap; the backstop and the backlog fold wait for the real presentation.
+    // ---------------------------------------------------------------------------
+    {
+        HpHarness player, monster;
+        player.visible_hp = 243;
+        player.authoritative_hp = 243;
+        player.receive_lethal_skill_payload();
+        expect(player.pending_authoritative_death, "lethal payload arms pending death at receive");
+        expect(monster.outgoing_hit_while_pending_dead(374, &player) == PresentationResult::PresentedMiss,
+            "avatar hit frame in the gap presents MISS, not silence");
+        expect(monster.visible_hp == 100, "the miss changes nothing on the monster");
+        expect(!player.backstop_fires(2000, 0, 1500, 6000, [](const DamageEvent&) { return false; }),
+            "backstop waits while the payload's caster is still coming");
+
+        // A queued non-lethal swing presenting in the gap stays a normal hit.
+        player.queue.push(event(38, 10, 100, 143));
+        expect(player.hit(10) == PresentationResult::PresentedDamage,
+            "earlier swing does not become the death while the payload is live");
+        expect(player.visible_hp == 143, "earlier swing lands on its own checkpoint");
+
+        // The action frame queues the payload as an immediate event and it presents.
+        DamageEvent charge = event(2152483649u, 10, 1219, -30000, true);
+        charge.presentation_kind = DamagePresentationKind::Immediate;
+        player.queue_lethal_skill_payload(charge, 2000);
+        expect(!player.lethal_skill_payload_live, "queued payload hands over to the queue");
+        expect(player.present_immediate() == PresentationResult::PresentedDeath,
+            "the Charge presents the death");
+        expect(player.displayed_damage == 1219 && player.visible_hp == 0, "death digit is the Charge");
+    }
+
+    {
+        // Backstop still fires once the payload is stale (caster gone / hard cap).
+        HpHarness player;
+        player.receive_lethal_skill_payload();
+        player.lethal_skill_payload_live = false; // HasLiveLethalSkillPayloadPending() false past the cap
+        expect(player.backstop_fires(7000, 0, 1500, 6000, [](const DamageEvent&) { return false; }),
+            "a payload that never queues does not strand the avatar");
     }
 
     std::cout << "combat_presenter_tests passed\n";

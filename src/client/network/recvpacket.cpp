@@ -3229,6 +3229,14 @@ CRecvPACKET::Recv_gsv_DAMAGE_OF_SKILL() {
             damageOfSkill,
             damageOfSkill.m_nINT,
             true);
+
+        // The payload now waits for the caster's action frame. If it is our
+        // death, say so immediately: our own hit frames must present MISS from
+        // this moment, not from when the payload is finally queued.
+        if (g_pAVATAR && damageOfSkill.m_iHP_AFTER <= DEAD_HP
+            && g_pObjMGR->Get_ClientCharOBJ(damageOfSkill.m_wObjectIDX, true) == (CObjCHAR*)g_pAVATAR) {
+            g_pAVATAR->MarkPendingLethalSkillPayload(pChar);
+        }
     } else {
         /// 바로 적용..
 

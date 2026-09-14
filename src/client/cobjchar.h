@@ -594,6 +594,14 @@ public:
     bool HasPendingAuthoritativeDeath() const { return m_bPendingAuthoritativeDeath; }
     void MarkPendingAuthoritativeDeath(const char* reason);
     void ClearPendingAuthoritativeDeath();
+    /// A lethal legacy GSV_DAMAGE_OF_SKILL payload for the avatar was received but
+    /// still sits in the caster's m_EffectedSkillList waiting for its action frame.
+    /// Flags pending death at receive (so our own hit frames present MISS at once)
+    /// and records the caster so the backstop and the backlog fold treat that
+    /// payload as a live lethal presentation until it becomes a queued event.
+    void MarkPendingLethalSkillPayload(CObjCHAR* pCaster);
+    void ClearPendingLethalSkillPayload();
+    bool HasLiveLethalSkillPayloadPending(DWORD now) const;
     void PresentPendingAuthoritativeDeath(CObjCHAR* pAtkOBJ, const char* reason);
     bool ShouldSuppressOutgoingDamageForPendingDeath(CObjCHAR* pFromOBJ) const;
 
@@ -928,6 +936,8 @@ protected:
     int m_iPendingCombatHPCorrection;
     bool m_bPendingAuthoritativeDeath;
     DWORD m_dwPendingAuthoritativeDeathTime; /// Tick when pending authoritative death was first flagged (0 = not pending). Backstop timeout source.
+    DWORD m_dwPendingLethalSkillPayloadTime; /// Tick a lethal legacy skill payload for the avatar was received (0 = none).
+    int m_iPendingLethalSkillPayloadCaster; /// Client index of that payload's caster.
     uint32_t m_dwPendingCombatSwingEventId;
     int m_iPendingCombatSwingDefenderIndex;
     bool m_bPendingCombatSwingProjectile;

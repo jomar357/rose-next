@@ -550,6 +550,8 @@ CObjCHAR::CObjCHAR(): m_EndurancePack(this), m_ChangeActionMode(this), m_ObjVibr
     m_iPendingCombatHPCorrection = 0;
     m_bPendingAuthoritativeDeath = false;
     m_dwPendingAuthoritativeDeathTime = 0;
+    m_dwPendingLethalSkillPayloadTime = 0;
+    m_iPendingLethalSkillPayloadCaster = 0;
     m_dwPendingCombatSwingEventId = 0;
     m_iPendingCombatSwingDefenderIndex = 0;
     m_bPendingCombatSwingProjectile = false;
@@ -2667,6 +2669,12 @@ CObjCHAR::PushCombatDamageEvent(const Rose::Combat::DamageEvent& event) {
     // frame presentation clears the flag well before the timeout fires.
     if (queuedEvent.lethal || queuedEvent.hp_after <= DEAD_HP) {
         if (this == g_pAVATAR) {
+            // A lethal legacy skill payload that was tracked at receive has now
+            // become a queued event; has_live_lethal_pending() covers it from here.
+            if (m_iPendingLethalSkillPayloadCaster != 0
+                && (int)queuedEvent.attacker_id == m_iPendingLethalSkillPayloadCaster) {
+                ClearPendingLethalSkillPayload();
+            }
             MarkPendingAuthoritativeDeath("lethal event queued");
         } else {
             m_bDead = true;
@@ -2791,6 +2799,54 @@ void
 CObjCHAR::ClearPendingAuthoritativeDeath() {
     m_bPendingAuthoritativeDeath = false;
     m_dwPendingAuthoritativeDeathTime = 0;
+    ClearPendingLethalSkillPayload();
+}
+
+// The legacy skill path delivers a kill two steps apart: GSV_DAMAGE_OF_SKILL is
+// received now, but its payload waits in the CASTER's m_EffectedSkillList until
+// that caster's action frame (Terrasaurus King's Charge: 2 s). The FlatBuffer path
+// arms pending death when the event is queued, i.e. at receive; the legacy path
+// only did so when the payload was finally converted into a queued event. In the
+// gap the server had already committed our death, so every hit frame of ours
+// found no event and Hitted()'s NoEvent branch stayed silent -- the "phantom
+// hits" the pending-dead MISS digit exists to replace. Arm it at receive, and
+// remember the payload so the two places that must not act on a pending death
+// while a real lethal presentation is still coming (the Proc() backstop and the
+// backlog fold in ApplyPresentedCombatDamage) can see it before it is queued.
+static const DWORD kLethalSkillPayloadHardCapMs = 6000; // == kStaleLethalSwingHardCapMs
+
+void
+CObjCHAR::MarkPendingLethalSkillPayload(CObjCHAR* pCaster) {
+    if (this != g_pAVATAR || this->Get_HP() <= DEAD_HP) {
+        return;
+    }
+
+    m_dwPendingLethalSkillPayloadTime = g_GameDATA.GetGameTime();
+    m_iPendingLethalSkillPayloadCaster = pCaster ? pCaster->Get_INDEX() : 0;
+    MarkPendingAuthoritativeDeath("lethal skill payload received");
+    LogString(LOG_DEBUG_,
+        "CombatTrace lethal skill payload pending: target %d caster %d visible hp %d\n",
+        this->Get_INDEX(),
+        m_iPendingLethalSkillPayloadCaster,
+        this->Get_HP());
+}
+
+void
+CObjCHAR::ClearPendingLethalSkillPayload() {
+    m_dwPendingLethalSkillPayloadTime = 0;
+    m_iPendingLethalSkillPayloadCaster = 0;
+}
+
+bool
+CObjCHAR::HasLiveLethalSkillPayloadPending(DWORD now) const {
+    if (m_dwPendingLethalSkillPayloadTime == 0) {
+        return false;
+    }
+    if ((now - m_dwPendingLethalSkillPayloadTime) >= kLethalSkillPayloadHardCapMs) {
+        return false;
+    }
+    CObjCHAR* pCaster = g_pObjMGR->Get_CharOBJ(m_iPendingLethalSkillPayloadCaster, true);
+    return pCaster && pCaster->Get_HP() > DEAD_HP;
 }
 
 void
@@ -2989,7 +3045,8 @@ CObjCHAR::ApplyPresentedCombatDamage(CObjCHAR* pAtkOBJ, Rose::Combat::DamageEven
     // The lethal event keeps its own presentation; the stale-lethal fallback and
     // the Proc() backstop still cover it if that consumer never fires.
     const bool bLethalStillQueued = this == g_pAVATAR
-        && m_CombatDamageQueue.has_lethal_pending(DEAD_HP);
+        && (m_CombatDamageQueue.has_lethal_pending(DEAD_HP)
+            || HasLiveLethalSkillPayloadPending(g_GameDATA.GetGameTime()));
     bool lethal = event.lethal || event.hp_after <= DEAD_HP
         || ((m_bPendingAuthoritativeDeath || (m_bHasAuthoritativeHP && m_iAuthoritativeHP <= DEAD_HP))
             && displayDamage > 0 && !bLethalStillQueued);
@@ -4549,7 +4606,8 @@ CObjCHAR::Proc(void) {
         && !m_CombatDamageQueue.has_live_lethal_pending(dwCurrentTime,
             kStaleLethalSwingHardCapMs,
             DEAD_HP,
-            fnPresentationStillLive)) {
+            fnPresentationStillLive)
+        && !HasLiveLethalSkillPayloadPending(dwCurrentTime)) {
         PresentPendingAuthoritativeDeath(NULL, "pending death timeout");
     }
 
