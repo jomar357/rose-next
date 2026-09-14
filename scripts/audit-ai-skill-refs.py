@@ -98,7 +98,7 @@ SOURCE_DUMPS = {
     "Jrose": (r"C:\Users\Thomas\Desktop\Testclients\Jrose\3Ddata\STB\LIST_SKILL.STB", "cp932"),
     "RoseZA": (r"C:\Users\Thomas\Desktop\Testclients\RoseZA test client\data\3DDATA\STB\LIST_SKILL.STB", "cp949"),
 }
-PREFIX_DUMP = {"kh_": "Jrose", "kak_": "Jrose", "or_": "RoseZA"}
+PREFIX_DUMP = {"kh_": "Jrose", "kak_": "Jrose", "ks_": "Jrose", "or_": "RoseZA"}
 # import-karkia.py SKILL_PORTS (row -> row) and SKILL_REPOINT targets: our rows,
 # deliberately different from Jrose's at those ids.
 DELIBERATE = {"Jrose": {361, 1090, 3613, 3616, 3627, 3686, 3711, 3771, 3779, 3780, 3781},

@@ -111,8 +111,18 @@ tagMOTION::LoadZMO(char* szFileName) {
                 if (m_pFrameEvent[nF] == 25) {
                     m_bHasSkillHitActionFrame = true;
                 }
-                if (m_pFrameEvent[nF] == 24 || m_pFrameEvent[nF] == 34) {
-                    m_bHasProjectileFireFrame = true;
+                /// 24/34: ActionSkill() launches the bullet; 26: ActionImmediateSkill()
+                /// fires it through FireEffectBullet(); 25: ProcImmediateSkillHit()
+                /// presents the skill hit outright. Any of these consumes the skill's
+                /// queued payload, so a motion carrying one needs no melee-frame stand-in.
+                /// (56/66 fire *dummy* bullets, which present nothing, and 36 is empty.)
+                switch (m_pFrameEvent[nF]) {
+                    case 24:
+                    case 34:
+                    case 26:
+                    case 25:
+                        m_bHasProjectileFireFrame = true;
+                        break;
                 }
             }
         }
