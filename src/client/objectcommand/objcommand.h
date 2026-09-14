@@ -76,6 +76,10 @@ public:
     /// mark it so PushCommand does not erase it as "no result yet" when a second
     /// command is queued behind it.
     void SetResultOfSkill(bool bResult) { m_bGetResultOfSkill = bResult; }
+    /// Likewise valid at push for a remote caster: PopCommand deletes an invalid
+    /// skill command, and GSV_SKILL_START (the avatar-flow validator) can arrive
+    /// after the queue has already been popped behind an owed swing.
+    void SetValid(bool bValid) { m_bValid = bValid; }
 
     virtual bool Execute(CObjCHAR* pObjCHAR) = 0 { *(int*)0 = 10; };
 };

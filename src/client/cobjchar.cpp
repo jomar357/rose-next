@@ -5559,10 +5559,19 @@ CObjCHAR::PushCommandSkill2Self(short nSkillIDX) {
 
     if (pCommand) {
         ((CObjSkill2SelfCommand*)pCommand)->SetCMD_Skill2SELF(nSkillIDX);
-        // Server-confirmed for anyone but the avatar; PushCommand would otherwise
-        // erase it as "no result yet" when the next command is queued behind it.
+        // Server-confirmed for anyone but the avatar: mark it as having its result
+        // (PushCommand would otherwise erase it as "no result yet" when the next
+        // command is queued behind it) AND as valid (PopCommand deletes an invalid
+        // skill command, and GSV_SKILL_START -- the avatar-flow validator -- can
+        // arrive after an owed swing has already popped the queue; measured on
+        // Terrasaurus King: the held Fireball at 16:00:14 was popped and deleted a
+        // second before its start packet, so it never played and its damage was
+        // consumed by the next melee hit frame). SKILL_START still gates when the
+        // popped cast may *begin* (SetStartSkill), so a cast the server cancels
+        // before Casting_START simply waits until the next server command.
         if (this != (CObjCHAR*)g_pAVATAR) {
             pCommand->SetResultOfSkill(true);
+            pCommand->SetValid(true);
         }
 
         m_CommandQueue.PushCommand(pCommand);
@@ -5585,10 +5594,19 @@ CObjCHAR::PushCommandSkill2Obj(WORD wSrvDIST,
     if (pCommand) {
         ((CObjSkill2ObjCommand*)pCommand)
             ->SetCMD_Skill2OBJ(wSrvDIST, PosTO, iServerTarget, nSkillIDX);
-        // Server-confirmed for anyone but the avatar; PushCommand would otherwise
-        // erase it as "no result yet" when the next command is queued behind it.
+        // Server-confirmed for anyone but the avatar: mark it as having its result
+        // (PushCommand would otherwise erase it as "no result yet" when the next
+        // command is queued behind it) AND as valid (PopCommand deletes an invalid
+        // skill command, and GSV_SKILL_START -- the avatar-flow validator -- can
+        // arrive after an owed swing has already popped the queue; measured on
+        // Terrasaurus King: the held Fireball at 16:00:14 was popped and deleted a
+        // second before its start packet, so it never played and its damage was
+        // consumed by the next melee hit frame). SKILL_START still gates when the
+        // popped cast may *begin* (SetStartSkill), so a cast the server cancels
+        // before Casting_START simply waits until the next server command.
         if (this != (CObjCHAR*)g_pAVATAR) {
             pCommand->SetResultOfSkill(true);
+            pCommand->SetValid(true);
         }
 
         m_CommandQueue.PushCommand(pCommand);
@@ -5607,10 +5625,19 @@ CObjCHAR::PushCommandSkill2Pos(const D3DVECTOR& PosGOTO, short nSkillIDX) {
 
     if (pCommand) {
         ((CObjSkill2PosCommand*)pCommand)->SetCMD_Skill2POS(PosGOTO, nSkillIDX);
-        // Server-confirmed for anyone but the avatar; PushCommand would otherwise
-        // erase it as "no result yet" when the next command is queued behind it.
+        // Server-confirmed for anyone but the avatar: mark it as having its result
+        // (PushCommand would otherwise erase it as "no result yet" when the next
+        // command is queued behind it) AND as valid (PopCommand deletes an invalid
+        // skill command, and GSV_SKILL_START -- the avatar-flow validator -- can
+        // arrive after an owed swing has already popped the queue; measured on
+        // Terrasaurus King: the held Fireball at 16:00:14 was popped and deleted a
+        // second before its start packet, so it never played and its damage was
+        // consumed by the next melee hit frame). SKILL_START still gates when the
+        // popped cast may *begin* (SetStartSkill), so a cast the server cancels
+        // before Casting_START simply waits until the next server command.
         if (this != (CObjCHAR*)g_pAVATAR) {
             pCommand->SetResultOfSkill(true);
+            pCommand->SetValid(true);
         }
 
         m_CommandQueue.PushCommand(pCommand);

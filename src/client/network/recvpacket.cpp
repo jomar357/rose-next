@@ -2874,6 +2874,10 @@ CRecvPACKET::Recv_gsv_SKILL_START() {
         // twice 3 s apart, 2026-09-14). Validate the queued command AND arm the
         // start flag, so it both survives the pop and is allowed to begin when
         // ProcCMD_Skill2OBJECT runs it after the current action motion ends.
+        // (Remote casters' pushed skill commands are now also marked valid at push
+        // time -- see PushCommandSkill2Obj -- because this packet can arrive after
+        // an owed swing has already popped the queue; the SetValidFlag here is then
+        // a no-op and SetStartSkill is what matters.)
         if (pCHAR != (CObjCHAR*)g_pAVATAR && !pCHAR->m_CommandQueue.IsEmpty()) {
             pCHAR->m_CommandQueue.SetValidFlag();
             pCHAR->SetStartSkill(true);
