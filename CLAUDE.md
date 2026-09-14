@@ -493,7 +493,18 @@ colliding row at the table's tail (Heal Ally at **7012**, `set={21:16, 22:370}`
 because Jrose keeps the ability in its columns 89/90). The Devourer's 3613 was
 the other collision (RoseZA long-range damage vs our Karkia Stun port) and is
 stripped. Mukuroji's 30-per-tick "poison" is its retail burn (3050 → LIST_STATUS
-58 Flame Heat), not a defect.
+58 Flame Heat), not a defect. **The third failure class is a cast that can never
+present itself**: the client plays CHR slot `nMotion` to cast and `nMotion+1` to
+release, and a projectile skill launches only from frames 24/34 (or 26/25) of
+the release clip. Orgeid's Jrose CHR held the event-less casting clip in both
+slots (bolt never fired, damage landed on a later melee frame with no visual,
+status payload timed out); Mukuroji's release is the pig attack clip (frames
+21/31). The audit **warns** about these on every run and never strips them —
+the fix is a CHR slot (`CHR_MOTION_OVERRIDE` in `import-karkia.py`, applied
+without a `--stage 3` by `scripts/fix-chr-skill-slots.py`); `--strict-motions`
+makes them fail `--verify`. Current list: Mukuroji 2539 (kept aside, its donor
+AI and model disagree) and the seven nameless, unspawned `sur_mon_s1.aip` rows
+944-959.
 Three files still carry stripped casts, none spawned anywhere: Inguz 654 (3044),
 Penguin Artillery 1458 (2980), Gangster Pangs 1456/1457 (2979); Grand Master
 Devourer 2226 (3609-3611, spawned in Oro odd04/05) is the one to do next and the

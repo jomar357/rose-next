@@ -58,6 +58,20 @@ after importing, `--restore` this script's backups so the casts come back, then
 re-run it -- with the rows present only the remaining dangling casts are
 stripped. The restore is whole-file, so do it before re-running, not after.
 
+The third failure mode: a cast that can never present itself
+--------------------------------------------------------------
+A monster casts with the AI action's nMotion: CHR slot nMotion plays the wind-up
+and slot nMotion+1 the release, and a projectile skill lands on screen only if
+the release clip carries an action frame that presents it -- 24/34 (ActionSkill
+launches the bullet), 26 (FireEffectBullet) or 25 (ProcImmediateSkillHit). A
+release clip with none of them never fires: the server's damage lands on some
+later melee frame with no visual and the queued status payload times out. Found
+2026-09-14 on Mukuroji (pig attack clip as the release) and Orgeid (Jrose's own
+CHR holds the event-less casting clip in both slots). The audit walks every
+monster's AI casts and WARNS about these (it never strips them -- the fix is a
+CHR slot, see import-karkia.py CHR_MOTION_OVERRIDE / fix-chr-skill-slots.py).
+Warnings do not fail --verify unless --strict-motions is given.
+
 What it does
 ------------
 Removes the offending action record from its event and decrements that event's
@@ -105,6 +119,12 @@ DELIBERATE = {"Jrose": {361, 1090, 3613, 3616, 3627, 3686, 3711, 3771, 3779, 378
               "RoseZA": set()}
 
 TARGET_LABEL = {0: "cond-char", 1: "cur-target", 2: "self"}
+
+NPC_STB = os.path.join("data", "3DDATA", "STB", "LIST_NPC.STB")
+AI_STB = os.path.join("data", "3DDATA", "STB", "FILE_AI.STB")
+NPC_CHR = os.path.join("data", "3DDATA", "NPC", "LIST_NPC.CHR")
+NPC_AI_COL = 16
+PRESENTER_FRAMES = {24, 34, 26, 25}
 
 
 def load(name):
@@ -290,6 +310,105 @@ def do_remap(root, specs, dry):
     return 0
 
 
+# --------------------------------------------------------------------------- #
+# release-clip check
+
+
+def projectile_presented(stb, sid):
+    """Mirror of Rose::Combat::is_projectile_presented_skill for a LIST_SKILL row."""
+    t = stb.get(sid, 5).strip()
+    t = int(t) if t.isdigit() else 0
+    bl = stb.get(sid, 71).strip()
+    bl = int(bl) if bl.isdigit() else 0
+    return t in (5, 6) or (t in (3, 19) and bl > 0)
+
+
+def zmo_events(path):
+    """The set of action-frame event ids a .ZMO carries (EZMO/3ZMO trailer)."""
+    try:
+        d = open(path, "rb").read()
+    except OSError:
+        return None
+    if d[-4:] not in (b"EZMO", b"3ZMO"):
+        return set()
+    off, = struct.unpack_from("<I", d, len(d) - 8)
+    n, = struct.unpack_from("<H", d, off)
+    return {e for e in struct.unpack_from("<%dh" % n, d, off + 2) if e}
+
+
+def resolve_ci(root, rel):
+    """data/ is case-inconsistent on disk; resolve a data-relative path case-insensitively."""
+    cur = root
+    for part in rel.replace("\\", "/").split("/"):
+        if not os.path.isdir(cur):
+            return None
+        hit = next((e for e in os.listdir(cur) if e.lower() == part.lower()), None)
+        if hit is None:
+            return None
+        cur = os.path.join(cur, hit)
+    return cur if os.path.isfile(cur) else None
+
+
+def motion_warnings(root):
+    """[(npc, name, aip, skill, slot, clip, events)] for casts whose release clip
+    cannot present a projectile skill. Read-only; the fix is a CHR slot."""
+    oro = load("import-oro")
+    npc = rd.Stb(os.path.join(root, NPC_STB))
+    ai = rd.Stb(os.path.join(root, AI_STB))
+    skills = load_skill_rows.stb
+    chr_ = oro.Chr(os.path.join(root, NPC_CHR))
+    files = {os.path.basename(p).lower(): p for p in mon.aip_files(root)}
+    casts_cache, ev_cache, out = {}, {}, []
+    for r in range(npc.rows):
+        a = npc.get(r, NPC_AI_COL).strip()
+        if not a.isdigit() or not int(a):
+            continue
+        fn = os.path.basename(ai.get(int(a), 0).decode("latin-1")).lower()
+        p = files.get(fn)
+        if not p:
+            continue
+        if p not in casts_cache:
+            _h, _t, pats, _tail = mon.parse_aip(open(p, "rb").read())
+            casts = set()
+            for _pn, evs in pats:
+                for _en, _cs, acts in evs:
+                    for act in acts:
+                        s = act_skill(act)
+                        if s:
+                            casts.add((s[1], s[2]))
+            casts_cache[p] = casts
+        entry = chr_.chars[r] if r < len(chr_.chars) else None
+        anims = dict(entry["anims"]) if entry else {}
+        for sid, motion in sorted(casts_cache[p]):
+            if sid <= 0 or sid >= skills.rows or not projectile_presented(skills, sid):
+                continue
+            slot = motion + 1
+            if slot not in anims:
+                out.append((r, npc.get(r, 0).decode("latin-1", "replace"), fn, sid, slot, "<no clip in slot>", ()))
+                continue
+            rel = chr_.motions[anims[slot]].decode("latin-1")
+            if rel not in ev_cache:
+                path = resolve_ci(os.path.join(root, "data"), rel)
+                ev_cache[rel] = zmo_events(path) if path else None
+            ev = ev_cache[rel]
+            if ev is None:
+                out.append((r, npc.get(r, 0).decode("latin-1", "replace"), fn, sid, slot, os.path.basename(rel), "<file missing>"))
+            elif not (ev & PRESENTER_FRAMES):
+                out.append((r, npc.get(r, 0).decode("latin-1", "replace"), fn, sid, slot, os.path.basename(rel), tuple(sorted(ev))))
+    return out
+
+
+def report_motion_warnings(warns):
+    if not warns:
+        print("\nrelease clips: every projectile-presented cast has a frame that presents it.")
+        return
+    print("\nWARNING: %d cast(s) whose release clip cannot present a projectile skill "
+          "(fix = CHR slot, see import-karkia.py CHR_MOTION_OVERRIDE):" % len(warns))
+    for r, name, fn, sid, slot, clip, ev in warns:
+        print("   npc %4d %-24s %-22s skill %4d  slot %d = %-36s %s"
+              % (r, name[:24] or "(nameless)", fn, sid, slot, clip, ev if isinstance(ev, str) else "frames %s" % list(ev)))
+
+
 def report(todo):
     for p, hits in todo:
         for _pi, _ei, _ai, tgt, skill, motion, why in hits:
@@ -322,6 +441,8 @@ def main():
     ap.add_argument("--selftest", action="store_true", help="prove the rewriter round-trips")
     ap.add_argument("--remap", action="append", default=[], metavar="FILE.aip:OLD=NEW",
                     help="re-point a cast whose id collides with one of our skills")
+    ap.add_argument("--strict-motions", action="store_true",
+                    help="make release-clip warnings fail --verify")
     a = ap.parse_args()
     root = os.path.abspath(a.root)
 
@@ -344,21 +465,26 @@ def main():
     load_remapped(root)
     todo = scan(root, blank)
 
+    warns = motion_warnings(root)
+
     if a.verify:
         if todo:
             print("\nVERIFY FAILED: %d file(s) still carry dangling skill refs" % len(todo))
             report(todo)
             return 1
         print("\nALL CHECKS PASSED -- no AI action casts a missing skill.")
-        return 0
+        report_motion_warnings(warns)
+        return 1 if (warns and a.strict_motions) else 0
 
     if not todo:
         print("\nnothing to do -- no AI action casts a missing skill.")
+        report_motion_warnings(warns)
         return 0
 
     nrefs = sum(len(h) for _p, h in todo)
     print("\n%d dangling skill cast(s) in %d file(s):" % (nrefs, len(todo)))
     report(todo)
+    report_motion_warnings(warns)
 
     if a.dry_run:
         print("\ndry run: nothing written")
