@@ -462,6 +462,21 @@ CHR_MOTION_FILL = {
     2539: {8: r"3Ddata\MOTION\NPC\pig01\pig01_warnnimg.ZMO",
            9: r"3Ddata\MOTION\NPC\pig01\pig01_attack.ZMO"},
 }
+# Slots that EXIST but hold the wrong clip. Orgeid (2723, kcemetery) casts 3575
+# on nMotion 8, so the client plays slot 8 to cast and slot 9 to release -- and
+# Jrose's CHR (copied verbatim by this stage) fills 8 AND 9 with casting_01.ZMO,
+# a clip with no action frames, while the real release clip status_01.ZMO (frames
+# 24/34, the projectile launch) sits unused in slot 7. The bolt never fired: the
+# server's damage landed on a later melee frame with no visual, and the queued
+# status payload timed out (found by the 2026-09-14 "projectile skill with no
+# launch frame" survey; Mukuroji was the other spawned case). Revived Veteran
+# Warrior (2688, unspawned) has the identical shape for KS Poison. Applied by
+# chr_override_motions, idempotent, and also by scripts/fix-chr-skill-slots.py
+# without a full --stage 3.
+CHR_MOTION_OVERRIDE = {
+    2723: {9: r"3Ddata\MOTION\NPC\orphe01\status_01.ZMO"},
+    2688: {9: r"3Ddata\MOTION\NPC\Mummy_Female02\Mummy_Female03_status_skill01.ZMO"},
+}
 MOB_ANI_MAX = 11                   # MAX_MOB_ANI; the client indexes with no bound check
 
 # Fraction of a zone's regen points to KEEP. 1.0 (or absent) ships Jrose's layout.
@@ -1726,6 +1741,38 @@ def chr_fill_motions(chr_, dry):
     return added
 
 
+def chr_override_motions(chr_):
+    """Re-point the CHR_MOTION_OVERRIDE slots. Mutates only; returns what changed.
+
+    Same path-matched pool lookup as chr_fill_motions. Idempotent: a slot already
+    pointing at the wanted clip is left alone, so a re-run reports nothing.
+    """
+    def norm(b):
+        return b.decode("latin-1").replace("/", "\\").lower()
+
+    pool = {norm(m): i for i, m in enumerate(chr_.motions)}
+    changed = []
+    for npc, overrides in sorted(CHR_MOTION_OVERRIDE.items()):
+        entry = chr_.chars[npc] if npc < len(chr_.chars) else None
+        if entry is None:
+            raise SystemExit(f"CHR_MOTION_OVERRIDE: npc {npc} has no CHR entry -- "
+                             f"run --stage 3 first")
+        for typ, path in sorted(overrides.items()):
+            idx = pool.get(path.replace("/", "\\").lower())
+            if idx is None:
+                raise SystemExit(f"CHR_MOTION_OVERRIDE: {path} is not in the motion "
+                                 f"pool -- it must already be interned by a model")
+            anims = entry["anims"]
+            slot = next((k for k, (t, _) in enumerate(anims) if t == typ), None)
+            if slot is None:
+                anims.append((typ, idx))
+                changed.append(f"{npc} type {typ} added -> {os.path.basename(path)}")
+            elif anims[slot][1] != idx:
+                anims[slot] = (typ, idx)
+                changed.append(f"{npc} type {typ} -> {os.path.basename(path)}")
+    return changed
+
+
 # ------------------------------------------------- stage 2a: the warp gates
 def collect_gates(src, src_maps):
     """{source warp id: (dest zone, dest event name, [(folder, ifo), ...])}.
@@ -2220,6 +2267,11 @@ def stage3(ours, src, src_index, dry):
     added = chr_fill_motions(our_chr, dry)
     print(f"    {'CHR skill animations':26s} {len(added)} filled "
           f"{added if added else '(already done)'}")
+    overridden = chr_override_motions(our_chr)
+    print(f"    {'CHR slot overrides':26s} {len(overridden)} re-pointed "
+          f"{overridden if overridden else '(already done)'}")
+    if overridden and not dry:
+        our_chr.save(dry)
     if not dry:
         after = oro.Chr(os.path.join(ours, NPC_CHR_REL.replace("\\", "/")))
         still = chr_anim_audit(after, aip_skill_motions(ours, our_npc, our_ai, ids))
