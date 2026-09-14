@@ -126,6 +126,24 @@ is the same command with the old value (not --restore, see above). The other
 gates on the event (a buff on you, a second attacker, an enemy in reach) still
 apply.
 
+The fifth failure mode: a cast behind a gate nobody can pass
+------------------------------------------------------------
+Condition 02 "N characters within D metres whose level, relative to mine, lies
+in [lo, hi]" is read by our server through `AICOND02 { int iDistance; BYTE
+btIsAllied; short nLevelDiff; short nLevelDiff2; WORD wChrNum; }` (the 2004
+layout; the older one packed two chars where the pad and nLevelDiff now sit).
+RoseZA's OR_GMdevourer1.aip gates its two damage casts on `00 cd 64 00 64 00
+01 00` -- enemy, [100, 100], one of them: a target exactly 100 levels below the
+boss, which no character near level 200 is. At 100% roll the casts still never
+fired (2026-09-14). Every other window in that file decodes sensibly, so this
+is an editor default RoseZA's server read as "any"; 20 such windows exist in 17
+files but only these two gate a cast. `--rewindow FILE.aip:SKILL=LO,HI` rewrites
+the window of every condition 02 on an event that casts SKILL, recorded like
+the others; the audit warns about any cast behind a lo >= hi window.
+
+    python scripts/audit-ai-skill-refs.py --rewindow or_gmdevourer1.aip:7013=-100,100 \
+                                          --rewindow or_gmdevourer1.aip:3611=-100,100
+
 What it does
 ------------
 Removes the offending action record from its event and decrements that event's
@@ -151,6 +169,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 AIACT24 = 0x19 | 0x0B000000  # type index 25 == "act 24" in the tool's 1-based numbering
 AICOND_CHANCE = 0x08 | 0x04000000  # cond 07 "random percent"; BYTE cPercent at offset 8
 CHANCE_OFF = 8
+AICOND_NEAR = 0x03 | 0x04000000    # cond 02 "N chars within D m, level diff in [lo, hi]"
+NEAR_FMT = "<iBxhhH"               # iDistance, btIsAllied, nLevelDiff, nLevelDiff2, wChrNum @ 8
 TARGET_OFF, SKILL_OFF, MOTION_OFF = 8, 10, 12
 
 SKILL_STB = os.path.join("data", "3DDATA", "STB", "LIST_SKILL.STB")
@@ -379,21 +399,79 @@ def rechance(b, skill, pct):
     return mon.build_aip(hdr, title, newpats, tail), olds
 
 
-def do_remap(root, specs, motion_specs, dry, chance_specs=()):
+def rewindow(b, skill, window):
+    """Set the level window of every condition 02 on an event that casts `skill`.
+    Returns (bytes, [old (lo, hi)])."""
+    lo, hi = window
+    hdr, title, pats, tail = mon.parse_aip(b)
+    olds = []
+    newpats = []
+    for pn, evs in pats:
+        newevs = []
+        for en, cs, acts in evs:
+            if any((x := act_skill(a)) and x[1] == skill for a in acts):
+                out = []
+                for c in cs:
+                    if len(c) >= 8 + struct.calcsize(NEAR_FMT) \
+                            and struct.unpack_from("<I", c, 4)[0] == AICOND_NEAR:
+                        d, al, olo, ohi, n = struct.unpack_from(NEAR_FMT, c, 8)
+                        olds.append((olo, ohi))
+                        c = c[:8] + struct.pack(NEAR_FMT, d, al, lo, hi, n) + c[8 + struct.calcsize(NEAR_FMT):]
+                    out.append(c)
+                cs = out
+            newevs.append((en, cs, acts))
+        newpats.append((pn, newevs))
+    return mon.build_aip(hdr, title, newpats, tail), olds
+
+
+def window_warnings(root):
+    """[(aip, skill, lo, hi)] for casts gated by a condition 02 whose level window
+    is empty (lo > hi) or a single value (lo == hi) -- unsatisfiable in practice."""
+    out = []
+    for p in mon.aip_files(root):
+        _h, _t, pats, _tail = mon.parse_aip(open(p, "rb").read())
+        for _pn, evs in pats:
+            for _en, cs, acts in evs:
+                casts = [x[1] for a in acts if (x := act_skill(a))]
+                if not casts:
+                    continue
+                for c in cs:
+                    if len(c) >= 8 + struct.calcsize(NEAR_FMT) \
+                            and struct.unpack_from("<I", c, 4)[0] == AICOND_NEAR:
+                        _d, _al, lo, hi, _n = struct.unpack_from(NEAR_FMT, c, 8)
+                        if lo >= hi:
+                            out.extend((os.path.basename(p).lower(), sk, lo, hi) for sk in casts)
+    return out
+
+
+def report_window_warnings(warns):
+    if not warns:
+        return
+    print("\nWARNING: %d cast(s) gated by a condition-02 level window nobody can pass "
+          "(fix = --rewindow FILE.aip:SKILL=LO,HI):" % len(warns))
+    for fn, sk, lo, hi in warns:
+        print("   %-28s skill %4d  window [%d, %d]" % (fn, sk, lo, hi))
+
+
+def do_remap(root, specs, motion_specs, dry, chance_specs=(), window_specs=()):
     """specs: ['file.aip:OLD=NEW', ...] -- re-point casts whose id collides with one
     of our own skills to the row the importer put the real skill on.
     motion_specs: the same syntax for nMotion -- re-point casts authored against a
-    slot layout the model does not have (see the docstring)."""
+    slot layout the model does not have (see the docstring).
+    chance_specs / window_specs: 'file.aip:SKILL=PCT' / 'file.aip:SKILL=LO,HI'."""
     bdir = os.path.join(root, BACKUP_DIR)
     mpath = os.path.join(bdir, MANIFEST)
     man = json.load(open(mpath)) if os.path.isfile(mpath) else {"files": {}}
     files = {os.path.basename(p).lower(): p for p in mon.aip_files(root)}
     jobs = [("remapped", remap, "skill", sp) for sp in specs] + \
            [("remotioned", remotion, "motion", sp) for sp in motion_specs] + \
-           [("rechanced", rechance, "chance", sp) for sp in chance_specs]
+           [("rechanced", rechance, "chance", sp) for sp in chance_specs] + \
+           [("rewindowed", rewindow, "window", sp) for sp in window_specs]
     for key, fn_apply, what, spec in jobs:
         fn, ids = spec.split(":")
-        old_v, new_v = (int(x) for x in ids.split("="))
+        lhs, rhs = ids.split("=")
+        old_v = int(lhs)
+        new_v = tuple(int(x) for x in rhs.split(",")) if what == "window" else int(rhs)
         p = files.get(fn.lower())
         if not p:
             print("no such AI file: %s" % fn)
@@ -409,6 +487,15 @@ def do_remap(root, specs, motion_specs, dry, chance_specs=()):
                   % (fn, old_v, "/".join("%d%%" % o for o in olds) or "-", new_v, n,
                      "  (dry run)" if dry else ""))
             rec = {"skill": old_v, "from": olds, "to": new_v}
+        elif what == "window":
+            olds, n = n, len(n)
+            if len(new_v) != 2 or new_v[0] > new_v[1]:
+                print("window must be LO,HI with LO <= HI")
+                return 1
+            print("   %-28s skill %d level window %s -> [%d, %d] : %d condition(s)%s"
+                  % (fn, old_v, "/".join("[%d, %d]" % o for o in olds) or "-", new_v[0], new_v[1], n,
+                     "  (dry run)" if dry else ""))
+            rec = {"skill": old_v, "from": olds, "to": list(new_v)}
         else:
             print("   %-28s %s %d -> %d : %d record(s)%s"
                   % (fn, what, old_v, new_v, n, "  (dry run)" if dry else ""))
@@ -586,6 +673,8 @@ def main():
                     help="re-point every cast on nMotion OLD to NEW (model slot layout)")
     ap.add_argument("--rechance", action="append", default=[], metavar="FILE.aip:SKILL=PCT",
                     help="set the random-chance condition of every event casting SKILL (testing)")
+    ap.add_argument("--rewindow", action="append", default=[], metavar="FILE.aip:SKILL=LO,HI",
+                    help="set the level window of every condition 02 on events casting SKILL")
     ap.add_argument("--only", default=None, metavar="FILE.aip",
                     help="with --restore: restore just this file, keep the rest of the manifest")
     ap.add_argument("--strict-motions", action="store_true",
@@ -595,11 +684,11 @@ def main():
 
     if a.restore:
         return do_restore(root, a.only)
-    if a.remap or a.remotion or a.rechance:
+    if a.remap or a.remotion or a.rechance or a.rewindow:
         print("self-test (the rewriter must reproduce every file byte-identically):")
         if not mon.selftest(root):
             return 1
-        return do_remap(root, a.remap, a.remotion, a.dry_run, a.rechance)
+        return do_remap(root, a.remap, a.remotion, a.dry_run, a.rechance, a.rewindow)
 
     print("self-test (the rewriter must reproduce every file byte-identically):")
     if not mon.selftest(root):
@@ -613,6 +702,7 @@ def main():
     todo = scan(root, blank)
 
     warns = motion_warnings(root)
+    wwarns = window_warnings(root)
 
     if a.verify:
         if todo:
@@ -621,17 +711,20 @@ def main():
             return 1
         print("\nALL CHECKS PASSED -- no AI action casts a missing skill.")
         report_motion_warnings(warns)
-        return 1 if (warns and a.strict_motions) else 0
+        report_window_warnings(wwarns)
+        return 1 if ((warns or wwarns) and a.strict_motions) else 0
 
     if not todo:
         print("\nnothing to do -- no AI action casts a missing skill.")
         report_motion_warnings(warns)
+        report_window_warnings(wwarns)
         return 0
 
     nrefs = sum(len(h) for _p, h in todo)
     print("\n%d dangling skill cast(s) in %d file(s):" % (nrefs, len(todo)))
     report(todo)
     report_motion_warnings(warns)
+    report_window_warnings(wwarns)
 
     if a.dry_run:
         print("\ndry run: nothing written")
