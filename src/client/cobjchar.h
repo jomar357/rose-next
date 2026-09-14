@@ -352,6 +352,11 @@ public:
     /// PresentQueuedCombatDamageEvent. No-op when nothing is owed, and a swing whose
     /// projectile already spawned is left to the bullet.
     void PresentPreemptedCombatSwing(const char* reason);
+    /// Set by PresentPreemptedCombatSwing when the attack motion was still running
+    /// at the time of the skill command: the hit frame may yet consume the swing,
+    /// so the presentation waits for either that frame or Attack_END (the motion
+    /// being replaced). Cleared with the pending swing.
+    bool m_bPreemptedSwingAwaitingMotionEnd;
     /// Play a hit reaction that was deferred so an in-flight confirmed swing could
     /// reach its hit frame first. No-op when nothing is owed.
     void ResolveOwedHitReaction();

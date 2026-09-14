@@ -371,6 +371,7 @@ CObjCHAR::ClearPendingCombatSwingPresentation(uint32_t eventId) {
     m_bPendingCombatSwingProjectile = false;
     m_bPendingCombatSwingProjectileSpawned = false;
     m_dwPendingCombatSwingTime = 0;
+    m_bPreemptedSwingAwaitingMotionEnd = false;
 
     // The swing is settled (presented at its hit frame, or discarded). Anything
     // that was waiting on it can run now -- including a flinch we held back.
@@ -434,6 +435,27 @@ CObjCHAR::PresentPreemptedCombatSwing(const char* reason) {
             m_iPendingCombatSwingDefenderIndex,
             m_dwPendingCombatSwingEventId,
             reason ? reason : "");
+        return;
+    }
+
+    // If the attack motion is still attached, its hit frame may yet consume the
+    // swing on its own: the client applies a skill command as CS_NEXT_STOP, so the
+    // running motion is not replaced on the spot. Measured on the same boss with
+    // the first version of this hook: the hit frame (frame 10 of 37, 0.42 s) fired
+    // right after the command and found an empty queue ("queued presentation
+    // miss"). Leave the event where it is; the hit frame presents it in the normal
+    // way, or Attack_END presents it the instant the motion is actually replaced
+    // (Set_MOTION's prologue), whichever comes first.
+    if (GetCombatSwingMotionOBJ()->m_bAttackSTART) {
+        if (!m_bPreemptedSwingAwaitingMotionEnd) {
+            LogString(LOG_DEBUG_,
+                "CombatTrace pre-empted swing left to running attack motion: attacker %d defender %d event %u reason %s\n",
+                this->Get_INDEX(),
+                m_iPendingCombatSwingDefenderIndex,
+                m_dwPendingCombatSwingEventId,
+                reason ? reason : "");
+        }
+        m_bPreemptedSwingAwaitingMotionEnd = true;
         return;
     }
 
@@ -533,6 +555,7 @@ CObjCHAR::CObjCHAR(): m_EndurancePack(this), m_ChangeActionMode(this), m_ObjVibr
     m_bPendingCombatSwingProjectile = false;
     m_bPendingCombatSwingProjectileSpawned = false;
     m_dwPendingCombatSwingTime = 0;
+    m_bPreemptedSwingAwaitingMotionEnd = false;
     m_bOwedHitReaction = false;
     m_iPendingMountedAttackTarget = 0;
     m_dwPendingMountedAttackTime = 0;
@@ -1742,6 +1765,19 @@ CObjCHAR::Attack_END(bool bStopTrail) {
     }
 
     m_bAttackSTART = false;
+
+    // The attack motion is gone. A swing that a skill command pre-empted while
+    // this motion was still running (see PresentPreemptedCombatSwing) has just lost
+    // its hit frame, so present it now. m_bAttackSTART is already false here, so
+    // the re-entered call takes the present branch. Mounted swings are tracked on
+    // the rider while the mount plays the motion.
+    CObjCHAR* pTracker = this;
+    if (this->IsPET()) {
+        pTracker = ((CObjCART*)this)->GetParent();
+    }
+    if (pTracker && pTracker->m_bPreemptedSwingAwaitingMotionEnd) {
+        pTracker->PresentPreemptedCombatSwing("attack motion replaced");
+    }
 }
 
 //--------------------------------------------------------------------------------
