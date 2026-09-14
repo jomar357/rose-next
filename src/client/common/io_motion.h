@@ -34,6 +34,14 @@ struct tagMOTION {
     /// Computed once, at load.
     bool m_bHasSkillHitActionFrame;
 
+    /// True when this motion carries action frame 24 or 34 -- the ActionSkill()
+    /// frames that launch a projectile skill's bullet. A monster whose casting /
+    /// skill slots were filled with idle + attack clips (Mukuroji: pig01 model) has
+    /// none, so its "projectile" skill reaches the attack clip's melee frame 21
+    /// instead; ActionInFighting() reads this to present that frame as the
+    /// skill's impact. Computed once, at load.
+    bool m_bHasProjectileFireFrame;
+
 #ifdef __SERVER
     short* m_pActionPoint;
 #else

@@ -681,12 +681,29 @@ struct AIACT24
                         SKILL_HARM(pAct->nSkill),
                         SKILL_CLASS_FILTER(pAct->nSkill),
                         SKILL_TYPE(pAct->nSkill))) {
-                    LogString(LOG_DEBUG_,
-                        "non_aggro_script_skill_blocked caster %d target %d skill %d\n",
-                        pEVENT->m_pSourCHAR->Get_TAG(),
-                        pEVENT->m_pFindCHAR->Get_TAG(),
-                        pAct->nSkill);
-                    break;
+                    // A MONSTER casting a hostile skill at a character its idle
+                    // pattern just found is how caster mobs aggro (Nigaki's
+                    // kh_2676.aip: "enemy within 12 m -> Voltage Jolt", its only
+                    // offensive action besides a 20% chance to turn on whoever hit
+                    // it). Blocking it left the monster a passive heal-bot that
+                    // never fought back. Let the cast through: SetCMD_Skill2OBJ
+                    // makes that character the current target, so every later cast
+                    // passes the guard as a normal combat skill. Non-monster
+                    // scripted casters (the guard's original subject) stay blocked.
+                    if (pEVENT->m_pSourCHAR->Get_ObjTYPE() == OBJ_MOB) {
+                        LogString(LOG_DEBUG_,
+                            "non_aggro_script_skill_aggro caster %d target %d skill %d\n",
+                            pEVENT->m_pSourCHAR->Get_TAG(),
+                            pEVENT->m_pFindCHAR->Get_TAG(),
+                            pAct->nSkill);
+                    } else {
+                        LogString(LOG_DEBUG_,
+                            "non_aggro_script_skill_blocked caster %d target %d skill %d\n",
+                            pEVENT->m_pSourCHAR->Get_TAG(),
+                            pEVENT->m_pFindCHAR->Get_TAG(),
+                            pAct->nSkill);
+                        break;
+                    }
                 }
 
                 pEVENT->m_pSourCHAR->SetCMD_Skill2OBJ(pEVENT->m_pFindCHAR->Get_TAG(),

@@ -15,6 +15,7 @@ tagMOTION::tagMOTION() {
     m_nActionPointCNT = 0;
     m_wTatalAttackFrame = 0;
     m_bHasSkillHitActionFrame = false;
+    m_bHasProjectileFireFrame = false;
     m_iInterpolationInterval = 500;
 }
 
@@ -109,6 +110,9 @@ tagMOTION::LoadZMO(char* szFileName) {
                 /// drains at all.
                 if (m_pFrameEvent[nF] == 25) {
                     m_bHasSkillHitActionFrame = true;
+                }
+                if (m_pFrameEvent[nF] == 24 || m_pFrameEvent[nF] == 34) {
+                    m_bHasProjectileFireFrame = true;
                 }
             }
         }

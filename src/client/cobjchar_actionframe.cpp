@@ -280,7 +280,33 @@ CObjCHAR::ActionInFighting(int iActionIDX) {
                             iEffectIDX = NPC_HAND_HIT_EFFECT(this->Get_CharNO());
                     }
 
-                    pTarget->Hitted(this, iEffectIDX, this->m_nActiveSkillIDX);
+                    // A projectile skill performed with a motion that has no fire
+                    // frame (24/34) never launches its bullet: this melee frame is
+                    // the only hit moment it will ever reach. Present it AS the
+                    // skill's impact -- bIsSkillEffect routes Hitted() through
+                    // ProcessSkillHit(), which consumes the projectile registration
+                    // and the caster's queued effect-of-skill payload (the status,
+                    // the hit effect). Without this the plain melee pop ate the
+                    // damage with no visual and the payload timed out 10 s later,
+                    // so Mukuroji's Flame Heat burn ticked with no icon and no
+                    // effect (import-karkia.py filled its casting/skill slots with
+                    // the pig's idle/attack clips).
+                    const int iDoingSkill = this->m_nDoingSkillIDX ? this->m_nDoingSkillIDX
+                                                                    : this->m_nActiveSkillIDX;
+                    const bool bFirelessProjectileSkill = iDoingSkill > 0
+                        && !this->IsLocalAvatarAttacker()
+                        && IsProjectilePresentedSkillDamage(iDoingSkill)
+                        && m_pCurMOTION && !m_pCurMOTION->m_bHasProjectileFireFrame;
+                    if (bFirelessProjectileSkill) {
+                        LogString(LOG_DEBUG_,
+                            "CombatTrace projectile skill presented on melee frame, motion has no fire frame: caster %d skill %d target %d\n",
+                            this->Get_INDEX(),
+                            iDoingSkill,
+                            pTarget->Get_INDEX());
+                        pTarget->Hitted(this, iEffectIDX, iDoingSkill, true);
+                    } else {
+                        pTarget->Hitted(this, iEffectIDX, this->m_nActiveSkillIDX);
+                    }
 
                     /// 사운드
                     if (pTarget->IsUSER() == false) {
