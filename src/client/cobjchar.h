@@ -325,6 +325,7 @@ public:
         return eventId != 0 && m_dwPendingCombatSwingEventId == eventId;
     }
     uint32_t GetPendingCombatSwingEventId() const { return m_dwPendingCombatSwingEventId; }
+    DWORD GetPendingCombatSwingTime() const { return m_dwPendingCombatSwingTime; }
     /// The confirmed swing this object owes a hit frame for, following the mounted
     /// split: a cart / castle gear plays the attack motion while the rider tracks
     /// the swing (see GetCombatSwingMotionOBJ).
@@ -352,6 +353,11 @@ public:
     /// PresentQueuedCombatDamageEvent. No-op when nothing is owed, and a swing whose
     /// projectile already spawned is left to the bullet.
     void PresentPreemptedCombatSwing(const char* reason);
+    /// Does this attacker still owe a hit frame for a confirmed swing that the
+    /// defender is holding, within the orphan-sweep grace? A remote caster's skill
+    /// command is held in m_CommandQueue while this is true, so the swing plays out
+    /// (animation + digit at its hit frame) before the cast starts.
+    bool OwesConfirmedSwingHitFrame(DWORD now);
     /// Set by PresentPreemptedCombatSwing when the attack motion was still running
     /// at the time of the skill command: the hit frame may yet consume the swing,
     /// so the presentation waits for either that frame or Attack_END (the motion

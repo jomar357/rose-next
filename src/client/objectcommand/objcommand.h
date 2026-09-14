@@ -72,6 +72,10 @@ public:
 
     int GetType() { return m_iType; }
     bool bGetResultOfSkil() { return m_bGetResultOfSkill; }
+    /// A remote caster's queued skill command is server-confirmed by construction;
+    /// mark it so PushCommand does not erase it as "no result yet" when a second
+    /// command is queued behind it.
+    void SetResultOfSkill(bool bResult) { m_bGetResultOfSkill = bResult; }
 
     virtual bool Execute(CObjCHAR* pObjCHAR) = 0 { *(int*)0 = 10; };
 };

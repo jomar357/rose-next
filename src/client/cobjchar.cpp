@@ -422,6 +422,33 @@ CObjCHAR::CancelInterruptedCombatSwingPresentation(const char* reason) {
 // spawned keeps its impact consumer. Deliberately does NOT require CS_BIT_ATTACK
 // (HasUnconsumedConfirmedSwing): in the same-frame case the attack motion never
 // existed, and the hit is owed regardless.
+// Hold a remote caster's skill command behind the swing it would otherwise cut.
+// Presenting the owed hit at the moment of pre-emption is honest but has no
+// animation behind it; the server itself sequences a cast after its own attack
+// motion ends (SetCMD_Skill2OBJ -> CS_NEXT_STOP), only the packet is sent early.
+// So the client holds the cast in m_CommandQueue until the hit frame presents the
+// swing -- or until the swing stops being presentable: the defender dropped the
+// event (its own sweep, death, despawn), or kOrphanedSwingGraceMs passed, after
+// which the attacker-side sweep would be waiting on this very queue to empty.
+// Skill commands only: move/stop are never held, so chase and repositioning are
+// untouched, and each monster holds only its own cast.
+static const DWORD kOwedSwingHoldMs = 3000; // == kOrphanedSwingGraceMs
+
+bool
+CObjCHAR::OwesConfirmedSwingHitFrame(DWORD now) {
+    if (m_dwPendingCombatSwingEventId == 0 || m_iPendingCombatSwingDefenderIndex == 0) {
+        return false;
+    }
+    if (m_bPendingCombatSwingProjectile && m_bPendingCombatSwingProjectileSpawned) {
+        return false; // the bullet owns it; nothing to wait for on this motion
+    }
+    if ((now - m_dwPendingCombatSwingTime) >= kOwedSwingHoldMs) {
+        return false;
+    }
+    CObjCHAR* pDefender = g_pObjMGR->Get_CharOBJ(m_iPendingCombatSwingDefenderIndex, false);
+    return pDefender && pDefender->HasQueuedCombatDamageEvent(m_dwPendingCombatSwingEventId);
+}
+
 void
 CObjCHAR::PresentPreemptedCombatSwing(const char* reason) {
     if (m_dwPendingCombatSwingEventId == 0 || m_iPendingCombatSwingDefenderIndex == 0) {
@@ -5362,6 +5389,13 @@ CObjCHAR::ProcQueuedCommand() {
         return;
     }
 
+    // A remote caster's held skill command waits for the swing it would have cut
+    // (see OwesConfirmedSwingHitFrame). Not for the avatar: its queue is driven by
+    // its own click-time flow.
+    if (this != (CObjCHAR*)g_pAVATAR && OwesConfirmedSwingHitFrame(g_GameDATA.GetGameTime())) {
+        return;
+    }
+
     /// 일단 제일 마지막껏만 수행
     bool bSkillCommand = false;
     CObjCommand* pCommand = m_CommandQueue.PopLastCommand(bSkillCommand);
@@ -5525,6 +5559,11 @@ CObjCHAR::PushCommandSkill2Self(short nSkillIDX) {
 
     if (pCommand) {
         ((CObjSkill2SelfCommand*)pCommand)->SetCMD_Skill2SELF(nSkillIDX);
+        // Server-confirmed for anyone but the avatar; PushCommand would otherwise
+        // erase it as "no result yet" when the next command is queued behind it.
+        if (this != (CObjCHAR*)g_pAVATAR) {
+            pCommand->SetResultOfSkill(true);
+        }
 
         m_CommandQueue.PushCommand(pCommand);
     } else
@@ -5546,6 +5585,11 @@ CObjCHAR::PushCommandSkill2Obj(WORD wSrvDIST,
     if (pCommand) {
         ((CObjSkill2ObjCommand*)pCommand)
             ->SetCMD_Skill2OBJ(wSrvDIST, PosTO, iServerTarget, nSkillIDX);
+        // Server-confirmed for anyone but the avatar; PushCommand would otherwise
+        // erase it as "no result yet" when the next command is queued behind it.
+        if (this != (CObjCHAR*)g_pAVATAR) {
+            pCommand->SetResultOfSkill(true);
+        }
 
         m_CommandQueue.PushCommand(pCommand);
     } else
@@ -5563,6 +5607,11 @@ CObjCHAR::PushCommandSkill2Pos(const D3DVECTOR& PosGOTO, short nSkillIDX) {
 
     if (pCommand) {
         ((CObjSkill2PosCommand*)pCommand)->SetCMD_Skill2POS(PosGOTO, nSkillIDX);
+        // Server-confirmed for anyone but the avatar; PushCommand would otherwise
+        // erase it as "no result yet" when the next command is queued behind it.
+        if (this != (CObjCHAR*)g_pAVATAR) {
+            pCommand->SetResultOfSkill(true);
+        }
 
         m_CommandQueue.PushCommand(pCommand);
     } else

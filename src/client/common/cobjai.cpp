@@ -951,6 +951,20 @@ CObjAI::SetCMD_Skill2SELF(short nSkillIDX) {
     // CObjCHAR is the only CObjAI in the client; cast rather than widen the base
     // vtable, which would force a clean rebuild of every character object.
     if (!static_cast<CObjCHAR*>(this)->IsLocalAvatarAttacker()) {
+        // Prefer holding the cast behind the owed swing so the swing plays out
+        // with its animation; the queue pops it after the hit frame (or after the
+        // hold expires), and GSV_SKILL_START validates it meanwhile. Only if the
+        // swing is past the hold window is it presented at once instead.
+        if (static_cast<CObjCHAR*>(this)->OwesConfirmedSwingHitFrame(g_GameDATA.GetGameTime())) {
+            LogString(LOG_DEBUG_,
+                "CombatTrace skill command held for owed swing: attacker %d event %u age %u reason %s\n",
+                this->Get_INDEX(),
+                static_cast<CObjCHAR*>(this)->GetPendingCombatSwingEventId(),
+                (unsigned int)(g_GameDATA.GetGameTime() - static_cast<CObjCHAR*>(this)->GetPendingCombatSwingTime()),
+                "self skill command");
+            this->PushCommandSkill2Self(nSkillIDX);
+        return;
+        }
         static_cast<CObjCHAR*>(this)->PresentPreemptedCombatSwing("self skill command");
     }
 
@@ -1028,6 +1042,20 @@ CObjAI::SetCMD_Skill2OBJ(WORD wSrvDIST,
     // CObjCHAR is the only CObjAI in the client; cast rather than widen the base
     // vtable, which would force a clean rebuild of every character object.
     if (!static_cast<CObjCHAR*>(this)->IsLocalAvatarAttacker()) {
+        // Prefer holding the cast behind the owed swing so the swing plays out
+        // with its animation; the queue pops it after the hit frame (or after the
+        // hold expires), and GSV_SKILL_START validates it meanwhile. Only if the
+        // swing is past the hold window is it presented at once instead.
+        if (static_cast<CObjCHAR*>(this)->OwesConfirmedSwingHitFrame(g_GameDATA.GetGameTime())) {
+            LogString(LOG_DEBUG_,
+                "CombatTrace skill command held for owed swing: attacker %d event %u age %u reason %s\n",
+                this->Get_INDEX(),
+                static_cast<CObjCHAR*>(this)->GetPendingCombatSwingEventId(),
+                (unsigned int)(g_GameDATA.GetGameTime() - static_cast<CObjCHAR*>(this)->GetPendingCombatSwingTime()),
+                "target skill command");
+            this->PushCommandSkill2Obj(wSrvDIST, PosTO, iServerTarget, nSkillIDX);
+        return false;
+        }
         static_cast<CObjCHAR*>(this)->PresentPreemptedCombatSwing("target skill command");
     }
 
@@ -1136,6 +1164,20 @@ CObjAI::SetCMD_Skill2POS(const D3DVECTOR& PosGOTO, short nSkillIDX) {
     // CObjCHAR is the only CObjAI in the client; cast rather than widen the base
     // vtable, which would force a clean rebuild of every character object.
     if (!static_cast<CObjCHAR*>(this)->IsLocalAvatarAttacker()) {
+        // Prefer holding the cast behind the owed swing so the swing plays out
+        // with its animation; the queue pops it after the hit frame (or after the
+        // hold expires), and GSV_SKILL_START validates it meanwhile. Only if the
+        // swing is past the hold window is it presented at once instead.
+        if (static_cast<CObjCHAR*>(this)->OwesConfirmedSwingHitFrame(g_GameDATA.GetGameTime())) {
+            LogString(LOG_DEBUG_,
+                "CombatTrace skill command held for owed swing: attacker %d event %u age %u reason %s\n",
+                this->Get_INDEX(),
+                static_cast<CObjCHAR*>(this)->GetPendingCombatSwingEventId(),
+                (unsigned int)(g_GameDATA.GetGameTime() - static_cast<CObjCHAR*>(this)->GetPendingCombatSwingTime()),
+                "position skill command");
+            this->PushCommandSkill2Pos(PosGOTO, nSkillIDX);
+        return;
+        }
         static_cast<CObjCHAR*>(this)->PresentPreemptedCombatSwing("position skill command");
     }
 
