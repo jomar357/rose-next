@@ -87,6 +87,23 @@ SKILL_STB = os.path.join("data", "3DDATA", "STB", "LIST_SKILL.STB")
 BACKUP_DIR = os.path.join("build", "ai-skill-refs")
 MANIFEST = "manifest.json"
 
+# Imported AI files carry their SOURCE dump's skill ids. A blank row is the loud
+# failure; the quiet one is an id that is occupied here by a DIFFERENT skill --
+# Nigaki (kh_2676.aip, Jrose) cast 923, which is Jrose's ally heal (type 11) and
+# OUR player Healing (type 10, self): the monsters spam-cast it on each other and
+# never fought back. Files are matched to their dump by filename prefix and the
+# cast is flagged when SKILL_TYPE differs between the dump's row and ours. Rows
+# the importers ported or re-pointed on purpose are allowlisted per dump.
+SOURCE_DUMPS = {
+    "Jrose": (r"C:\Users\Thomas\Desktop\Testclients\Jrose\3Ddata\STB\LIST_SKILL.STB", "cp932"),
+    "RoseZA": (r"C:\Users\Thomas\Desktop\Testclients\RoseZA test client\data\3DDATA\STB\LIST_SKILL.STB", "cp949"),
+}
+PREFIX_DUMP = {"kh_": "Jrose", "kak_": "Jrose", "or_": "RoseZA"}
+# import-karkia.py SKILL_PORTS (row -> row) and SKILL_REPOINT targets: our rows,
+# deliberately different from Jrose's at those ids.
+DELIBERATE = {"Jrose": {361, 1090, 3613, 3616, 3627, 3686, 3711, 3771, 3779, 3780, 3781},
+              "RoseZA": set()}
+
 TARGET_LABEL = {0: "cond-char", 1: "cur-target", 2: "self"}
 
 
@@ -109,6 +126,7 @@ rd = load("rose-data-reader")
 def load_skill_rows(root):
     """True per row when the row is entirely blank (every cell empty)."""
     stb = rd.Stb(os.path.join(root, SKILL_STB))
+    load_skill_rows.stb = stb
     return [all(not stb.get(r, c) for c in range(stb.cols)) for r in range(stb.rows)]
 
 
@@ -117,6 +135,53 @@ def skill_problem(blank, idx):
         return "out of range (table has %d rows)" % len(blank)
     if blank[idx]:
         return "BLANK ROW"
+    return None
+
+
+_dump_cache = {}
+
+
+def dump_for(path):
+    fn = os.path.basename(path).lower()
+    for prefix, dump in PREFIX_DUMP.items():
+        if fn.startswith(prefix):
+            return dump
+    return None
+
+
+def dump_type(dump, idx):
+    if dump not in _dump_cache:
+        p, enc = SOURCE_DUMPS[dump]
+        _dump_cache[dump] = rd.Stb(p, enc) if os.path.isfile(p) else None
+    t = _dump_cache[dump]
+    if t is None or idx >= t.rows:
+        return None
+    v = t.get(idx, 5).strip()
+    return int(v) if v.isdigit() else 0
+
+
+REMAPPED_TO = set()   # ids that --remap pointed casts at: OUR rows, outside the dump's namespace
+
+
+def load_remapped(root):
+    mpath = os.path.join(root, BACKUP_DIR, MANIFEST)
+    if os.path.isfile(mpath):
+        for rec in json.load(open(mpath))["files"].values():
+            for r in rec.get("remapped", []):
+                REMAPPED_TO.add(r["to"])
+
+
+def mismatch_problem(ours, dump, idx):
+    """'MISMATCH ...' when the dump's row at idx is a different kind of skill."""
+    if dump is None or idx in DELIBERATE.get(dump, ()) or idx in REMAPPED_TO:
+        return None
+    st = dump_type(dump, idx)
+    if st is None:
+        return None
+    ov = ours.get(idx, 5).strip()
+    ot = int(ov) if ov.isdigit() else 0
+    if st != ot:
+        return "MISMATCH: type %d here, type %d in %s (%r here)" % (ot, st, dump, ours.get(idx, 0)[:24])
     return None
 
 
@@ -151,6 +216,8 @@ def scan(root, blank):
                     tgt, skill, motion = s
                     why = skill_problem(blank, skill)
                     if why is None:
+                        why = mismatch_problem(load_skill_rows.stb, dump_for(p), skill)
+                    if why is None:
                         continue
                     hits.append((pi, ei, ai, tgt, skill, motion, why))
         if hits:
@@ -171,6 +238,56 @@ def strip(b, hits):
             newevs.append((en, cs, [a for ai, a in enumerate(acts) if ai not in kill]))
         newpats.append((pn, newevs))
     return mon.build_aip(hdr, title, newpats, tail)
+
+
+def remap(b, old_id, new_id):
+    """Rewrite every AIACT24 nSkill == old_id to new_id. Returns (bytes, count)."""
+    hdr, title, pats, tail = mon.parse_aip(b)
+    n = 0
+    newpats = []
+    for pn, evs in pats:
+        newevs = []
+        for en, cs, acts in evs:
+            out = []
+            for a in acts:
+                s = act_skill(a)
+                if s and s[1] == old_id:
+                    a = a[:SKILL_OFF] + struct.pack("<h", new_id) + a[SKILL_OFF + 2:]
+                    n += 1
+                out.append(a)
+            newevs.append((en, cs, out))
+        newpats.append((pn, newevs))
+    return mon.build_aip(hdr, title, newpats, tail), n
+
+
+def do_remap(root, specs, dry):
+    """specs: ['file.aip:OLD=NEW', ...] -- re-point casts whose id collides with one
+    of our own skills to the row the importer put the real skill on."""
+    bdir = os.path.join(root, BACKUP_DIR)
+    mpath = os.path.join(bdir, MANIFEST)
+    man = json.load(open(mpath)) if os.path.isfile(mpath) else {"files": {}}
+    files = {os.path.basename(p).lower(): p for p in mon.aip_files(root)}
+    for spec in specs:
+        fn, ids = spec.split(":")
+        old_id, new_id = (int(x) for x in ids.split("="))
+        p = files.get(fn.lower())
+        if not p:
+            print("no such AI file: %s" % fn)
+            return 1
+        b = open(p, "rb").read()
+        out, n = remap(b, old_id, new_id)
+        print("   %-28s %d -> %d : %d record(s)%s" % (fn, old_id, new_id, n, "  (dry run)" if dry else ""))
+        if dry or n == 0:
+            continue
+        rel = os.path.relpath(p, root).replace("\\", "/")
+        man["files"].setdefault(rel, {})
+        man["files"][rel].setdefault("original", base64.b64encode(b).decode("ascii"))
+        man["files"][rel].setdefault("remapped", []).append({"from": old_id, "to": new_id, "count": n})
+        open(p, "wb").write(out)
+    if not dry:
+        os.makedirs(bdir, exist_ok=True)
+        json.dump(man, open(mpath, "w"), indent=1)
+    return 0
 
 
 def report(todo):
@@ -203,11 +320,18 @@ def main():
     ap.add_argument("--verify", action="store_true", help="check that no dangling refs remain")
     ap.add_argument("--restore", action="store_true", help="undo from build/ai-skill-refs/")
     ap.add_argument("--selftest", action="store_true", help="prove the rewriter round-trips")
+    ap.add_argument("--remap", action="append", default=[], metavar="FILE.aip:OLD=NEW",
+                    help="re-point a cast whose id collides with one of our skills")
     a = ap.parse_args()
     root = os.path.abspath(a.root)
 
     if a.restore:
         return do_restore(root)
+    if a.remap:
+        print("self-test (the rewriter must reproduce every file byte-identically):")
+        if not mon.selftest(root):
+            return 1
+        return do_remap(root, a.remap, a.dry_run)
 
     print("self-test (the rewriter must reproduce every file byte-identically):")
     if not mon.selftest(root):
@@ -217,6 +341,7 @@ def main():
         return 0
 
     blank = load_skill_rows(root)
+    load_remapped(root)
     todo = scan(root, blank)
 
     if a.verify:

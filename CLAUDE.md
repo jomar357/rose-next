@@ -480,6 +480,20 @@ is Jrose's, so its skill ids are Jrose's** (RoseZA's 871 is a different row);
 the row is the Mage player skill, so the importer's per-skill `clear` list
 blanks its learn-tree columns and its STL key (which would alias one of ours).
 Every effect/bullet/sound index already matched here and the chain was present.
+**The quiet failure is an id that is occupied here by a different skill**, which
+the blank-row check cannot see: Nigaki also cast Jrose's 923 (rank 3 of the
+Cleric's ally Heal, type 11) and our 923 is the player's Healing (type 10,
+self) — the Flower Garden's Nigakis spam-cast it on each other with a spell
+sound and never fought back. The audit now maps an AI file to its source dump by
+filename prefix (`kh_`/`kak_` → Jrose, `or_` → RoseZA) and flags a cast whose
+`SKILL_TYPE` differs between the dump's row and ours (the Karkia importer's own
+ports and re-points are allowlisted in `DELIBERATE`); its `--remap
+FILE.aip:OLD=NEW` re-points casts, and the importer's per-skill `dest` puts a
+colliding row at the table's tail (Heal Ally at **7012**, `set={21:16, 22:370}`
+because Jrose keeps the ability in its columns 89/90). The Devourer's 3613 was
+the other collision (RoseZA long-range damage vs our Karkia Stun port) and is
+stripped. Mukuroji's 30-per-tick "poison" is its retail burn (3050 → LIST_STATUS
+58 Flame Heat), not a defect.
 Three files still carry stripped casts, none spawned anywhere: Inguz 654 (3044),
 Penguin Artillery 1458 (2980), Gangster Pangs 1456/1457 (2979); Grand Master
 Devourer 2226 (3609-3611, spawned in Oro odd04/05) is the one to do next and the

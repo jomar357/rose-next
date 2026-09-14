@@ -130,6 +130,19 @@ SKILLS = {
     # spike rather than a boss nuke.
     871: dict(name="Voltage Jolt", source="Jrose", dmgtype=2, power=150,
               clear=(2, 3, 4, 39, 40, 41, 42, 43, 44, 86)),
+    # Nigaki's other cast, missed by import-karkia.py stage 3i: Jrose 923 is rank
+    # 3 of the Cleric's Heal -- type 11 (instant ability change on the target),
+    # friend filter, +370 HP. Jrose keeps the ability in its newer-schema columns
+    # 89/90 (type 16 = HP, value 370), so `set` writes it into our 21/22. Our 923
+    # is the player's Healing (type 10, self), which is what the Nigakis were
+    # spam-casting on each other -- hence the spell-sound loop and monsters that
+    # never fought back. The id collides, so the row goes to a fresh row at the
+    # tail (`dest`) and kh_2676.aip is re-pointed:
+    #     audit-ai-skill-refs.py --remap kh_2676.aip:923=7012
+    # 370 HP is nothing against a 13k-HP Nigaki, but it is what Jrose ships and a
+    # support cast that does little is the honest port; tune with `set`.
+    923: dict(name="Heal Ally", source="Jrose", dest=7012, set={21: 16, 22: 370},
+              clear=(2, 3, 4, 16, 17, 39, 40, 45, 46, 86)),
 }
 
 # LIST_SKILL columns (io_skill.h)
@@ -245,28 +258,33 @@ class Plan:
 
     def _skill(self, sid, spec):
         o, s = self.o["LIST_SKILL.STB"], self.s["LIST_SKILL.STB"]
+        dest = spec.get("dest", sid)
         why = "skill %d" % sid
         if sid >= s.rows or not s.get(sid, C_TYPE).strip():
             self.problems.append("%s: not in source" % why)
             return
-        if sid >= o.rows:
-            self.problems.append("%s: past our LIST_SKILL (%d rows)" % (why, o.rows))
+        if dest > o.rows:
+            self.problems.append("%s: dest %d is past our LIST_SKILL end (%d rows; only appending at the end is supported)" % (why, dest, o.rows))
             return
-        if not blank_row(o, sid):
-            if o.get(sid, C_NAME) == spec["name"].encode("latin-1"):
+        if dest < o.rows and not blank_row(o, dest):
+            if o.get(dest, C_NAME) == spec["name"].encode("latin-1"):
                 self.skipped.append(sid)       # already imported on an earlier run
             else:
-                self.problems.append("%s: our row is occupied (%r)" % (why, o.get(sid, 0)))
+                self.problems.append("%s: our row %d is occupied (%r)" % (why, dest, o.get(dest, 0)))
             return
         cells = [s.get(sid, c) for c in range(o.cols)]
         cells[C_NAME] = spec["name"].encode("latin-1")
-        cells[C_POWER] = str(spec["power"]).encode()
-        cells[C_DMGTYPE] = str(spec["dmgtype"]).encode()
+        if "power" in spec:
+            cells[C_POWER] = str(spec["power"]).encode()
+        if "dmgtype" in spec:
+            cells[C_DMGTYPE] = str(spec["dmgtype"]).encode()
         cells[C_STATUS1] = b""
         cells[C_STATUS2] = b""
         for c in spec.get("clear", ()):
             cells[c] = b""
-        self.skill_rows[sid] = cells
+        for c, v in spec.get("set", {}).items():
+            cells[c] = str(v).encode()
+        self.skill_rows[dest] = cells
         for c in EFFECT_COLS:
             self._need_effect(ival(s, sid, c), "%s col %d" % (why, c))
         for c in SOUND_COLS:
@@ -287,10 +305,11 @@ class Plan:
         return out
 
     def report(self, files):
-        for sid, cells in sorted(self.skill_rows.items()):
-            print("   LIST_SKILL %4d  %-10s type %s dmgtype %s power %s bullet %s"
-                  % (sid, cells[C_NAME].decode(), cells[C_TYPE].decode(), cells[C_DMGTYPE].decode(),
-                     cells[C_POWER].decode(), cells[C_BULLET].decode() or "-"))
+        for dest, cells in sorted(self.skill_rows.items()):
+            print("   LIST_SKILL %4d  %-10s type %s dmgtype %s power %s bullet %s%s"
+                  % (dest, cells[C_NAME].decode(), cells[C_TYPE].decode(), cells[C_DMGTYPE].decode() or "-",
+                     cells[C_POWER].decode() or "-", cells[C_BULLET].decode() or "-",
+                     "  (appended)" if dest >= self.o["LIST_SKILL.STB"].rows else ""))
         for idx, cells in sorted(self.effect_rows.items()):
             print("   FILE_EFFECT %4d  %s" % (idx, cells[1].decode("latin-1")))
         for idx, cells in sorted(self.bullet_rows.items()):
@@ -338,14 +357,16 @@ def do_restore(root, ids):
 def verify(root, ids):
     ok = True
     o = {n: oro.Stb(os.path.join(root, STB, n)) for n in ("LIST_SKILL.STB", "FILE_EFFECT.STB", "LIST_EFFECT.STB")}
-    for sid in ids:
-        spec = SKILLS[sid]
+    for src_id in ids:
+        spec = SKILLS[src_id]
+        sid = spec.get("dest", src_id)
         sk = o["LIST_SKILL.STB"]
         good = (sk.get(sid, C_NAME) == spec["name"].encode("latin-1")
-                and ival(sk, sid, C_POWER) == spec["power"]
-                and ival(sk, sid, C_DMGTYPE) == spec["dmgtype"]
+                and ("power" not in spec or ival(sk, sid, C_POWER) == spec["power"])
+                and ("dmgtype" not in spec or ival(sk, sid, C_DMGTYPE) == spec["dmgtype"])
+                and all(ival(sk, sid, c) == v for c, v in spec.get("set", {}).items())
                 and ival(sk, sid, C_TYPE) > 0)
-        print("   LIST_SKILL %d %-9s %s" % (sid, spec["name"], "OK" if good else "MISSING/DIFFERS"))
+        print("   LIST_SKILL %d %-12s %s" % (sid, spec["name"], "OK" if good else "MISSING/DIFFERS"))
         ok &= good
         for c in EFFECT_COLS:
             i = ival(sk, sid, c)
@@ -422,9 +443,10 @@ def main():
     for n in ("LIST_SKILL.STB", "FILE_EFFECT.STB", "LIST_EFFECT.STB"):
         rel = os.path.join(STB, n).replace("\\", "/")
         man["stb"][rel] = base64.b64encode(open(os.path.join(root, STB, n), "rb").read()).decode("ascii")
-    for sid, cells in plan.skill_rows.items():
+    for dest, cells in plan.skill_rows.items():
+        plan.o["LIST_SKILL.STB"].grow_to(dest + 1)
         for c, v in enumerate(cells):
-            plan.o["LIST_SKILL.STB"].set(sid, c, v)
+            plan.o["LIST_SKILL.STB"].set(dest, c, v)
     for idx, cells in plan.effect_rows.items():
         for c, v in enumerate(cells):
             plan.o["FILE_EFFECT.STB"].set(idx, c, v)
