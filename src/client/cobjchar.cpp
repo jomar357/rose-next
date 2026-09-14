@@ -404,6 +404,50 @@ CObjCHAR::CancelInterruptedCombatSwingPresentation(const char* reason) {
     pDefender->DiscardQueuedCombatDamageEvent(eventId, this, reason);
 }
 
+// The attacker's own next command is replacing the motion that owed this hit
+// frame. Unlike the hard-control path above (sleep/faint: the *defender* stopped
+// the swing) and the Proc() orphan sweep (the motion was genuinely lost), this is
+// not ambiguous: the server applied the swing at frame 0 of the attack motion and
+// the attacker is simply moving on to a skill. Fold-and-hide was measured against
+// Fearsome Terrasaurus King (2026-09-14): its when-damaged AI casts a skill right
+// after swinging, the cast replaced the attack motion before its hit frame (or,
+// arriving in the same frame as the CombatSwing, before ProcCMD_ATTACK ever
+// started it), two 500-600 HP swings in a row were discarded, and the lethal hit
+// then presented death from a bar 1068 HP too high -- "I died at 1300 HP to a
+// 545 hit". Presenting at the moment of pre-emption keeps every server hit on
+// screen; the digit is the event's own damage_value as always.
+//
+// Same eligibility as the cancel path: a projectile swing whose bullet already
+// spawned keeps its impact consumer. Deliberately does NOT require CS_BIT_ATTACK
+// (HasUnconsumedConfirmedSwing): in the same-frame case the attack motion never
+// existed, and the hit is owed regardless.
+void
+CObjCHAR::PresentPreemptedCombatSwing(const char* reason) {
+    if (m_dwPendingCombatSwingEventId == 0 || m_iPendingCombatSwingDefenderIndex == 0) {
+        return;
+    }
+
+    if (m_bPendingCombatSwingProjectile && m_bPendingCombatSwingProjectileSpawned) {
+        LogString(LOG_DEBUG_,
+            "CombatTrace pre-empted swing kept for spawned projectile: attacker %d defender %d event %u reason %s\n",
+            this->Get_INDEX(),
+            m_iPendingCombatSwingDefenderIndex,
+            m_dwPendingCombatSwingEventId,
+            reason ? reason : "");
+        return;
+    }
+
+    const uint32_t eventId = m_dwPendingCombatSwingEventId;
+    CObjCHAR* pDefender = g_pObjMGR->Get_CharOBJ(m_iPendingCombatSwingDefenderIndex, true);
+    ClearPendingCombatSwingPresentation();
+
+    if (!pDefender) {
+        return;
+    }
+
+    pDefender->PresentQueuedCombatDamageEvent(eventId, this, reason);
+}
+
 //--------------------------------------------------------------------------------
 /// class : CObjCHAR
 /// @param
@@ -3207,6 +3251,45 @@ CObjCHAR::DiscardQueuedCombatDamageFromAttacker(CObjCHAR* pAtkOBJ) {
         event.hp_after,
         event.event_id,
         event.defender_seq);
+    return Rose::Combat::CombatPresentationQueue::result_for(event);
+}
+
+// By-id sibling of PresentQueuedCombatDamageFromAttacker: the caller knows exactly
+// which event it owes (the attacker's pending confirmed swing) and is presenting it
+// outside a hit frame. Everything downstream is the normal presentation path --
+// ApplyPresentedCombatDamage handles the checkpoint fold, the lethal branch and
+// the avatar's pending-death bookkeeping, so a pre-empted killing blow presents the
+// death here the same way a hit frame would.
+Rose::Combat::PresentationResult
+CObjCHAR::PresentQueuedCombatDamageEvent(uint32_t eventId, CObjCHAR* pAtkOBJ, const char* reason) {
+    Rose::Combat::DamageEvent event;
+    if (!m_CombatDamageQueue.discard_event(eventId, &event)) {
+        LogString(LOG_DEBUG_,
+            "CombatTrace pre-empted swing present missed event: attacker %d target %d event %u reason %s queue %d\n",
+            pAtkOBJ ? pAtkOBJ->Get_INDEX() : 0,
+            this->Get_INDEX(),
+            eventId,
+            reason ? reason : "",
+            static_cast<int>(m_CombatDamageQueue.size()));
+        return Rose::Combat::PresentationResult::NoEvent;
+    }
+
+    if (pAtkOBJ) {
+        pAtkOBJ->ClearPendingCombatSwingPresentation(event.event_id);
+    }
+
+    LogString(LOG_DEBUG_,
+        "CombatTrace pre-empted swing presented: attacker %d target %d kind %d damage %d hp_after %d event %u seq %u reason %s\n",
+        pAtkOBJ ? pAtkOBJ->Get_INDEX() : 0,
+        this->Get_INDEX(),
+        static_cast<int>(event.presentation_kind),
+        event.damage_value,
+        event.hp_after,
+        event.event_id,
+        event.defender_seq,
+        reason ? reason : "");
+    ApplyPresentedCombatDamage(pAtkOBJ, event);
+    CreateImmediateDigitEffect(event.raw_damage);
     return Rose::Combat::CombatPresentationQueue::result_for(event);
 }
 

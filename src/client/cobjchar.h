@@ -346,6 +346,12 @@ public:
     CObjCHAR* GetCombatSwingMotionOBJ();
     void ClearPendingCombatSwingPresentation(uint32_t eventId = 0);
     void CancelInterruptedCombatSwingPresentation(const char* reason);
+    /// The attacker's OWN next command (a skill cast) is replacing the motion that
+    /// owed a hit frame. The server applied that swing at frame 0, so the honest
+    /// rendering is to present it now rather than fold it silently -- see
+    /// PresentQueuedCombatDamageEvent. No-op when nothing is owed, and a swing whose
+    /// projectile already spawned is left to the bullet.
+    void PresentPreemptedCombatSwing(const char* reason);
     /// Play a hit reaction that was deferred so an in-flight confirmed swing could
     /// reach its hit frame first. No-op when nothing is owed.
     void ResolveOwedHitReaction();
@@ -549,6 +555,12 @@ public:
     Rose::Combat::PresentationResult PresentImmediateCombatDamage(CObjCHAR* pAtkOBJ);
     Rose::Combat::PresentationResult PresentQueuedCombatDamageFromAttacker(CObjCHAR* pAtkOBJ);
     Rose::Combat::PresentationResult DiscardQueuedCombatDamageFromAttacker(CObjCHAR* pAtkOBJ);
+    /// Present one exact queued event now, outside any hit frame: digit, HP,
+    /// feedback, death. Used when the presentation vehicle is being replaced by the
+    /// attacker itself (see PresentPreemptedCombatSwing).
+    Rose::Combat::PresentationResult PresentQueuedCombatDamageEvent(uint32_t eventId,
+        CObjCHAR* pAtkOBJ,
+        const char* reason);
     Rose::Combat::PresentationResult DiscardQueuedCombatDamageEvent(uint32_t eventId,
         CObjCHAR* pAtkOBJ,
         const char* reason);

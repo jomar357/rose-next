@@ -12,6 +12,9 @@ pEVENT->m_pSourCHAR;
 #include "CAI_LIB.h"
 
 #include "rose/server_ai/non_aggro_skill_guard.h"
+#include "rose/common/log.h"
+
+#include <set>
 
 #ifdef __SERVER
     #include "ZoneLIST.h"
@@ -638,6 +641,32 @@ struct AIACT24
 */
 #ifdef __SERVER
     AIACT24* pAct = (AIACT24*)pActDATA;
+
+    // Validate before anything is broadcast. This is reached straight from the
+    // .aip with a short nobody has checked, and an imported AI routinely names
+    // skills that were never imported with it: RoseZA's OR_THORNIE.AIP casts 3603
+    // "Charge" and 3604 "Fireball", both blank rows in our LIST_SKILL. Unchecked,
+    // SetCMD_Skill2OBJ sent GSV_TARGET_SKILL for the blank row, Skill_START
+    // switched on SKILL_TYPE 0 and did nothing, and every client played the
+    // monster's casting motion for a skill that does not exist -- which also
+    // replaced the attack motion of a swing the server had already applied (see
+    // the client's PresentPreemptedCombatSwing). A skill that does not exist must
+    // degrade to "the monster does not cast", the same rule as CObjMOB::Change_CHAR
+    // for a missing NPC row. A blank cell reads as 0 through get_int32 and nullptr
+    // through get_cstr. Warn once per skill id: the when-damaged pattern
+    // re-evaluates this action on every hit the monster takes.
+    if (pAct->nSkill < 1 || (size_t)pAct->nSkill >= g_SkillList.m_SkillDATA.row_count
+        || (SKILL_TYPE(pAct->nSkill) == 0 && !SKILL_NAME(pAct->nSkill))) {
+        static std::set<short> s_warned;
+        if (s_warned.insert(pAct->nSkill).second) {
+            LOG_WARN("AI skill cast refused: skill {} is not in LIST_SKILL (caster npc {}, obj {})",
+                (int)pAct->nSkill,
+                pEVENT->m_pSourCHAR->Get_CharNO(),
+                pEVENT->m_pSourCHAR->Get_TAG());
+        }
+        return;
+    }
+
     switch (pAct->btTarget) {
         case 0:
             if (pEVENT->m_pFindCHAR) {

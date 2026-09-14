@@ -943,6 +943,17 @@ CObjAI::SetCMD_Skill2SELF(short nSkillIDX) {
         return;
     }
 
+    // This command is about to replace the attack motion. If a confirmed swing is
+    // still owed its hit frame, the server has already applied it: present it now
+    // instead of letting the Proc() sweep fold it away silently. The local avatar
+    // (and its mount) keep the old behaviour -- their skill flow starts at click
+    // time, before any server confirmation.
+    // CObjCHAR is the only CObjAI in the client; cast rather than widen the base
+    // vtable, which would force a clean rebuild of every character object.
+    if (!static_cast<CObjCHAR*>(this)->IsLocalAvatarAttacker()) {
+        static_cast<CObjCHAR*>(this)->PresentPreemptedCombatSwing("self skill command");
+    }
+
     SetEffectedSkillFlag(false);
 
     if (CS_BIT_INT & this->m_wState)
@@ -1007,6 +1018,17 @@ CObjAI::SetCMD_Skill2OBJ(WORD wSrvDIST,
     if (this->CanApplyCommand() == false) {
         this->PushCommandSkill2Obj(wSrvDIST, PosTO, iServerTarget, nSkillIDX);
         return false;
+    }
+
+    // This command is about to replace the attack motion. If a confirmed swing is
+    // still owed its hit frame, the server has already applied it: present it now
+    // instead of letting the Proc() sweep fold it away silently. The local avatar
+    // (and its mount) keep the old behaviour -- their skill flow starts at click
+    // time, before any server confirmation.
+    // CObjCHAR is the only CObjAI in the client; cast rather than widen the base
+    // vtable, which would force a clean rebuild of every character object.
+    if (!static_cast<CObjCHAR*>(this)->IsLocalAvatarAttacker()) {
+        static_cast<CObjCHAR*>(this)->PresentPreemptedCombatSwing("target skill command");
     }
 
     SetEffectedSkillFlag(false);
@@ -1104,6 +1126,17 @@ CObjAI::SetCMD_Skill2POS(const D3DVECTOR& PosGOTO, short nSkillIDX) {
     if (this->CanApplyCommand() == false) {
         this->PushCommandSkill2Pos(PosGOTO, nSkillIDX);
         return;
+    }
+
+    // This command is about to replace the attack motion. If a confirmed swing is
+    // still owed its hit frame, the server has already applied it: present it now
+    // instead of letting the Proc() sweep fold it away silently. The local avatar
+    // (and its mount) keep the old behaviour -- their skill flow starts at click
+    // time, before any server confirmation.
+    // CObjCHAR is the only CObjAI in the client; cast rather than widen the base
+    // vtable, which would force a clean rebuild of every character object.
+    if (!static_cast<CObjCHAR*>(this)->IsLocalAvatarAttacker()) {
+        static_cast<CObjCHAR*>(this)->PresentPreemptedCombatSwing("position skill command");
     }
 
     SetEffectedSkillFlag(false);

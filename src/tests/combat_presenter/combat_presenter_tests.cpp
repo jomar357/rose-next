@@ -415,6 +415,20 @@ struct HpHarness {
         return CombatPresentationQueue::result_for(e);
     }
 
+    // Mirrors CObjCHAR::PresentQueuedCombatDamageEvent (reached through
+    // PresentPreemptedCombatSwing): the attacker's own skill command is replacing
+    // the motion that owed this exact event, so it is presented now -- full digit,
+    // HP delta, death if lethal -- through the ordinary presentation path rather
+    // than being discarded and folded. A swing whose projectile already spawned is
+    // not eligible; the caller never gets here for it.
+    PresentationResult present_preempted_event(uint32_t event_id) {
+        DamageEvent e;
+        if (!queue.discard_event(event_id, &e)) {
+            return PresentationResult::NoEvent;
+        }
+        return present_event(e, false, nullptr);
+    }
+
     // Mirrors CNetwork::recv_damage_event's synchronous tail: a non-deferred kind
     // (StatusTick above all) is popped and presented at receive, never at a hit
     // frame.
@@ -2066,6 +2080,74 @@ main() {
         q.push(event(1, 1, 2000000000, 1));
         q.push(event(2, 2, 2000000000, 1));
         expect(q.deferred_melee_damage(-30000) == 4000000000LL, "backlog sum uses wide arithmetic");
+    }
+
+    // ---------------------------------------------------------------------------
+    // Pre-empted swings (2026-09-14, Fearsome Terrasaurus King): the attacker's own
+    // skill command replaces the attack motion that owed a hit frame. The server
+    // applied that swing at frame 0, so it is presented at the moment of
+    // pre-emption instead of being discarded and silently folded.
+    // ---------------------------------------------------------------------------
+    {
+        // The logged fight-2 sequence: 1314 visible, swing 471 (611 -> 712) pre-empted,
+        // swing 475 (475 -> 255) pre-empted, then the lethal 481 (545) at a hit frame.
+        HpHarness h;
+        h.visible_hp = 1314;
+        h.authoritative_hp = 1314;
+        h.queue.push(event(471, 10, 611, 712));
+        expect(h.present_preempted_event(471) == PresentationResult::PresentedDamage,
+            "pre-empted swing must present its damage");
+        expect(h.displayed_damage == 611, "pre-empted swing shows its own digit");
+        expect(h.visible_hp == 712, "pre-empted swing moves the bar to its checkpoint");
+        expect(!h.queue.has_event(471), "pre-empted event leaves the queue");
+        expect(h.pending_correction == 0, "nothing is left to fold");
+
+        h.queue.push(event(475, 10, 475, 255));
+        expect(h.present_preempted_event(475) == PresentationResult::PresentedDamage,
+            "second pre-empted swing must present too");
+        expect(h.visible_hp == 255, "bar tracks the second checkpoint");
+
+        h.queue.push(event(481, 10, 545, -30000, true));
+        expect(h.hit(10) == PresentationResult::PresentedDeath,
+            "killing blow at the hit frame presents death");
+        expect(h.displayed_damage == 545, "death digit is the killing blow, not the folded backlog");
+        expect(h.visible_hp == 0, "avatar is dead");
+    }
+
+    {
+        // Same-frame case: the skill packet lands right behind the CombatSwing, the
+        // attack motion never starts. Nothing about the queue distinguishes it --
+        // the event is owed and presents the same way.
+        HpHarness h;
+        h.queue.push(event(1, 10, 25, 75));
+        h.queue.push(event(2, 11, 10, 65)); // another attacker's swing still in flight
+        expect(h.present_preempted_event(1) == PresentationResult::PresentedDamage,
+            "pre-empted event presents by id, not by attacker order");
+        expect(h.visible_hp == 75, "only the pre-empted swing's damage is applied");
+        expect(h.queue.has_event(2), "the other attacker's swing stays queued");
+        expect(h.hit(11) == PresentationResult::PresentedDamage, "the other swing presents at its own hit frame");
+        expect(h.visible_hp == 65, "bar lands on the later checkpoint");
+    }
+
+    {
+        // A pre-empted killing blow presents the death immediately -- the avatar is
+        // not left alive-client / dead-server waiting for a hit frame that was just
+        // replaced by a cast.
+        HpHarness h;
+        h.queue.push(event(7, 10, 150, -30000, true));
+        expect(h.present_preempted_event(7) == PresentationResult::PresentedDeath,
+            "pre-empted lethal swing presents death");
+        expect(h.visible_hp == 0, "avatar dies on pre-emption");
+        expect(!h.pending_authoritative_death, "no pending death remains");
+    }
+
+    {
+        // Unknown id: nothing presents, nothing changes. (The client logs a miss.)
+        HpHarness h;
+        h.queue.push(event(1, 10, 25, 75));
+        expect(h.present_preempted_event(99) == PresentationResult::NoEvent,
+            "unknown event id presents nothing");
+        expect(h.visible_hp == 100 && h.queue.size() == 1, "queue and bar untouched");
     }
 
     std::cout << "combat_presenter_tests passed\n";

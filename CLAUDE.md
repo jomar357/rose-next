@@ -447,6 +447,23 @@ it after any `import-*.py` that brings in AI files. It found 278 dangling
 references in 45 files: Oro (2236/2237, 3001-3003), Karkia's ghosts and Flower
 Garden, and three pre-existing retail ones.
 
+**The same rule holds for skills.** AI action 24 carries a `short` skill id at
+offset 10 and nothing validated it either: RoseZA's `OR_THORNIE.AIP` (Fearsome
+Terrasaurus King) casts 3603 "Charge" and 3604 "Fireball", both blank rows in our
+`LIST_SKILL`. The server broadcast the cast, `Skill_START` switched on
+`SKILL_TYPE 0` and did nothing, and every client played the boss's casting
+motion for nothing — which also replaced the attack motion of a swing the server
+had already applied, so the client discarded that hit and the killing blow
+presented death from a bar ~1000 HP too high (2026-09-14). `F_AIACT24` now
+refuses a blank/out-of-range skill with a once-per-id warning, the client
+presents a self-pre-empted swing instead of folding it (client `CLAUDE.md`,
+"Self-pre-empted swings"), and `scripts/audit-ai-skill-refs.py` strips the casts
+(same CLI and backup scheme as the monster audit; backups in
+`build/ai-skill-refs/`). Nine file/skill pairs, 16 records, in six files. The
+docstring records what each id is in RoseZA/667 so a later skill import can
+`--restore` first and put the casts back. `import-oro-667.py` step 3h checks that
+a cast *animates*, not that the row exists.
+
 ### Debugging a Client Crash or Freeze
 
 The client has **no unhandled-exception filter and no minidump writer**, so a crash leaves `error.txt` ending with a clean `log: end.` and nothing else. Use `scripts/debug-client-crash.ps1` (servers up first): it hash-verifies `bin/<config>` PDBs against the deployed binaries, forces windowed mode, restores `rose-next.ini` afterwards, and writes `!analyze -v` + all thread stacks + a full `.dmp` on the access violation.
