@@ -475,7 +475,16 @@ magic formula. The first cut (450/350, sized on balance-sim's synthetic Knight)
 measured 2x too hot on the real tester (6.4 damage per power point); they are
 now **230/190**, which landed Fireball at 1436-1447 on a 6102-HP character.
 Sequence: import → `audit-ai-skill-refs.py --restore` → `audit-ai-skill-refs.py`
-again. Two client rules came out of validating the kit: a remote caster's queued
+again. Second use: Nigaki's Voltage Jolt (871, `--skills 871`) — **Karkia's AI
+is Jrose's, so its skill ids are Jrose's** (RoseZA's 871 is a different row);
+the row is the Mage player skill, so the importer's per-skill `clear` list
+blanks its learn-tree columns and its STL key (which would alias one of ours).
+Every effect/bullet/sound index already matched here and the chain was present.
+Three files still carry stripped casts, none spawned anywhere: Inguz 654 (3044),
+Penguin Artillery 1458 (2980), Gangster Pangs 1456/1457 (2979); Grand Master
+Devourer 2226 (3609-3611, spawned in Oro odd04/05) is the one to do next and the
+one to go slowly on — its skills are AOE *status* skills whose LIST_STATUS rows we
+may not have. Two client rules came out of validating the kit: a remote caster's queued
 skill command must be validated on `GSV_SKILL_START` (a mob's second cast was
 being deleted, its lethal projectile then died by the 6 s timeout), and a lethal
 legacy `GSV_DAMAGE_OF_SKILL` payload arms pending death at receive (else the

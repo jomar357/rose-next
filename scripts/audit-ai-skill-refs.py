@@ -45,7 +45,8 @@ What the dangling ids are (RoseZA / 667 LIST_SKILL), for the day they get import
                       3610 Slow (AOE)    type 8, duration 30
                       3611 Stun + Damage AOE, type 17, power 400
   inguz.aip           3044 (type 7 area magic, power 200, Korean name)
-  kh_2676.aip         871  Voltage Jolt  type 6, power 440 (RoseZA)
+  kh_2676.aip         871  Voltage Jolt  type 6, Jrose power 700 -- Karkia's AI is Jrose's,
+                                         so the id is Jrose's (RoseZA's 871 is a different row)
   pengun.aip          2979 jump attack (long range), type 6, power 250
   penart.aip          2980 stun-damage jump attack (long range), type 6, power 200
 

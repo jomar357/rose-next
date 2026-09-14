@@ -71,10 +71,15 @@ our status table has 62 rows. Everything else in the row is the source's.
 Usage
 -----
     python scripts/import-monster-skills.py --selftest
-    python scripts/import-monster-skills.py --dry-run
-    python scripts/import-monster-skills.py            # write
-    python scripts/import-monster-skills.py --verify
-    python scripts/import-monster-skills.py --restore  # from build/monster-skills/
+    python scripts/import-monster-skills.py --dry-run --skills 871
+    python scripts/import-monster-skills.py --skills 871           # write
+    python scripts/import-monster-skills.py --verify --skills 871
+    python scripts/import-monster-skills.py --restore --skills 871 # from build/monster-skills/
+
+`--skills` defaults to every SKILLS entry; rows already carrying the expected name
+are reported as "already imported" and skipped, so a full run is idempotent. Each
+skill set writes its own manifest (`manifest-<ids>.json`; the first boss run kept
+the legacy `manifest.json`).
 
 Then put the AI casts back:  `audit-ai-skill-refs.py --restore` followed by
 `audit-ai-skill-refs.py` again -- with the rows present only the *other* files'
@@ -96,16 +101,35 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, ".."))
 DATA = os.path.join(REPO, "data")
-SRC = r"C:\Users\Thomas\Desktop\Testclients\RoseZA test client\data"
+SOURCES = {
+    "RoseZA": r"C:\Users\Thomas\Desktop\Testclients\RoseZA test client\data",
+    "Jrose": r"C:\Users\Thomas\Desktop\Testclients\Jrose",
+}
 
 STB = os.path.join("3DDATA", "STB")
 BACKUP_DIR = os.path.join(REPO, "build", "monster-skills")
 MANIFEST = "manifest.json"
 
-# skill id -> what we change from the source row. Everything else is copied.
+# skill id -> which dump the row (and its effect chain) comes from, and what we
+# change from that row. Everything else is copied. `clear` names extra columns
+# to blank -- a row lifted from a *player* skill carries learn-tree metadata
+# (level/points/tab, required skills, the STL name key, which would alias one of
+# OUR STL keys) that a monster-cast row must not keep.
 SKILLS = {
-    3603: dict(name="Charge", dmgtype=2, power=190),
-    3604: dict(name="Fireball", dmgtype=2, power=230),
+    3603: dict(name="Charge", source="RoseZA", dmgtype=2, power=190),
+    3604: dict(name="Fireball", source="RoseZA", dmgtype=2, power=230),
+    # Nigaki (LIST_NPC 2547, Karkia Flower Garden, kh_2676.aip x4). Karkia is a
+    # Jrose import, so 871 is Jrose's row: the Mage's Voltage Jolt (type 6
+    # projectile, casting fx 1635, bullet LIST_EFFECT 264 -> _lighting_firing_01,
+    # hit fx 1634). Every index resolved to the identical row here and the whole
+    # 33-file chain was already present -- only the skill row was missing.
+    # Jrose's power 700 is on its player-skill scale with damage type 5 (the
+    # default normal-attack branch); re-based like the boss's: magic formula,
+    # and Nigaki's ATK 1200 hits about half as hard per power point as the
+    # 2900-ATK boss (~3.2 vs 6.4 on the tester), so 150 -> ~500, a field-mob
+    # spike rather than a boss nuke.
+    871: dict(name="Voltage Jolt", source="Jrose", dmgtype=2, power=150,
+              clear=(2, 3, 4, 39, 40, 41, 42, 43, 44, 86)),
 }
 
 # LIST_SKILL columns (io_skill.h)
@@ -146,18 +170,27 @@ def blank_row(stb, r):
 class Plan:
     """Everything the import will write, resolved before anything is touched."""
 
-    def __init__(self, ours, src):
-        self.ours, self.src = ours, src
+    def __init__(self, ours, ids):
+        self.ours = ours
         self.o = {n: oro.Stb(os.path.join(ours, STB, n)) for n in
                   ("LIST_SKILL.STB", "FILE_EFFECT.STB", "FILE_SOUND.STB", "LIST_EFFECT.STB")}
-        self.s = {n: oro.Stb(os.path.join(src, STB, n)) for n in self.o}
+        self._src_tables = {}    # dump name -> {table: Stb}
         self.skill_rows = {}     # id -> cells
         self.effect_rows = {}    # FILE_EFFECT idx -> cells
         self.bullet_rows = {}    # LIST_EFFECT idx -> cells
-        self.efts = set()
+        self.efts = set()        # (dump root, data-relative .eft path)
+        self.skipped = []        # ids whose row is already ours
         self.problems = []
-        for sid, spec in SKILLS.items():
+        for sid in ids:
+            spec = SKILLS[sid]
+            self.src = SOURCES[spec["source"]]
+            self.s = self._tables(spec["source"])
             self._skill(sid, spec)
+
+    def _tables(self, dump):
+        if dump not in self._src_tables:
+            self._src_tables[dump] = {n: oro.Stb(os.path.join(SOURCES[dump], STB, n)) for n in self.o}
+        return self._src_tables[dump]
 
     # -- resolution ------------------------------------------------------
     def _need_effect(self, idx, why):
@@ -168,7 +201,7 @@ class Plan:
             self.problems.append("%s: source FILE_EFFECT %d is empty" % (why, idx))
             return
         spath = s.get(idx, 1)
-        self.efts.add(spath.decode("latin-1"))
+        self.efts.add((self.src, spath.decode("latin-1")))
         if idx < o.rows and o.get(idx, 1).strip():
             if o.get(idx, 1).strip().lower() != spath.strip().lower():
                 self.problems.append("%s: FILE_EFFECT %d is %r here but %r in source"
@@ -199,7 +232,9 @@ class Plan:
         for c in BULLET_SOUND_COLS:
             self._need_sound(ival(s, idx, c), "%s bullet %d col %d" % (why, idx, c))
         if idx < o.rows and not blank_row(o, idx):
-            same = all(o.get(idx, c).strip() == s.get(idx, c).strip() for c in range(min(o.cols, s.cols)))
+            # Column 0 is a designer name the game never reads (EFFECT_NAME is
+            # NULL) and it is stored in each dump's own encoding; compare the data.
+            same = all(o.get(idx, c).strip() == s.get(idx, c).strip() for c in range(1, min(o.cols, s.cols)))
             if not same:
                 self.problems.append("%s: LIST_EFFECT %d is occupied here and differs" % (why, idx))
             return
@@ -218,7 +253,10 @@ class Plan:
             self.problems.append("%s: past our LIST_SKILL (%d rows)" % (why, o.rows))
             return
         if not blank_row(o, sid):
-            self.problems.append("%s: our row is occupied (%r)" % (why, o.get(sid, 0)))
+            if o.get(sid, C_NAME) == spec["name"].encode("latin-1"):
+                self.skipped.append(sid)       # already imported on an earlier run
+            else:
+                self.problems.append("%s: our row is occupied (%r)" % (why, o.get(sid, 0)))
             return
         cells = [s.get(sid, c) for c in range(o.cols)]
         cells[C_NAME] = spec["name"].encode("latin-1")
@@ -226,6 +264,8 @@ class Plan:
         cells[C_DMGTYPE] = str(spec["dmgtype"]).encode()
         cells[C_STATUS1] = b""
         cells[C_STATUS2] = b""
+        for c in spec.get("clear", ()):
+            cells[c] = b""
         self.skill_rows[sid] = cells
         for c in EFFECT_COLS:
             self._need_effect(ival(s, sid, c), "%s col %d" % (why, c))
@@ -235,14 +275,15 @@ class Plan:
 
     # -- files ------------------------------------------------------------
     def files(self):
-        """(rel, present_here) for every asset the effect chain needs."""
-        deps = oro.effect_chain(sorted(self.efts), self.src)
+        """(src root, rel, present_here) for every asset the effect chains need."""
         out = []
-        for rel in sorted(deps, key=str.lower):
-            if not os.path.isfile(oro.rel_path(self.src, rel)):
-                self.problems.append("asset missing from source: %s" % rel)
-                continue
-            out.append((rel, os.path.isfile(oro.rel_path(self.ours, rel))))
+        for src in sorted({r for r, _ in self.efts}):
+            efts = sorted(p for r, p in self.efts if r == src)
+            for rel in sorted(oro.effect_chain(efts, src), key=str.lower):
+                if not os.path.isfile(oro.rel_path(src, rel)):
+                    self.problems.append("asset missing from source: %s" % rel)
+                    continue
+                out.append((src, rel, os.path.isfile(oro.rel_path(self.ours, rel))))
         return out
 
     def report(self, files):
@@ -255,20 +296,29 @@ class Plan:
         for idx, cells in sorted(self.bullet_rows.items()):
             print("   LIST_EFFECT %4d  bullet fx %s hit %s/%s speed %s" %
                   (idx, cells[11].decode(), cells[9].decode(), cells[10].decode(), cells[15].decode()))
-        new = [r for r, have in files if not have]
+        for sid in self.skipped:
+            print("   LIST_SKILL %4d  already imported, skipped" % sid)
+        new = [r for _s, r, have in files if not have]
         print("   %d asset file(s) in the effect chain, %d to copy:" % (len(files), len(new)))
         for r in new:
             print("      %s" % r)
 
 
-def write_manifest(root, man):
-    bdir = BACKUP_DIR
-    os.makedirs(bdir, exist_ok=True)
-    json.dump(man, open(os.path.join(bdir, MANIFEST), "w"), indent=1)
+def manifest_path(ids):
+    """One manifest per skill set. The first run (3603+3604) wrote the legacy name."""
+    legacy = os.path.join(BACKUP_DIR, MANIFEST)
+    if sorted(ids) == [3603, 3604] and os.path.isfile(legacy):
+        return legacy
+    return os.path.join(BACKUP_DIR, "manifest-%s.json" % "-".join(str(i) for i in sorted(ids)))
 
 
-def do_restore(root):
-    mpath = os.path.join(BACKUP_DIR, MANIFEST)
+def write_manifest(ids, man):
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    json.dump(man, open(manifest_path(ids), "w"), indent=1)
+
+
+def do_restore(root, ids):
+    mpath = manifest_path(ids)
     if not os.path.isfile(mpath):
         print("nothing to restore (%s not found)" % mpath)
         return 0
@@ -285,10 +335,11 @@ def do_restore(root):
     return 0
 
 
-def verify(root):
+def verify(root, ids):
     ok = True
     o = {n: oro.Stb(os.path.join(root, STB, n)) for n in ("LIST_SKILL.STB", "FILE_EFFECT.STB", "LIST_EFFECT.STB")}
-    for sid, spec in SKILLS.items():
+    for sid in ids:
+        spec = SKILLS[sid]
         sk = o["LIST_SKILL.STB"]
         good = (sk.get(sid, C_NAME) == spec["name"].encode("latin-1")
                 and ival(sk, sid, C_POWER) == spec["power"]
@@ -313,7 +364,8 @@ def verify(root):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--root", default=DATA, help="our data dir (default: <repo>/data)")
-    ap.add_argument("--source", default=SRC, help="reference data dir (default: RoseZA)")
+    ap.add_argument("--skills", default=None, metavar="ID[,ID..]",
+                    help="which SKILLS entries to act on (default: all)")
     ap.add_argument("--power", action="append", default=[], metavar="ID=POWER",
                     help="override SKILL_POWER for one skill, e.g. 3604=400")
     ap.add_argument("--dry-run", action="store_true")
@@ -325,12 +377,17 @@ def main():
     for ov in a.power:
         sid, pw = ov.split("=")
         SKILLS[int(sid)]["power"] = int(pw)
+    ids = sorted(int(x) for x in a.skills.split(",")) if a.skills else sorted(SKILLS)
+    for sid in ids:
+        if sid not in SKILLS:
+            print("unknown skill %d -- add it to SKILLS first" % sid)
+            return 1
 
     if a.restore:
-        return do_restore(root)
+        return do_restore(root, ids)
     if a.verify:
         print("verify:")
-        return 0 if verify(root) else 1
+        return 0 if verify(root, ids) else 1
 
     print("self-test (the STB writer must reproduce every table byte-identically):")
     for n in ("LIST_SKILL.STB", "FILE_EFFECT.STB", "FILE_SOUND.STB", "LIST_EFFECT.STB"):
@@ -342,7 +399,7 @@ def main():
     if a.selftest:
         return 0
 
-    plan = Plan(root, a.source)
+    plan = Plan(root, ids)
     files = plan.files()
     print("\nplan:")
     plan.report(files)
@@ -355,8 +412,11 @@ def main():
         print("\ndry run: nothing written")
         return 0
 
-    if os.path.isfile(os.path.join(BACKUP_DIR, MANIFEST)):
-        print("\nABORT: %s exists -- --restore first, or delete it to re-run on top" % os.path.join(BACKUP_DIR, MANIFEST))
+    if not plan.skill_rows:
+        print("\nnothing to write")
+        return 0
+    if os.path.isfile(manifest_path(ids)):
+        print("\nABORT: %s exists -- --restore first, or delete it to re-run on top" % manifest_path(ids))
         return 1
     man = {"stb": {}, "copied": []}
     for n in ("LIST_SKILL.STB", "FILE_EFFECT.STB", "LIST_EFFECT.STB"):
@@ -374,17 +434,17 @@ def main():
     for n in ("LIST_SKILL.STB", "FILE_EFFECT.STB", "LIST_EFFECT.STB"):
         open(os.path.join(root, STB, n), "wb").write(plan.o[n].to_bytes())
         print("   wrote %s" % n)
-    for rel, have in files:
+    for src, rel, have in files:
         if have:
             continue
         d = oro.rel_path(root, rel)
         os.makedirs(os.path.dirname(d), exist_ok=True)
-        shutil.copyfile(oro.rel_path(a.source, rel), d)
+        shutil.copyfile(oro.rel_path(src, rel), d)
         man["copied"].append(rel)
     print("   copied %d file(s)" % len(man["copied"]))
-    write_manifest(root, man)
+    write_manifest(ids, man)
     print("\nverify:")
-    return 0 if verify(root) else 1
+    return 0 if verify(root, ids) else 1
 
 
 if __name__ == "__main__":
