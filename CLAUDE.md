@@ -462,7 +462,17 @@ presents a self-pre-empted swing instead of folding it (client `CLAUDE.md`,
 `build/ai-skill-refs/`). Nine file/skill pairs, 16 records, in six files. The
 docstring records what each id is in RoseZA/667 so a later skill import can
 `--restore` first and put the casts back. `import-oro-667.py` step 3h checks that
-a cast *animates*, not that the row exists.
+a cast *animates*, not that the row exists. **The proper fix is
+`scripts/import-monster-skills.py`** (first used for this boss: Charge 3603 +
+Fireball 3604, with FILE_EFFECT 1881-1884, LIST_EFFECT bullet 476 and eight
+`.eft`/`.ptl` files): it resolves the whole chain a monster skill needs, writes
+rows **in place at the source index** because our effect/sound/bullet tables are
+the same lineage as RoseZA's (it refuses if an index is occupied by something
+else), and **does not copy `SKILL_POWER`** — RoseZA's 3500/2000 would one-shot at
+our stat scale, our own monster attack skills run 25-100, and for a 2900-ATK
+boss the weapon formula floors at ~1400 regardless of power, so both use the
+magic formula at 450/350 (~a quarter of a same-level player's HP). Sequence:
+import → `audit-ai-skill-refs.py --restore` → `audit-ai-skill-refs.py` again.
 
 ### Debugging a Client Crash or Freeze
 

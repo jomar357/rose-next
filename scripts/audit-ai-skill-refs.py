@@ -49,11 +49,13 @@ What the dangling ids are (RoseZA / 667 LIST_SKILL), for the day they get import
   pengun.aip          2979 jump attack (long range), type 6, power 250
   penart.aip          2980 stun-damage jump attack (long range), type 6, power 200
 
-Effect / bullet / sound / hit-effect columns above are the *source* dump's indices
-and need re-pointing to our tables (the Artisan import recipe,
-`scripts/import-artisan-skill.py`). **Ordering dependency:** a future import that
-fills one of those rows must first `--restore` this script's backups so the casts
-come back, then re-run it -- the restore is whole-file, so do it before, not after.
+`scripts/import-monster-skills.py` is the importer (Charge/Fireball were the
+first, 2026-09-14): it resolves the effect/bullet/sound chain, writes the rows in
+place at the source index (our tables are the same lineage as RoseZA's, so the
+indices line up) and re-bases SKILL_POWER to our scale. **Ordering dependency:**
+after importing, `--restore` this script's backups so the casts come back, then
+re-run it -- with the rows present only the remaining dangling casts are
+stripped. The restore is whole-file, so do it before re-running, not after.
 
 What it does
 ------------
