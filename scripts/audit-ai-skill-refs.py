@@ -108,6 +108,24 @@ the manifest alone -- the whole-manifest restore also reverts KH_2676's 923 rema
                                           --remotion or_gmdevourer1.aip:9=8 \
                                           --remotion or_gmdevourer1.aip:2=6
 
+Note `--restore --only` puts back the file's pre-edit *original*, i.e. it undoes
+the strip, the remap and the remotion of that file together -- redo them after.
+
+Testing a low-roll cast: `--rechance FILE.aip:SKILL=PCT` sets the random-chance
+condition (type 0x04000008, percent byte at offset 8) of every event that casts
+SKILL. The Devourer's damage casts sit behind 8% and 5%:
+
+    python scripts/audit-ai-skill-refs.py --rechance or_gmdevourer1.aip:7013=100 \
+                                          --rechance or_gmdevourer1.aip:3611=100
+    ... test ...
+    python scripts/audit-ai-skill-refs.py --rechance or_gmdevourer1.aip:7013=8 \
+                                          --rechance or_gmdevourer1.aip:3611=5
+
+The manifest records each change with the percentages it replaced, so the undo
+is the same command with the old value (not --restore, see above). The other
+gates on the event (a buff on you, a second attacker, an enemy in reach) still
+apply.
+
 What it does
 ------------
 Removes the offending action record from its event and decrements that event's
@@ -131,6 +149,8 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 AIACT24 = 0x19 | 0x0B000000  # type index 25 == "act 24" in the tool's 1-based numbering
+AICOND_CHANCE = 0x08 | 0x04000000  # cond 07 "random percent"; BYTE cPercent at offset 8
+CHANCE_OFF = 8
 TARGET_OFF, SKILL_OFF, MOTION_OFF = 8, 10, 12
 
 SKILL_STB = os.path.join("data", "3DDATA", "STB", "LIST_SKILL.STB")
@@ -337,7 +357,29 @@ def remotion(b, old_motion, new_motion):
     return mon.build_aip(hdr, title, newpats, tail), n
 
 
-def do_remap(root, specs, motion_specs, dry):
+def rechance(b, skill, pct):
+    """Set the random-chance condition of every event that casts `skill` to pct.
+    Returns (bytes, [old percentages])."""
+    hdr, title, pats, tail = mon.parse_aip(b)
+    olds = []
+    newpats = []
+    for pn, evs in pats:
+        newevs = []
+        for en, cs, acts in evs:
+            if any((x := act_skill(a)) and x[1] == skill for a in acts):
+                out = []
+                for c in cs:
+                    if len(c) > CHANCE_OFF and struct.unpack_from("<I", c, 4)[0] == AICOND_CHANCE:
+                        olds.append(c[CHANCE_OFF])
+                        c = c[:CHANCE_OFF] + bytes([pct]) + c[CHANCE_OFF + 1:]
+                    out.append(c)
+                cs = out
+            newevs.append((en, cs, acts))
+        newpats.append((pn, newevs))
+    return mon.build_aip(hdr, title, newpats, tail), olds
+
+
+def do_remap(root, specs, motion_specs, dry, chance_specs=()):
     """specs: ['file.aip:OLD=NEW', ...] -- re-point casts whose id collides with one
     of our own skills to the row the importer put the real skill on.
     motion_specs: the same syntax for nMotion -- re-point casts authored against a
@@ -347,7 +389,8 @@ def do_remap(root, specs, motion_specs, dry):
     man = json.load(open(mpath)) if os.path.isfile(mpath) else {"files": {}}
     files = {os.path.basename(p).lower(): p for p in mon.aip_files(root)}
     jobs = [("remapped", remap, "skill", sp) for sp in specs] + \
-           [("remotioned", remotion, "motion", sp) for sp in motion_specs]
+           [("remotioned", remotion, "motion", sp) for sp in motion_specs] + \
+           [("rechanced", rechance, "chance", sp) for sp in chance_specs]
     for key, fn_apply, what, spec in jobs:
         fn, ids = spec.split(":")
         old_v, new_v = (int(x) for x in ids.split("="))
@@ -357,14 +400,25 @@ def do_remap(root, specs, motion_specs, dry):
             return 1
         b = open(p, "rb").read()
         out, n = fn_apply(b, old_v, new_v)
-        print("   %-28s %s %d -> %d : %d record(s)%s"
-              % (fn, what, old_v, new_v, n, "  (dry run)" if dry else ""))
+        if what == "chance":
+            olds, n = n, len(n)
+            if not 0 <= new_v <= 100:
+                print("chance must be 0-100")
+                return 1
+            print("   %-28s skill %d chance %s -> %d%% : %d condition(s)%s"
+                  % (fn, old_v, "/".join("%d%%" % o for o in olds) or "-", new_v, n,
+                     "  (dry run)" if dry else ""))
+            rec = {"skill": old_v, "from": olds, "to": new_v}
+        else:
+            print("   %-28s %s %d -> %d : %d record(s)%s"
+                  % (fn, what, old_v, new_v, n, "  (dry run)" if dry else ""))
+            rec = {"from": old_v, "to": new_v, "count": n}
         if dry or n == 0:
             continue
         rel = os.path.relpath(p, root).replace("\\", "/")
         man["files"].setdefault(rel, {})
         man["files"][rel].setdefault("original", base64.b64encode(b).decode("ascii"))
-        man["files"][rel].setdefault(key, []).append({"from": old_v, "to": new_v, "count": n})
+        man["files"][rel].setdefault(key, []).append(rec)
         open(p, "wb").write(out)
     if not dry:
         os.makedirs(bdir, exist_ok=True)
@@ -530,6 +584,8 @@ def main():
                     help="re-point a cast whose id collides with one of our skills")
     ap.add_argument("--remotion", action="append", default=[], metavar="FILE.aip:OLD=NEW",
                     help="re-point every cast on nMotion OLD to NEW (model slot layout)")
+    ap.add_argument("--rechance", action="append", default=[], metavar="FILE.aip:SKILL=PCT",
+                    help="set the random-chance condition of every event casting SKILL (testing)")
     ap.add_argument("--only", default=None, metavar="FILE.aip",
                     help="with --restore: restore just this file, keep the rest of the manifest")
     ap.add_argument("--strict-motions", action="store_true",
@@ -539,11 +595,11 @@ def main():
 
     if a.restore:
         return do_restore(root, a.only)
-    if a.remap or a.remotion:
+    if a.remap or a.remotion or a.rechance:
         print("self-test (the rewriter must reproduce every file byte-identically):")
         if not mon.selftest(root):
             return 1
-        return do_remap(root, a.remap, a.remotion, a.dry_run)
+        return do_remap(root, a.remap, a.remotion, a.dry_run, a.rechance)
 
     print("self-test (the rewriter must reproduce every file byte-identically):")
     if not mon.selftest(root):
