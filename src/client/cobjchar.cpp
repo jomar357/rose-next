@@ -3354,6 +3354,44 @@ CObjCHAR::DrainCrowdedCombatDamage() {
     return budget.events();
 }
 
+int
+CObjCHAR::DiscardQueuedProjectileDamageFromAttacker(CObjCHAR* pAtkOBJ, const char* reason) {
+    Rose::Combat::DamageEvent event;
+    const int iAttacker = pAtkOBJ ? pAtkOBJ->Get_INDEX() : 0;
+    int iDiscarded = 0;
+    while (m_CombatDamageQueue.discard_for_attacker_kind(iAttacker,
+        Rose::Combat::DamagePresentationKind::ProjectileImpact,
+        &event)) {
+        ++iDiscarded;
+        if (pAtkOBJ) {
+            pAtkOBJ->ClearPendingCombatSwingPresentation(event.event_id);
+        }
+        if (this != g_pAVATAR && this->Get_HP() > DEAD_HP
+            && (event.lethal || event.hp_after <= DEAD_HP)) {
+            ApplyPresentedCombatDamage(pAtkOBJ, event);
+            CreateImmediateDigitEffect(event.raw_damage);
+        } else {
+            // The avatar's own death stays on the pending-death path: with this
+            // event gone has_live_lethal_pending() is false and the Proc() backstop
+            // presents it after its ordinary 1.5 s grace instead of the 6 s cap.
+            SetAuthoritativeHPFromDamageEvent(event);
+        }
+        LogString(LOG_DEBUG_,
+            "CombatTrace queued projectile damage released: attacker %d target %d damage %d hp_after %d event %u seq %u reason %s\n",
+            iAttacker,
+            this->Get_INDEX(),
+            event.damage_value,
+            event.hp_after,
+            event.event_id,
+            event.defender_seq,
+            reason ? reason : "");
+    }
+    if (iDiscarded) {
+        DeferCombatHPDriftIfIdle(reason ? reason : "projectile cast abandoned");
+    }
+    return iDiscarded;
+}
+
 Rose::Combat::PresentationResult
 CObjCHAR::DiscardQueuedCombatDamageFromAttacker(CObjCHAR* pAtkOBJ) {
     Rose::Combat::DamageEvent event;

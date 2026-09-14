@@ -358,6 +358,11 @@ public:
     /// command is held in m_CommandQueue while this is true, so the swing plays out
     /// (animation + digit at its hit frame) before the cast starts.
     bool OwesConfirmedSwingHitFrame(DWORD now);
+    /// Release every ProjectileImpact event this attacker queued on us because its
+    /// cast was abandoned before a bullet could spawn (see the remote-cast watchdog
+    /// in CObjAI::ProcCMD_Skill2OBJECT). Same resolution as
+    /// DiscardQueuedCombatDamageFromAttacker, projectile events only.
+    int DiscardQueuedProjectileDamageFromAttacker(CObjCHAR* pAtkOBJ, const char* reason);
     /// GSV_SKILL_START packets received for a remote caster while its skill command
     /// was still queued. m_bCanStartSkill is a single flag that the *current* cast's
     /// action clears, so a start that arrived for the queued cast used to be lost;

@@ -211,6 +211,25 @@ public:
         return true;
     }
 
+    /// Same, restricted to one presentation kind -- used to release the projectile
+    /// events of a cast that will never launch without touching that attacker's
+    /// queued melee swings, which keep their own hit-frame consumers.
+    bool discard_for_attacker_kind(uint32_t attacker_id,
+        DamagePresentationKind kind,
+        DamageEvent* out = nullptr) {
+        for (auto it = m_events.begin(); it != m_events.end(); ++it) {
+            if (it->attacker_id != attacker_id || it->presentation_kind != kind) {
+                continue;
+            }
+            if (out) {
+                *out = *it;
+            }
+            m_events.erase(it);
+            return true;
+        }
+        return false;
+    }
+
     bool discard_event(uint32_t event_id, DamageEvent* out = nullptr) {
         if (event_id == 0) {
             return false;

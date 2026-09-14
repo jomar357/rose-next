@@ -431,6 +431,11 @@ public:
     //////////////////////////////////////////////////////////////////////////////////////////////////
 
     /// 현재 명령을 적용할수 있는가?
+    /// Remote-cast watchdog: tick when a remote caster's applied skill command first
+    /// found itself waiting for GSV_SKILL_START in ProcCMD_Skill2OBJECT (0 = not
+    /// waiting). A cast still waiting after kRemoteCastStartWaitMs is abandoned.
+    DWORD m_dwRemoteCastWaitSince;
+
     virtual bool CanApplyCommand() = 0 { *(int*)0 = 10; };
 
     virtual void PushCommandSit() = 0 { *(int*)0 = 10; };

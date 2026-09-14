@@ -44,6 +44,7 @@ CObjAI::CObjAI(): stats({}) {
     m_iActiveObject = 0;
 
     m_bCastingSTART = false;
+    m_dwRemoteCastWaitSince = 0;
     SetCastingState(false);
 
     m_bRunMODE = false; // �⺻�� �ȱ� ���...
@@ -1806,11 +1807,46 @@ CObjAI::ProcCMD_Skill2OBJECT() {
             /// �����κ��� ��ų������Ŷ�� ���޾Ƶ� Ÿ������ �̵�..
             //-----------------------------------------------------------------------------------------
             if (!bCanStartSkill()) {
+                // Remote-cast watchdog. A monster's cast waits here for the server's
+                // GSV_SKILL_START; if that never comes (the server cancelled or
+                // superseded the cast, or the start was consumed elsewhere) the
+                // monster used to sit in CMD_SKILL2OBJ for good, and a queued lethal
+                // projectile event on the avatar then died by the 6 s hard cap
+                // (Terrasaurus King, 16:35:50: cast applied, no start, timeout death
+                // with no digit). Log the first wait so the next log names the case,
+                // and abandon after kRemoteCastStartWaitMs: go idle like the server
+                // copy and release the projectile events that can no longer launch.
+                static const DWORD kRemoteCastStartWaitMs = 3000;
+                if (!static_cast<CObjCHAR*>(this)->IsLocalAvatarAttacker()) {
+                    const DWORD now = g_GameDATA.GetGameTime();
+                    if (m_dwRemoteCastWaitSince == 0) {
+                        m_dwRemoteCastWaitSince = now;
+                        LogString(LOG_DEBUG_,
+                            "CombatTrace remote cast waiting for skill start: caster %d skill %d target %d\n",
+                            this->Get_INDEX(),
+                            m_nToDoSkillIDX,
+                            pTarget->Get_INDEX());
+                    } else if (now - m_dwRemoteCastWaitSince >= kRemoteCastStartWaitMs) {
+                        LogString(LOG_DEBUG_,
+                            "CombatTrace remote cast abandoned, no skill start after %u ms: caster %d skill %d target %d\n",
+                            (unsigned int)(now - m_dwRemoteCastWaitSince),
+                            this->Get_INDEX(),
+                            m_nToDoSkillIDX,
+                            pTarget->Get_INDEX());
+                        m_dwRemoteCastWaitSince = 0;
+                        pTarget->DiscardQueuedProjectileDamageFromAttacker(
+                            static_cast<CObjCHAR*>(this), "remote cast abandoned");
+                        Casting_END();
+                        m_wCommand = CMD_STOP;
+                        return 1;
+                    }
+                }
                 m_wState = CS_STOP;
                 m_fCurMoveSpeed = 0;
                 /// this->Set_MOTION( this->GetANI_Casting() );
                 return 1;
             }
+            m_dwRemoteCastWaitSince = 0;
         }
 
         //-----------------------------------------------------------------------------------------
@@ -1826,7 +1862,18 @@ CObjAI::ProcCMD_Skill2OBJECT() {
         }
 
         /// ĳ���� �Ǵ� �������� ����...
-        if (1 != this->Do_SKILL(this->Get_TargetIDX(), pTarget)) {
+        const int iSkillResult = this->Do_SKILL(this->Get_TargetIDX(), pTarget);
+        if (iSkillResult == 0 && !static_cast<CObjCHAR*>(this)->IsLocalAvatarAttacker()) {
+            // Nothing left to cast (Do_SKILL's default branch: the state machine is
+            // idle). The server sets CMD_STOP here; the client left the command in
+            // place, which parked a remote caster in CMD_SKILL2OBJ doing nothing.
+            LogString(LOG_DEBUG_,
+                "CombatTrace remote cast ended without action: caster %d skill %d\n",
+                this->Get_INDEX(),
+                m_nDoingSkillIDX);
+            m_wCommand = CMD_STOP;
+        }
+        if (1 != iSkillResult) {
             // casting: 1, cancel: 0, active: 2
             /// Do_Skill ���ο��� ����
             // m_wCommand = CMD_STOP;
