@@ -2861,8 +2861,23 @@ CRecvPACKET::Recv_gsv_SKILL_START() {
     CObjCHAR* pCHAR =
         g_pObjMGR->Get_ClientCharOBJ(m_pRecvPacket->m_gsv_SKILL_START.m_wObjectIDX, true);
     if (pCHAR) {
-        /// 현재 시전할려는 스킬은 스타트를 받았다.
-        if (pCHAR->bCanStartSkill()) {
+        // A remote caster (monster, other player) that is still playing its previous
+        // cast has the new skill command sitting in m_CommandQueue, and this start
+        // packet belongs to that queued command. The handshake below was written
+        // for the local avatar, whose start flag is still true while it is casting;
+        // a monster's flag was cleared when its previous action motion began
+        // (ProcSkillAction -> SetStartSkill(false)), so the start was misread as
+        // belonging to a direct command, the queued one stayed invalid and
+        // PopCommand deleted it. The cast then never played on this client: no
+        // projectile, and its already-applied damage sat queued until the 6 s hard
+        // cap presented the death with no digit (Terrasaurus King, Fireball cast
+        // twice 3 s apart, 2026-09-14). Validate the queued command AND arm the
+        // start flag, so it both survives the pop and is allowed to begin when
+        // ProcCMD_Skill2OBJECT runs it after the current action motion ends.
+        if (pCHAR != (CObjCHAR*)g_pAVATAR && !pCHAR->m_CommandQueue.IsEmpty()) {
+            pCHAR->m_CommandQueue.SetValidFlag();
+            pCHAR->SetStartSkill(true);
+        } else if (pCHAR->bCanStartSkill()) {
             /// assert( 0 && "Recv_gsv_SKILL_START" );
             /// 그렇다면 명령큐를 뒤져라..
             pCHAR->m_CommandQueue.SetValidFlag();

@@ -50,14 +50,20 @@ Two things fix the scale:
   * For a 2900-ATK boss the *weapon* formula (SKILL_DAMAGE_TYPE 1) is dominated by
     the `(power + atk*0.2) * (atk+60)` term: even power 0 lands ~1400 on that
     Knight (36% of HP), and 667's Charge is authored as type 1. So both skills use
-    the magic formula (type 2), which is linear in power, and the powers are chosen
-    to land at roughly a quarter of a same-level player's HP:
+    the magic formula (type 2), which is linear in power.
 
-        Fireball  power 450  ->  ~950 avg at L240,  ~1300 at L220   (2.9x / 1.7x swing)
-        Charge    power 350  ->  ~740 avg at L240,  ~1000 at L220
+    The first cut (450 / 350) was sized on balance-sim's synthetic Knight and came
+    out 2x too hot on the real tester (6102 HP, evidently far less DEF/RES than
+    the synthetic block): Fireball 2865-2923, Charge 2174-2290, i.e. 6.4 damage
+    per power point on both. The powers are therefore calibrated on the measured
+    ratio, to about a quarter (Fireball) and a fifth (Charge) of that tester's HP:
 
-    Re-derive with `scripts/balance-sim.py`'s `magic_skill_damage`. `--power`
-    overrides per skill for tuning.
+        Fireball  power 230  ->  ~1500 measured-scale   (vs its 470-620 swing)
+        Charge    power 190  ->  ~1200 measured-scale
+
+    A well-geared level-240 character takes roughly half of that. `--power`
+    overrides per skill for tuning; `scripts/balance-sim.py`'s
+    `magic_skill_damage` re-derives the synthetic side.
 
 The status columns (11/12) are cleared: 667 attaches LIST_STATUS 150/120 there and
 our status table has 62 rows. Everything else in the row is the source's.
@@ -98,8 +104,8 @@ MANIFEST = "manifest.json"
 
 # skill id -> what we change from the source row. Everything else is copied.
 SKILLS = {
-    3603: dict(name="Charge", dmgtype=2, power=350),
-    3604: dict(name="Fireball", dmgtype=2, power=450),
+    3603: dict(name="Charge", dmgtype=2, power=190),
+    3604: dict(name="Fireball", dmgtype=2, power=230),
 }
 
 # LIST_SKILL columns (io_skill.h)
