@@ -900,7 +900,40 @@ classUSER::Cheat_item(char* pArg1, char* pArg2, char* pArg3, char* pArg4) {
     return CHEAT_INVALID;
 }
 
-// B등급..
+// LIST_NPC carries ~200 rows a tester can /mon by number that are not monsters:
+// retail placeholders with no model (invisible, unclickable), level-0 rows, and
+// three duplicates with 7.9-13 million in the HP column (the largest real value
+// is 10,701 -- 996 Moss Golem, 997 Nepenthes, 998 Turak, which crashed the
+// server on spawn until CObjMOB::Init clamped them, 2026-09-15). Refuse them
+// with a reason rather than summon something that only confuses.
+static const char*
+MobRowRefusalReason(int iMobIDX) {
+    if (iMobIDX < 1 || (size_t)iMobIDX >= g_TblNPC.row_count)
+        return "no such LIST_NPC row";
+    const char* szName = NPC_NAME(iMobIDX);
+    if (!szName || !szName[0])
+        return "blank row";
+    const char* szModel = g_TblNPC.get_cstr(iMobIDX, 1);
+    if (!szModel || !szModel[0])
+        return "row has no model (retail placeholder)";
+    if (NPC_LEVEL(iMobIDX) <= 0)
+        return "row has level 0 (retail placeholder)";
+    if (NPC_HP(iMobIDX) > 20000)
+        return "HP column is junk (real rows top out at 10,701)";
+    return NULL;
+}
+
+static bool
+RefuseJunkMobRow(classUSER* pUser, int iMobIDX) {
+    const char* szWhy = MobRowRefusalReason(iMobIDX);
+    if (!szWhy)
+        return false;
+    char szMsg[128];
+    _snprintf_s(szMsg, sizeof(szMsg), _TRUNCATE, "/mon %d refused: %s", iMobIDX, szWhy);
+    pUser->Send_gsv_WHISPER("SERVER", szMsg);
+    return true;
+}
+
 short
 classUSER::Cheat_mon(char* pArg1, char* pArg2) {
     if (B_Cheater()) {
@@ -908,6 +941,8 @@ classUSER::Cheat_mon(char* pArg1, char* pArg2) {
         int iMobCNT = atoi(pArg2);
         if (iMobCNT > 100)
             iMobCNT = 100;
+        if (RefuseJunkMobRow(this, iMobIDX))
+            return CHEAT_PROCED;
         this->GetZONE()->RegenCharacter(this->m_PosCUR.x,
             this->m_PosCUR.y,
             1500,
@@ -932,6 +967,8 @@ classUSER::Cheat_mon2(char* pArg1, char* pArg2, char* pArg3, char* pArg4) {
         int iMobCNT = atoi(pArg4);
         if (iMobCNT > 100)
             iMobCNT = 100;
+        if (RefuseJunkMobRow(this, iMobIDX))
+            return CHEAT_PROCED;
         this->GetZONE()
             ->RegenCharacter(iX * 1000, iY * 1000, 1500, iMobIDX, iMobCNT, TEAMNO_MOB, true);
         return CHEAT_PROCED;
