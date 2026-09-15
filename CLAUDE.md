@@ -532,9 +532,17 @@ rolls and extra gates (a buff on you; a second attacker; an enemy in reach) —
 and what read as "a spell with no status" was the boss's when-damaged
 self-casts 3596/3597, the same RoseZA rows imported nameless by the old Oro
 import with the column-88 status lost; re-imported over them (`overwrite`),
-which also repairs the Eldeon/Karkia casters sharing them. ~25 more
-RoseZA-lineage rows cast by shipped AI have the same loss (several stuns on
-Eldeon/Karkia monsters, see the importer docstring) — their own session.
+which also repairs the Eldeon/Karkia casters sharing them. **Eldeon's skill
+rows are ruff's, not RoseZA's** (byte-identical to the ruff dump, an older
+authoring; ruff's LIST_STATUS is our numbering), so a row that "disagrees"
+with RoseZA's column 88 is usually doing what ruff meant, just differently —
+policy (2026-09-15): keep what works even where it differs, fix what would
+bug, fix what makes no sense. Eight rows qualified and are corrected in place
+by the importer's `patch` mode (name + status + ability columns only, the
+balance passes' damage columns untouched): a self-buff that muted its own
+caster (3588), two self/area casts with no status at all (3593, 3598), and
+five "damage + stun" rows with no stun (3551, 3572, 3582, 3595, 3527). Details
+and what was deliberately left alone: the importer docstring.
 **The fifth failure class is a gate nobody can pass**: even at a 100% roll
 (`--rechance FILE.aip:SKILL=PCT`, for testing) the two damage casts never
 fired, because their condition 02 ("N enemies within D m with level diff in

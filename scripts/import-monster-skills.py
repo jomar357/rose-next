@@ -124,6 +124,36 @@ cast by shipped AI carry a column-88 status our column 11 lacks or disagrees
 with -- several stuns (3527, 3551, 3560, 3562, 3572, 3582, 3595 -> 32) on
 Eldeon and Karkia monsters. Left for their own session.
 
+Eldeon's rows are ruff's, not RoseZA's (2026-09-15)
+--------------------------------------------------
+That survey compared against the wrong source. Our Eldeon skill rows are
+byte-identical (cols 1-86) to the ruff dump's, an older authoring than RoseZA's,
+and ruff's LIST_STATUS is our numbering -- so where our column 11 "disagrees"
+with RoseZA's column 88 the row is usually doing what ruff meant, just something
+different from RoseZA (the ants buff DEF here and RES there; the Melts and
+prisoners debuff DEF here and ATK there; Thorn Hound and the Gargoyle give
+themselves +300% run speed, which is odd but is what ruff shipped). Policy: keep
+what works even where it differs, fix what would bug, fix what makes no sense.
+That leaves eight rows, patched in place with `patch` (only the name, the
+status and the ability columns change; the row's damage type, power and
+effects stay ruff's, which the Eldeon balance passes already tuned):
+
+  3588  Sikuku Jailer / Warden / Guard self-buff whose status is 30 -- the
+        caster MUTES ITSELF for 30 s. RoseZA: ATK +30%.          -> 11=18, 21=18, 23=30
+  3593  Sikuku Cannibals: type 8 self-buff with no status at all, a wind-up
+        for nothing. RoseZA: ASPD +30%.                          -> 11=16, 21=24, 23=30
+  3598  Jailer / Warden / Guard / Infiltrator: type 8, enemy filter, 30 m,
+        no status -- an area cast that applies nothing. RoseZA: Sleep, 20 s
+        at success 200. Source numbers kept; tune col 13/14 if it plays too
+        mean.                                                    -> 11=31
+  3551, 3572, 3582, 3595, 3527  "damage + stun" rows (the '+' survives in the
+        name) with no status: Gargoyle, Ikaness Engineer + Murilo, Moss/Neg
+        Golem, Executor Kera, and the unspawned Yigore/Shadow Ghosts. -> 11=32
+
+Left alone on purpose: 3571 / 3589 deal damage without RoseZA's poison (they
+work), 3554 / 3555 already map RoseZA's stronger burns to our Flame Heat, and
+2961 / 3006 cancel every status where RoseZA cancels buffs only.
+
 Usage
 -----
     python scripts/import-monster-skills.py --selftest
@@ -213,6 +243,20 @@ SKILLS = {
     # importer replace a row that matches the source cell-for-cell.
     3596: dict(name="Dispel Buffs", source="RoseZA", set={11: 37}, overwrite=True),
     3597: dict(name="Area Slow", source="RoseZA", set={11: 15, 21: 23, 23: 40}, overwrite=True),
+    # Eldeon rows (ruff lineage) patched in place -- see the docstring. `patch`
+    # reads no source cell: our row keeps everything but the name and `set`.
+    # EZ01, the Sikuku prison:
+    3588: dict(name="Jailer Fury", source="RoseZA", patch=True, set={11: 18, 21: 18, 23: 30}),
+    3593: dict(name="Cannibal Frenzy", source="RoseZA", patch=True, set={11: 16, 21: 24, 23: 30}),
+    3598: dict(name="Prison Slumber", source="RoseZA", patch=True, set={11: 31}),
+    3595: dict(name="Kera Stun Blast", source="RoseZA", patch=True, set={11: 32}),
+    # EJ03 + Karkia cemetery / spire:
+    3572: dict(name="Engineer Stun", source="RoseZA", patch=True, set={11: 32}),
+    3582: dict(name="Golem Stun Blast", source="RoseZA", patch=True, set={11: 32}),
+    # EJ02:
+    3551: dict(name="Gargoyle Stun", source="RoseZA", patch=True, set={11: 32}),
+    # unspawned ghosts, same shape:
+    3527: dict(name="Ghost Stun", source="RoseZA", patch=True, set={11: 32}),
 }
 
 # LIST_SKILL columns (io_skill.h)
@@ -335,6 +379,23 @@ class Plan:
             return
         if dest > o.rows:
             self.problems.append("%s: dest %d is past our LIST_SKILL end (%d rows; only appending at the end is supported)" % (why, dest, o.rows))
+            return
+        if spec.get("patch"):
+            # Our own row, corrected in place: nothing is read from the source.
+            if dest >= o.rows or blank_row(o, dest):
+                self.problems.append("%s: patch target row %d is blank here" % (why, dest))
+                return
+            if o.get(dest, C_NAME) == spec["name"].encode("latin-1") \
+                    and all(ival(o, dest, c) == v for c, v in spec.get("set", {}).items()):
+                self.skipped.append(sid)
+                return
+            cells = [o.get(dest, c) for c in range(o.cols)]
+            cells[C_NAME] = spec["name"].encode("latin-1")
+            for c in spec.get("clear", ()):
+                cells[c] = b""
+            for c, v in spec.get("set", {}).items():
+                cells[c] = str(v).encode()
+            self.skill_rows[dest] = cells
             return
         if dest < o.rows and not blank_row(o, dest):
             if o.get(dest, C_NAME) == spec["name"].encode("latin-1"):
