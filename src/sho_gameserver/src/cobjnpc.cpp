@@ -8,6 +8,37 @@
 
 #include "rose/common/store_item_code.h"
 
+#include <climits>
+
+namespace {
+
+// Level x HP in 64 bits, clamped to int. See CObjMOB::Init.
+int
+ClampedMobMaxHP(int iCharIDX) {
+    const long long llMaxHP = (long long)NPC_LEVEL(iCharIDX) * (long long)NPC_HP(iCharIDX);
+    if (llMaxHP > INT_MAX)
+        return INT_MAX;
+    if (llMaxHP < 1)
+        return 1;
+    return (int)llMaxHP;
+}
+
+// The saved-damage table (per-attacker damage share for EXP and drops) is
+// sized HP/8+4 into a short: 40 entries for an ordinary monster, ~1250 for the
+// 9999-HP quest bosses. Cap well inside the short.
+short
+ClampedSavedDamageCNT(int iCharIDX) {
+    const int kMaxSavedDamage = 4096;
+    int iCnt = NPC_HP(iCharIDX) / 8 + 4;
+    if (iCnt > kMaxSavedDamage)
+        iCnt = kMaxSavedDamage;
+    if (iCnt < 4)
+        iCnt = 4;
+    return (short)iCnt;
+}
+
+} // namespace
+
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 bool
@@ -49,10 +80,16 @@ CObjMOB::Init(CZoneTHREAD* pZONE,
     m_nCritical = (short)(NPC_LEVEL(m_nCharIdx) * 0.6f);
 
     m_fScale = NPC_SCALE(m_nCharIdx) / 100.f;
-    m_iOriMaxHP = NPC_LEVEL(m_nCharIdx) * NPC_HP(m_nCharIdx);
+    // LIST_NPC carries a few junk rows with 7.9-13 million in the HP column
+    // (996 Moss Golem, 997 Nepenthes, 998 Turak; the largest real value is
+    // 10,701). Level x HP overflowed int to a negative max HP, and HP/8+4 --
+    // the saved-damage table size, a short -- wrapped negative, so `new[]`
+    // took a size_t of ~4 billion and `/mon 996` killed the process
+    // (2026-09-15). A junk row must degrade like a missing one: clamp both.
+    m_iOriMaxHP = ClampedMobMaxHP(m_nCharIdx);
     m_iHP = m_iOriMaxHP;
 
-    m_nSavedDamageCNT = NPC_HP(m_nCharIdx) / 8 + 4;
+    m_nSavedDamageCNT = ClampedSavedDamageCNT(m_nCharIdx);
     m_SavedDAMAGED = new tagSavedDAMAGE[m_nSavedDamageCNT];
     ::ZeroMemory(m_SavedDAMAGED, sizeof(tagSavedDAMAGE) * m_nSavedDamageCNT);
 
@@ -546,7 +583,7 @@ CObjMOB::Change_CHAR(int iCharIDX) {
     this->m_nCharIdx = iCharIDX;
     this->m_pCharMODEL = g_pCharDATA->GetMODEL(iCharIDX);
     this->m_fScale = NPC_SCALE(iCharIDX) / 100.f;
-    this->m_iOriMaxHP = NPC_LEVEL(m_nCharIdx) * NPC_HP(iCharIDX);
+    this->m_iOriMaxHP = ClampedMobMaxHP(iCharIDX);
     this->m_iHP = m_iOriMaxHP;
 
     return true;
