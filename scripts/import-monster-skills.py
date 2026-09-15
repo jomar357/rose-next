@@ -169,7 +169,12 @@ with their effect chains at our indices, and every caster's release slot 9
 carries a presenting frame (Inguz and the Pangs 25/35, the Artillery 24/34).
 3044 is a 2 s area stun already authored in column 11 by RoseZA (32) -- kept
 via `set` -- but with SKILL_SCOPE 0, a radius of nothing: the first test cast it
-eight times and the server sent no damage packet at all. `set` gives it 8 m. Powers re-based to the magic formula by the casters' ATK, on the
+eight times and the server sent no damage packet at all. `set` gives it 8 m.
+Its 2 s duration is also raised to 4 s: a cast's status is presented at the
+caster's release frame, which trails the server's application by the park delay
+(1-3 s measured here), so a 2 s stun was over on the server before its icon
+appeared and the player walked through it. Rule of thumb: a status on a cast
+skill needs to outlast that delay, or it is decoration. Powers re-based to the magic formula by the casters' ATK, on the
 ~6.4-per-point-at-2900-ATK measurement scaled linearly: Inguz (925 ATK,
 ~2 per point) 120 -> ~250; the Penguins (~600 ATK, ~1.3 per point) 120 / 100
 -> ~160 / ~130. Field-mob spikes, not nukes.
@@ -282,7 +287,11 @@ SKILLS = {
     # radius, so Skill_DamageToAROUND finds nobody and nothing happens (eight
     # casts, zero damage packets, 2026-09-15). 8 m, between our other monster
     # AOEs (3042 at 5.5 m, 3013 at 14 m).
-    3044: dict(name="Inguz Stun Wave", source="RoseZA", dmgtype=2, power=120, set={11: 32, 8: 800}),
+    # Duration 2 s -> 4 s: the client presents a cast's status at the release
+    # frame, 1-3 s after the server applied it (measured on this row), so a 2 s
+    # stun expired server-side before its icon even showed and the player could
+    # walk "while stunned". Our other monster stuns run 3-5 s.
+    3044: dict(name="Inguz Stun Wave", source="RoseZA", dmgtype=2, power=120, set={11: 32, 8: 800, 14: 4}),
     2979: dict(name="Pang Jump Attack", source="RoseZA", dmgtype=2, power=120),
     2980: dict(name="Artillery Jump Attack", source="RoseZA", dmgtype=2, power=100),
 }
