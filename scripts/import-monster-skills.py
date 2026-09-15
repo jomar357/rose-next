@@ -146,9 +146,10 @@ effects stay ruff's, which the Eldeon balance passes already tuned):
         no status -- an area cast that applies nothing. RoseZA: Sleep, 20 s
         at success 200. Source numbers kept; tune col 13/14 if it plays too
         mean.                                                    -> 11=31
-  3551, 3582, 3595, 3527  "damage + stun" rows (the '+' survives in the name)
-        with no status: Gargoyle, Moss/Neg Golem, Executor Kera, and the
-        unspawned Yigore/Shadow Ghosts.                          -> 11=32
+  3551, 3582, 3595  "damage + stun" rows (the '+' survives in the name) with no
+        status: Gargoyle, Moss/Neg Golem, Executor Kera.         -> 11=32
+        (3527, the same shape on the unspawned Yigore/Shadow Ghosts, is left as
+        plain damage by decision, 2026-09-15: nothing to test it on.)
   3572  the same shape, shared by the Ikaness Engineer AND the Murilos (Karkia's
         spiders: fast, numerous -- a stun there is a nuisance, not a mechanic,
         2026-09-15). The Engineer gets a stun-carrying copy of OUR row at
@@ -280,8 +281,6 @@ SKILLS = {
     3582: dict(name="Golem Stun Blast", source="RoseZA", patch=True, set={11: 32}),
     # EJ02:
     3551: dict(name="Gargoyle Stun", source="RoseZA", patch=True, set={11: 32}),
-    # unspawned ghosts, same shape:
-    3527: dict(name="Ghost Stun", source="RoseZA", patch=True, set={11: 32}),
     # The last stripped casts (unspawned casters; see the docstring):
     # RoseZA authors 3044 with SKILL_SCOPE 0 -- a type-7 area skill with no
     # radius, so Skill_DamageToAROUND finds nobody and nothing happens (eight
