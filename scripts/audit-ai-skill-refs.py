@@ -36,8 +36,8 @@ dead weight, and leaving it in reads as a kit the monster never actually has.
 (`aip_skill_motions` / `chr_anim_audit`) but never that the skill row exists --
 this is the missing half of that check.
 
-What the dangling ids are (RoseZA / 667 LIST_SKILL), for the day they get imported
-----------------------------------------------------------------------------------
+What the dangling ids were (RoseZA / 667 LIST_SKILL) -- all imported as of 2026-09-15
+--------------------------------------------------------------------------------------
   or_thornie.aip      3603 Charge        type 3 (attack-motion change), range 500, power 2000
                       3604 Fireball      type 6 (projectile magic), power 3500, bullet 476,
                                          casting fx 1882, skill fx 1883, hit fx 95, sfx 93/148
@@ -89,8 +89,9 @@ casts on 7 and 9 (release = the event-less charge clip, and slot 10 does not
 exist) and its self-buffs on 2 (release = the hit clip). `--remotion
 FILE.aip:OLD=NEW` re-points every cast on nMotion OLD to NEW (7=6, 9=8, 2=6 for
 the Devourer), recorded in the manifest like --remap. Mini-Devourer 2225 is the
-model with no skill clip at all (slots 0-5) casting 3042 on 8; that needs a
-model change and is only reported.
+model with no skill clip at all (slots 0-5) casting 3042 on 8; with no 3D
+artist to add one, its casts are stripped on request (--strip, below) and it
+fights with normal attacks (2026-09-15).
 
 The audit walks every monster's AI casts and WARNS about both classes (it never
 strips them). Retail ships ~110 such casts (self-buffs on Smoulys, Kaiman, the
@@ -143,6 +144,14 @@ the others; the audit warns about any cast behind a lo >= hi window.
 
     python scripts/audit-ai-skill-refs.py --rewindow or_gmdevourer1.aip:7013=-100,100 \
                                           --rewindow or_gmdevourer1.aip:3611=-100,100
+
+Stripping a cast on request: `--strip FILE.aip:SKILL` removes every action that
+casts SKILL from that file, recorded like the others. Used for Mini-Devourer
+2225 (or_minidevourer1.aip, 3042): its model has no skill clip at all (slots
+0-5), so the cast can never present and, without a 3D artist, it fights with
+normal attacks only (2026-09-15).
+
+    python scripts/audit-ai-skill-refs.py --strip or_minidevourer1.aip:3042
 
 What it does
 ------------
@@ -453,7 +462,20 @@ def report_window_warnings(warns):
         print("   %-28s skill %4d  window [%d, %d]" % (fn, sk, lo, hi))
 
 
-def do_remap(root, specs, motion_specs, dry, chance_specs=(), window_specs=()):
+def strip_skill(b, skill, _unused=None):
+    """Remove every AIACT24 casting `skill`. Returns (bytes, count)."""
+    hdr, title, pats, tail = mon.parse_aip(b)
+    hits = []
+    for pi, (_pn, evs) in enumerate(pats):
+        for ei, (_en, _cs, acts) in enumerate(evs):
+            for ai, a in enumerate(acts):
+                x = act_skill(a)
+                if x and x[1] == skill:
+                    hits.append((pi, ei, ai))
+    return strip(b, hits), len(hits)
+
+
+def do_remap(root, specs, motion_specs, dry, chance_specs=(), window_specs=(), strip_specs=()):
     """specs: ['file.aip:OLD=NEW', ...] -- re-point casts whose id collides with one
     of our own skills to the row the importer put the real skill on.
     motion_specs: the same syntax for nMotion -- re-point casts authored against a
@@ -466,10 +488,14 @@ def do_remap(root, specs, motion_specs, dry, chance_specs=(), window_specs=()):
     jobs = [("remapped", remap, "skill", sp) for sp in specs] + \
            [("remotioned", remotion, "motion", sp) for sp in motion_specs] + \
            [("rechanced", rechance, "chance", sp) for sp in chance_specs] + \
-           [("rewindowed", rewindow, "window", sp) for sp in window_specs]
+           [("rewindowed", rewindow, "window", sp) for sp in window_specs] + \
+           [("stripped_on_request", strip_skill, "strip", sp) for sp in strip_specs]
     for key, fn_apply, what, spec in jobs:
         fn, ids = spec.split(":")
-        lhs, rhs = ids.split("=")
+        if what == "strip":
+            lhs, rhs = ids, "0"
+        else:
+            lhs, rhs = ids.split("=")
         old_v = int(lhs)
         new_v = tuple(int(x) for x in rhs.split(",")) if what == "window" else int(rhs)
         p = files.get(fn.lower())
@@ -496,6 +522,10 @@ def do_remap(root, specs, motion_specs, dry, chance_specs=(), window_specs=()):
                   % (fn, old_v, "/".join("[%d, %d]" % o for o in olds) or "-", new_v[0], new_v[1], n,
                      "  (dry run)" if dry else ""))
             rec = {"skill": old_v, "from": olds, "to": list(new_v)}
+        elif what == "strip":
+            print("   %-28s skill %d : %d cast(s) removed%s"
+                  % (fn, old_v, n, "  (dry run)" if dry else ""))
+            rec = {"skill": old_v, "count": n}
         else:
             print("   %-28s %s %d -> %d : %d record(s)%s"
                   % (fn, what, old_v, new_v, n, "  (dry run)" if dry else ""))
@@ -675,6 +705,8 @@ def main():
                     help="set the random-chance condition of every event casting SKILL (testing)")
     ap.add_argument("--rewindow", action="append", default=[], metavar="FILE.aip:SKILL=LO,HI",
                     help="set the level window of every condition 02 on events casting SKILL")
+    ap.add_argument("--strip", action="append", default=[], metavar="FILE.aip:SKILL",
+                    help="remove every cast of SKILL from the file (a model that cannot present it)")
     ap.add_argument("--only", default=None, metavar="FILE.aip",
                     help="with --restore: restore just this file, keep the rest of the manifest")
     ap.add_argument("--strict-motions", action="store_true",
@@ -684,11 +716,11 @@ def main():
 
     if a.restore:
         return do_restore(root, a.only)
-    if a.remap or a.remotion or a.rechance or a.rewindow:
+    if a.remap or a.remotion or a.rechance or a.rewindow or a.strip:
         print("self-test (the rewriter must reproduce every file byte-identically):")
         if not mon.selftest(root):
             return 1
-        return do_remap(root, a.remap, a.remotion, a.dry_run, a.rechance, a.rewindow)
+        return do_remap(root, a.remap, a.remotion, a.dry_run, a.rechance, a.rewindow, a.strip)
 
     print("self-test (the rewriter must reproduce every file byte-identically):")
     if not mon.selftest(root):

@@ -160,6 +160,19 @@ Left alone on purpose: 3571 / 3589 deal damage without RoseZA's poison (they
 work), 3554 / 3555 already map RoseZA's stronger burns to our Flame Heat, and
 2961 / 3006 cancel every status where RoseZA cancels buffs only.
 
+The last stripped casts: Inguz and the Penguins (2026-09-15)
+------------------------------------------------------------
+Unspawned rows, so testable only by /mon: Moon Sister Inguz 654 (INGUZ.AIP,
+3044), Gangster Pang Little Jack / Jack 1456-1457 (PENGUN.AIP, 2979), Penguin
+Artillery 1458 (PENART.AIP, 2980). All three rows exist in RoseZA (and Jrose)
+with their effect chains at our indices, and every caster's release slot 9
+carries a presenting frame (Inguz and the Pangs 25/35, the Artillery 24/34).
+3044 is a 2 s area stun already authored in column 11 by RoseZA (32) -- kept
+via `set`. Powers re-based to the magic formula by the casters' ATK, on the
+~6.4-per-point-at-2900-ATK measurement scaled linearly: Inguz (925 ATK,
+~2 per point) 120 -> ~250; the Penguins (~600 ATK, ~1.3 per point) 120 / 100
+-> ~160 / ~130. Field-mob spikes, not nukes.
+
 Usage
 -----
     python scripts/import-monster-skills.py --selftest
@@ -263,6 +276,10 @@ SKILLS = {
     3551: dict(name="Gargoyle Stun", source="RoseZA", patch=True, set={11: 32}),
     # unspawned ghosts, same shape:
     3527: dict(name="Ghost Stun", source="RoseZA", patch=True, set={11: 32}),
+    # The last stripped casts (unspawned casters; see the docstring):
+    3044: dict(name="Inguz Stun Wave", source="RoseZA", dmgtype=2, power=120, set={11: 32}),
+    2979: dict(name="Pang Jump Attack", source="RoseZA", dmgtype=2, power=120),
+    2980: dict(name="Artillery Jump Attack", source="RoseZA", dmgtype=2, power=100),
 }
 
 # LIST_SKILL columns (io_skill.h)

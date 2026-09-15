@@ -560,10 +560,12 @@ windows gate retail movement). Also: a pattern's events are first-match-wins,
 so a 100% event starves everything after it — bump one at a time. All four
 casts plus the self-casts validated in game 2026-09-14: bolt ~1200 with a
 real projectile, Stun Blast ~820 with the stun, slow and dispel with icons.
-Still stripped, none spawned: Inguz 654 (3044),
-Penguin Artillery 1458 (2980), Gangster Pangs 1456/1457 (2979). Mini-Devourer
-2225 casts 3042 from a model with no skill clip at all (slots 0-5) — needs a
-model change. Two client rules came out of validating the kit: a remote caster's queued
+The last stripped casts — Inguz 654 (3044, an area stun), Penguin
+Artillery 1458 (2980) and Gangster Pangs 1456/1457 (2979), none spawned — are
+imported too (2026-09-15, powers re-based by the casters' ATK), so nothing is
+stripped for a missing row any more. Mini-Devourer 2225 casts 3042 from a
+model with no skill clip at all (slots 0-5); with no 3D artist, its casts are
+removed (`--strip or_minidevourer1.aip:3042`) and it fights with normal attacks. Two client rules came out of validating the kit: a remote caster's queued
 skill command must be validated on `GSV_SKILL_START` (a mob's second cast was
 being deleted, its lethal projectile then died by the 6 s timeout), and a lethal
 legacy `GSV_DAMAGE_OF_SKILL` payload arms pending death at receive (else the
