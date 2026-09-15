@@ -541,8 +541,13 @@ bug, fix what makes no sense. Eight rows qualified and are corrected in place
 by the importer's `patch` mode (name + status + ability columns only, the
 balance passes' damage columns untouched): a self-buff that muted its own
 caster (3588), two self/area casts with no status at all (3593, 3598), and
-five "damage + stun" rows with no stun (3551, 3572, 3582, 3595, 3527). Details
-and what was deliberately left alone: the importer docstring.
+five "damage + stun" rows with no stun (3551, 3572, 3582, 3595, 3527). 3572 is
+shared by the Ikaness Engineer and Karkia's Murilos, and a stun on a fast,
+numerous spider is a nuisance — so `patch` + `dest` copies our row to **7014**
+with the stun for the Engineer (`--remap ed_icanes6.aip:3572=7014`) and the
+Murilos keep the plain row. EZ01 validated in game 2026-09-15; EJ02/EJ03 rows
+applied, pending a fight. Details and what was deliberately left alone: the
+importer docstring.
 **The fifth failure class is a gate nobody can pass**: even at a 100% roll
 (`--rechance FILE.aip:SKILL=PCT`, for testing) the two damage casts never
 fired, because their condition 02 ("N enemies within D m with level diff in

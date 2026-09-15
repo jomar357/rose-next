@@ -146,9 +146,15 @@ effects stay ruff's, which the Eldeon balance passes already tuned):
         no status -- an area cast that applies nothing. RoseZA: Sleep, 20 s
         at success 200. Source numbers kept; tune col 13/14 if it plays too
         mean.                                                    -> 11=31
-  3551, 3572, 3582, 3595, 3527  "damage + stun" rows (the '+' survives in the
-        name) with no status: Gargoyle, Ikaness Engineer + Murilo, Moss/Neg
-        Golem, Executor Kera, and the unspawned Yigore/Shadow Ghosts. -> 11=32
+  3551, 3582, 3595, 3527  "damage + stun" rows (the '+' survives in the name)
+        with no status: Gargoyle, Moss/Neg Golem, Executor Kera, and the
+        unspawned Yigore/Shadow Ghosts.                          -> 11=32
+  3572  the same shape, shared by the Ikaness Engineer AND the Murilos (Karkia's
+        spiders: fast, numerous -- a stun there is a nuisance, not a mechanic,
+        2026-09-15). The Engineer gets a stun-carrying copy of OUR row at
+        **7014** (`patch` + `dest`) and ed_icanes6.aip is re-pointed:
+            audit-ai-skill-refs.py --remap ed_icanes6.aip:3572=7014
+        Murilo / Murilo Alpha keep 3572 as it is.
 
 Left alone on purpose: 3571 / 3589 deal damage without RoseZA's poison (they
 work), 3554 / 3555 already map RoseZA's stronger burns to our Flame Heat, and
@@ -250,8 +256,8 @@ SKILLS = {
     3593: dict(name="Cannibal Frenzy", source="RoseZA", patch=True, set={11: 16, 21: 24, 23: 30}),
     3598: dict(name="Prison Slumber", source="RoseZA", patch=True, set={11: 31}),
     3595: dict(name="Kera Stun Blast", source="RoseZA", patch=True, set={11: 32}),
-    # EJ03 + Karkia cemetery / spire:
-    3572: dict(name="Engineer Stun", source="RoseZA", patch=True, set={11: 32}),
+    # EJ03 (the Murilos keep the stun-less 3572; the Engineer's AI is re-pointed):
+    3572: dict(name="Engineer Stun", source="RoseZA", patch=True, dest=7014, set={11: 32}),
     3582: dict(name="Golem Stun Blast", source="RoseZA", patch=True, set={11: 32}),
     # EJ02:
     3551: dict(name="Gargoyle Stun", source="RoseZA", patch=True, set={11: 32}),
@@ -381,15 +387,24 @@ class Plan:
             self.problems.append("%s: dest %d is past our LIST_SKILL end (%d rows; only appending at the end is supported)" % (why, dest, o.rows))
             return
         if spec.get("patch"):
-            # Our own row, corrected in place: nothing is read from the source.
-            if dest >= o.rows or blank_row(o, dest):
-                self.problems.append("%s: patch target row %d is blank here" % (why, dest))
+            # Our own row, corrected in place (or copied to `dest` when the row is
+            # shared and only one caster should change): nothing is read from the
+            # source.
+            if sid >= o.rows or blank_row(o, sid):
+                self.problems.append("%s: patch source row %d is blank here" % (why, sid))
                 return
-            if o.get(dest, C_NAME) == spec["name"].encode("latin-1") \
+            if dest > o.rows:
+                self.problems.append("%s: dest %d is past our LIST_SKILL end (%d rows)" % (why, dest, o.rows))
+                return
+            if dest < o.rows and not blank_row(o, dest) \
+                    and o.get(dest, C_NAME) == spec["name"].encode("latin-1") \
                     and all(ival(o, dest, c) == v for c, v in spec.get("set", {}).items()):
                 self.skipped.append(sid)
                 return
-            cells = [o.get(dest, c) for c in range(o.cols)]
+            if dest != sid and dest < o.rows and not blank_row(o, dest):
+                self.problems.append("%s: our row %d is occupied (%r)" % (why, dest, o.get(dest, 0)))
+                return
+            cells = [o.get(sid, c) for c in range(o.cols)]
             cells[C_NAME] = spec["name"].encode("latin-1")
             for c in spec.get("clear", ()):
                 cells[c] = b""
