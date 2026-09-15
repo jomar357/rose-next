@@ -928,9 +928,12 @@ RefuseJunkMobRow(classUSER* pUser, int iMobIDX) {
     const char* szWhy = MobRowRefusalReason(iMobIDX);
     if (!szWhy)
         return false;
+    // The client's Recv_gsv_WHISPER drops any message that starts with '/', and
+    // "<SERVER>::" is the sender it shows regardless of the whisper-approval
+    // setting -- a plain "SERVER" whisper was never displayed (2026-09-15).
     char szMsg[128];
-    _snprintf_s(szMsg, sizeof(szMsg), _TRUNCATE, "/mon %d refused: %s", iMobIDX, szWhy);
-    pUser->Send_gsv_WHISPER("SERVER", szMsg);
+    _snprintf_s(szMsg, sizeof(szMsg), _TRUNCATE, "Spawn refused for row %d: %s", iMobIDX, szWhy);
+    pUser->Send_gsv_WHISPER("<SERVER>::", szMsg);
     return true;
 }
 
