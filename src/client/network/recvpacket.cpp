@@ -3341,6 +3341,23 @@ CRecvPACKET::Recv_gsv_RESULT_OF_SKILL() {
     /// if( pObjCHAR && pObjCHAR->m_nToDoSkillIDX )
     ///	iDoingSkillIDX = pObjCHAR->m_nDoingSkillIDX;
 
+    // A remote caster whose cast is still held in its command queue (behind an
+    // owed swing, or behind its previous cast) is "doing" it -- the same rule as
+    // Recv_gsv_DAMAGE_OF_SKILL. The server sends this result right after the
+    // damage payload, before the held command has run, so without this the drain
+    // below presented the parked hit at once: the Sikuku Jailer's 421 landed a
+    // second before its skill motion even started (2026-09-15, twice in ten casts;
+    // the other eight had already started and parked correctly).
+    if (!iDoingSkillIDX && pObjCHAR != (CObjCHAR*)g_pAVATAR
+        && pObjCHAR->m_CommandQueue.HasSkillCommand(
+            m_pRecvPacket->m_gsv_RESULT_OF_SKILL.m_nSkillIDX)) {
+        iDoingSkillIDX = m_pRecvPacket->m_gsv_RESULT_OF_SKILL.m_nSkillIDX;
+        LogString(LOG_DEBUG_,
+            "CombatTrace RESULT_OF_SKILL kept parked for held cast: caster %d skill %d\n",
+            pObjCHAR->Get_INDEX(),
+            iDoingSkillIDX);
+    }
+
     /// 스킬 액션이 끝났다.. ( 캐스팅 동작이 없을경우 발생가능 )
     if (iDoingSkillIDX == 0) {
         pObjCHAR->ProcEffectedSkill();
