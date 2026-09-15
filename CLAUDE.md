@@ -562,8 +562,10 @@ casts plus the self-casts validated in game 2026-09-14: bolt ~1200 with a
 real projectile, Stun Blast ~820 with the stun, slow and dispel with icons.
 The last stripped casts — Inguz 654 (3044, an area stun), Penguin
 Artillery 1458 (2980) and Gangster Pangs 1456/1457 (2979), none spawned — are
-imported too (2026-09-15, powers re-based by the casters' ATK), so nothing is
-stripped for a missing row any more. Mini-Devourer 2225 casts 3042 from a
+imported too (2026-09-15, powers re-based by the casters' ATK; all three validated
+in game the same day — RoseZA's 3044 needed a scope, it was authored at 0, and a
+4 s duration, since a cast's status is presented 1-3 s after the server applies it),
+so nothing is stripped for a missing row any more. Mini-Devourer 2225 casts 3042 from a
 model with no skill clip at all (slots 0-5); with no 3D artist, its casts are
 removed (`--strip or_minidevourer1.aip:3042`) and it fights with normal attacks. Two client rules came out of validating the kit: a remote caster's queued
 skill command must be validated on `GSV_SKILL_START` (a mob's second cast was
