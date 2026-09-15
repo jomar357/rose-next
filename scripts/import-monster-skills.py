@@ -168,7 +168,8 @@ Artillery 1458 (PENART.AIP, 2980). All three rows exist in RoseZA (and Jrose)
 with their effect chains at our indices, and every caster's release slot 9
 carries a presenting frame (Inguz and the Pangs 25/35, the Artillery 24/34).
 3044 is a 2 s area stun already authored in column 11 by RoseZA (32) -- kept
-via `set`. Powers re-based to the magic formula by the casters' ATK, on the
+via `set` -- but with SKILL_SCOPE 0, a radius of nothing: the first test cast it
+eight times and the server sent no damage packet at all. `set` gives it 8 m. Powers re-based to the magic formula by the casters' ATK, on the
 ~6.4-per-point-at-2900-ATK measurement scaled linearly: Inguz (925 ATK,
 ~2 per point) 120 -> ~250; the Penguins (~600 ATK, ~1.3 per point) 120 / 100
 -> ~160 / ~130. Field-mob spikes, not nukes.
@@ -277,7 +278,11 @@ SKILLS = {
     # unspawned ghosts, same shape:
     3527: dict(name="Ghost Stun", source="RoseZA", patch=True, set={11: 32}),
     # The last stripped casts (unspawned casters; see the docstring):
-    3044: dict(name="Inguz Stun Wave", source="RoseZA", dmgtype=2, power=120, set={11: 32}),
+    # RoseZA authors 3044 with SKILL_SCOPE 0 -- a type-7 area skill with no
+    # radius, so Skill_DamageToAROUND finds nobody and nothing happens (eight
+    # casts, zero damage packets, 2026-09-15). 8 m, between our other monster
+    # AOEs (3042 at 5.5 m, 3013 at 14 m).
+    3044: dict(name="Inguz Stun Wave", source="RoseZA", dmgtype=2, power=120, set={11: 32, 8: 800}),
     2979: dict(name="Pang Jump Attack", source="RoseZA", dmgtype=2, power=120),
     2980: dict(name="Artillery Jump Attack", source="RoseZA", dmgtype=2, power=100),
 }
