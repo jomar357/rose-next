@@ -235,20 +235,60 @@ preference.
 
 ---
 
-## 5. Oro has exactly the same problem
+## 5. Oro — built  *(DONE, 2026-09-16)*
 
-Not a Karkia-only defect, and worth doing in the same pass:
+Oro had the same defect and a worse wiring: every monster pointed at an empty table
+in 773–870 (empty in every dump we own — RoseZA never authored them, and 667 keeps
+per-monster drops inline in its own `LIST_NPC` cols 88–102 against its own item
+numbering, so neither could be copied), the 19 species the 667 import added carried
+`col 20` = 100 (every roll to the empty table), and the rest fell through 20% of the
+time to rows 71–85 — the Eldeon Ikaness and Sikuku tables and the Junon town NPCs',
+two of them still titled *"MVP Zone (1P-VS-Kings)"* and *"TVT Zone"*. Money was 0.
 
-| | monsters | live drop table | empty table |
-|---|---:|---:|---:|
-| Karkia | 38 | 0 (wired, unfilled) | — |
-| **Oro (lv 200+)** | 40 | **0** | **38** |
-| Junon/Eldeon 150–199 | 100 | 59 | 33 |
+`scripts/add-oro-drops.py` does the rewire and the content in one pass, importing
+`build_row`/`encode` and the item pools from `add-karkia-drops.py` so the two
+continents share one encoding and one calibration. `scripts/import-oro-materials.py`
+first brings nine RoseZA monster parts into `LIST_NATURAL` (Asper Fang, Snapper Beak,
+Devourer Plate, …). Its lesson repeats §4a's: rows 273/274 are blank in the STB but
+the STL still names them Archangel/Archdevil Feather and drop tables 63–71 reference
+them, so the Snapper parts went to 285/286 and the rune piece to 287.
 
-Oro's monsters point at tables 773–851 and every one of them is empty, so Oro has
-been running on its zone fallback since it was imported. **The whole endgame has no
-authored loot tier** — Karkia just made it visible. Whatever shape §4 lands on should
-be applied to Oro immediately after.
+Design choices, and why:
+
+- **One table per species**, not per roster (col 18 left alone): the materials are
+  named for the family that drops them, and a shared table pays them from the wrong
+  animal. The table is generated, so 57 rows cost the same as four.
+- **Weapons are what Karkia left unused**: the Jrose lv210 set 1420–1425 with 1447/1450
+  in the Golden Ring, then the shared lv220 and lv235 pools. Five-wide windows rotate
+  through the pool per species.
+- **The lv240 armour is Oro's signature**, as the mythical weapons are Karkia's. It was
+  drop-only since the armour pass and dropped nowhere. Body and cap come from the
+  Fossil Sanctuary's field buckets, gauntlets and boots from its four kings.
+- **Oro pays a little less than Karkia, on purpose.** Field tables fill 10 slots
+  (12 in the Sanctuary) against Karkia's 12, and a Sanctuary king's armour rate is
+  held at a Karkia boss's mythical rate, not above it (a first cut with body/cap
+  buckets on the kings too measured 50% and was taken back down).
+
+Measured with `--simulate` (a faithful `Get_DropITEM`, zone fallback going to the
+zone row), 300k kills per shape at level parity:
+
+| | Ring/Wasteland field | Sanctuary field | Ring/Wasteland king | Sanctuary king |
+|---|---|---|---|---|
+| materials | 30.4% | 30.4% | 17.8% | 15.8% |
+| use items | 8.3% | 8.3% | 5.1% | 4.5% |
+| **shield** | 1 in 26 | 1 in 26 | 9.3% | 7.7% |
+| **weapon** | 1 in 29 | 1 in 29 | **24.9%** | — |
+| **lv240 armour** | — | **1 in 20** (body/cap) | — | **37.6%** (gauntlets/boots) |
+| money | 15% | 15% | 0% | 0% |
+| nothing | 39% | 34% | 43% | 34% |
+
+Zone rows 71/78/79/81/83/85 hold a generic table for their tier so the 20% fallback
+is live; the legacy tables that sat there moved to 949–954 with their users repointed
+(the same relocation `rewire-karkia-drops.py` did for 86–144). Zones 72/73/80 spawn
+nothing and were left alone.
+
+`--restore` is cell-level for both STBs. After running: restart the servers and
+re-bake the VFS (the Monster Inspector reads these tables client-side).
 
 ---
 
