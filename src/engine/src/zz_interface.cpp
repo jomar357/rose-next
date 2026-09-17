@@ -1231,6 +1231,10 @@ int linkDummy ( HNODE hParentModel, HNODE hNode, int iDummy )
 	zz_assert(parent->is_a(ZZ_RUNTIME_TYPE(zz_model)));
 	zz_assert(child->is_a(ZZ_RUNTIME_TYPE(zz_visible)));
 
+	if (iDummy < 0 || (uint32)iDummy >= parent->get_num_dummies()) {
+		return 0; // link_dummy() logs the refusal
+	}
+
 	parent->link_dummy(child, iDummy);
 
 	return 1;

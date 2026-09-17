@@ -6,6 +6,7 @@
 #include "BoneEffectBudget.h"
 #include "IO_Basic.h"
 #include "CModelCHAR.h"
+#include "CObjCHAR.h"
 #include "Util\\VFSManager.h"
 
 CCharModelDATA g_MOBandNPC;
@@ -238,9 +239,11 @@ CCharMODEL::CreateBoneEFFECT(HNODE hMODEL, CObjCHAR* pOwner) {
     for (short nE = 0; nE < m_nBoneEFFECT; nE++) {
         ppEffect[nE] = g_pEffectLIST->Add_EFFECT(m_pBoneEFFECT[nE].m_EffectFILE);
         if (ppEffect[nE]) {
-            int iDummyCnt = ::getNumDummies(hMODEL);
-            if (iDummyCnt >= m_pBoneEFFECT[nE].m_cBoneIDX) {
-                ::linkDummy(hMODEL, ppEffect[nE]->GetZNODE(), m_pBoneEFFECT[nE].m_cBoneIDX);
+            int iDummyIDX = ResolveDummyIDX(hMODEL,
+                m_pBoneEFFECT[nE].m_cBoneIDX,
+                pOwner ? pOwner->Get_CharNO() : -1);
+            if (iDummyIDX >= 0) {
+                ::linkDummy(hMODEL, ppEffect[nE]->GetZNODE(), iDummyIDX);
                 ppEffect[nE]->StartEffect();
                 CBoneEffectBudget::Instance().Register(
                     pOwner,
@@ -298,9 +301,9 @@ CCharMODEL::LinkBoneEFFECT(HNODE hMODEL, CEffect** ppEffect) {
     for (short nE = 0; nE < m_nBoneEFFECT; nE++) {
         if (!ppEffect[nE])
             continue;
-        int iDummyCnt = ::getNumDummies(hMODEL);
-        if (iDummyCnt >= m_pBoneEFFECT[nE].m_cBoneIDX)
-            ::linkDummy(hMODEL, ppEffect[nE]->GetZNODE(), m_pBoneEFFECT[nE].m_cBoneIDX);
+        int iDummyIDX = ResolveDummyIDX(hMODEL, m_pBoneEFFECT[nE].m_cBoneIDX);
+        if (iDummyIDX >= 0)
+            ::linkDummy(hMODEL, ppEffect[nE]->GetZNODE(), iDummyIDX);
         // ppEffect[ nE ]->LinkBONE( hMODEL, m_pBoneEFFECT[ nE ].m_cBoneIDX );
     }
 }

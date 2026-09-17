@@ -565,6 +565,49 @@ Rules:
   filtered out entirely, so the only evidence of a broken object was the subject-less engine
   line. See [[reference-logstring-formats-before-filter]] — `LogString` is always Debug.
 
+## Dummy Indices: `getNumDummies()` Is Authored Count + 1, And A Valid Index Is `< count`
+
+`zz_skeleton::load_skeleton` appends one extra root-bone dummy (`_p1`) to every
+skeleton, so `::getNumDummies()` returns the `.ZMD`'s dummy count plus one and the
+valid range is `0 .. count-1`. Four sites in the client tested `count >= index`, which
+lets `index == count` through; the engine's `link_dummy` then hit a `zz_assertf` that is
+**live in release** (the "Engine Assertion Failed" dialog), and its "Ignore" button
+continued into `get_dummy()`, whose only guard is a compiled-out `assert()`, reading one
+pointer past the dummy vector. Heap luck decided whether that faulted, and `_zz_assert`
+remembers an ignored file:line for the session, so later hits went straight to the UB.
+
+The trigger in the wild: `LIST_SKILL` links hit effects to the *target's* dummy 3
+(Blood Attack 651-660, Twin/Triple Shot 2221-2240), and four monster skeletons ship
+only two dummies -- `icanes_g` (Ikaness Soldier 1580, Ikaness Sweeper 2294), `s_kera01`
+(Executor Kera 1719), `lep_bone` (Leprechaun 3003). Dump of 2026-09-17 01:11:46:
+`zz_model::link_dummy` <- `CObjCHAR::LinkDummy` <- `ProcOneEffectedSkill`.
+
+Rules now:
+
+- **Go through `ResolveDummyIDX(hModel, idx, char_no)`** (`cobjchar.h`) for any
+  data-driven dummy index. It clamps an out-of-range request to the *last* dummy -- the
+  engine's `_p1` root dummy, the same attach point `Link2LastDummy()` uses for bullet
+  impacts -- and logs once per (char_no, index) at `LOG_WARN`. Rejecting used to be
+  worse than clamping: both hit-effect call sites ignore `LinkDummy`'s return value and
+  `InsertToScene()` the unlinked effect anyway, so on Lizards, Tumblers, Bonfires and
+  every zero-dummy skeleton the blood splash played at the world origin.
+- The engine's `link_dummy` / `get_dummy_position_world` now refuse a bad index with a
+  `ZZ_LOG` line (`model: link_dummy(...) refused`) instead of asserting, and the
+  `linkDummy` export returns 0. That is the backstop for the raw `::linkDummy` callers
+  (ZSC-driven `io_model.cpp`, trails, cart parts); it is an engine change, so the exe
+  and `znzin.dll` deploy as a pair.
+- **`INVALID_DUMMY_POINT_NUM` (999) means "link to the model root", and every site must
+  test for it before calling `LinkDummy`.** The self-skill branch of
+  `CSkillManager::...` in `gamecommon/skill.cpp` (types 8/10/12/17 -- Holy Blood 540 was
+  the tell) passed the column straight through; with the old guard that failed silently
+  and left the effect unlinked at the world origin, with the clamp it logged a spurious
+  `Dummy index 999 requested on char_no 0` warning. It now does `LinkNODE(GetZMODEL())`
+  like the hit-effect and casting-effect sites. 1082 LIST_SKILL rows use 999 for the
+  hit effect, so a 999 in the warning is always a missing sentinel check, never data.
+
+Validated in game 2026-09-17: 9 Blood Attacks on an Ikaness Sweeper (2294), one
+`Dummy index 3 requested on char_no 2294` warning, no dialog, splash on the body.
+
 ## Frame Timing & Timer Precision
 
 `g_GameDATA.GetElapsedFrameTime()` ([game.cpp:172,180](src/client/game.cpp#L172)) is built on `timeGetTime()`. By default Windows quantizes `timeGetTime()` to the system tick (~15.6 ms), which dominates anything driven by per-frame dt above 60 fps:

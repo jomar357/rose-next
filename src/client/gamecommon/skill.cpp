@@ -711,7 +711,13 @@ CSkillManager::ActionSkill(short nSkillIdx,
 
             CEffect* pEffect = g_pEffectLIST->Add_EffectWithIDX(iEffectIDX, true);
             if (pEffect) {
-                pSrc->LinkDummy(pEffect->GetZNODE(), SKILL_BULLET_LINKED_POINT(nSkillIdx));
+                /// 999 is the "no dummy, link to the model root" sentinel every other
+                /// effect site honours; passing it to LinkDummy used to fail silently
+                /// and leave the effect unlinked at the world origin.
+                if (SKILL_BULLET_LINKED_POINT(nSkillIdx) == INVALID_DUMMY_POINT_NUM)
+                    pEffect->LinkNODE(pSrc->GetZMODEL());
+                else
+                    pSrc->LinkDummy(pEffect->GetZNODE(), SKILL_BULLET_LINKED_POINT(nSkillIdx));
 
                 pEffect->SetParentCHAR(pSrc);
                 pSrc->AddExternalEffect(pEffect);
@@ -724,7 +730,10 @@ CSkillManager::ActionSkill(short nSkillIdx,
 
             pEffect = g_pEffectLIST->Add_EffectWithIDX(iHitEffectIDX, true);
             if (pEffect) {
-                pSrc->LinkDummy(pEffect->GetZNODE(), SKILL_HIT_EFFECT_LINKED_POINT(nSkillIdx));
+                if (SKILL_HIT_EFFECT_LINKED_POINT(nSkillIdx) == INVALID_DUMMY_POINT_NUM)
+                    pEffect->LinkNODE(pSrc->GetZMODEL());
+                else
+                    pSrc->LinkDummy(pEffect->GetZNODE(), SKILL_HIT_EFFECT_LINKED_POINT(nSkillIdx));
 
                 pEffect->SetParentCHAR(pSrc);
                 pSrc->AddExternalEffect(pEffect);

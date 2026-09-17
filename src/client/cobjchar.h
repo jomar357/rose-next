@@ -33,6 +33,20 @@ using namespace Rose::Common;
 
 const int INVALID_DUMMY_POINT_NUM = 999;
 
+/// Resolve a requested dummy index against the model's real dummy count.
+///
+/// Returns the index to link to, or -1 when the model has no dummies at all.
+/// The engine appends one extra root-bone dummy (`_p1`) to every skeleton, so
+/// `getNumDummies()` is the authored count + 1 and a valid index is `< count`,
+/// never `<= count`. An out-of-range request falls back to that LAST dummy --
+/// the same attach point `CObjCHAR::Link2LastDummy()` uses for bullet impacts --
+/// and logs once per (char_no, index). LIST_SKILL authors hit effects against
+/// dummy 3 (Blood Attack, Twin/Triple Shot); four monster skeletons ship only
+/// two dummies (Ikaness Soldier/Sweeper, Executor Kera, Leprechaun), and the
+/// old `count >= index` test let index 3 through to an engine assert followed by
+/// an out-of-bounds read (crash of 2026-09-17).
+int ResolveDummyIDX(HNODE hModel, int nDummyIDX, int nCharNO = -1);
+
 ///
 /// Damage class
 ///

@@ -3,6 +3,8 @@
 */
 #include "stdAFX.h"
 
+#include <set>
+
 #include "Game.h"
 #include "OBJECT.h"
 #include "BULLET.h"
@@ -745,13 +747,38 @@ CObjCHAR::GetScreenPOS(D3DVECTOR& PosSCR) {
 /// @brief  : 입력받은 노드를 입력받은 더미인덱스에 해당하는 더미에 링크시킨다.
 //--------------------------------------------------------------------------------
 
+int
+ResolveDummyIDX(HNODE hModel, int nDummyIDX, int nCharNO) {
+    if (!hModel)
+        return -1;
+
+    int iDummyCnt = ::getNumDummies(hModel);
+    if (iDummyCnt <= 0)
+        return -1;
+
+    if (nDummyIDX >= 0 && nDummyIDX < iDummyCnt)
+        return nDummyIDX;
+
+    static std::set<std::pair<int, int>> s_Reported;
+    if (s_Reported.insert(std::make_pair(nCharNO, nDummyIDX)).second) {
+        LOG_WARN("Dummy index {} requested on char_no {} which has only {} dummies; "
+                 "linked to last dummy {} instead",
+            nDummyIDX,
+            nCharNO,
+            iDummyCnt,
+            iDummyCnt - 1);
+    }
+
+    return iDummyCnt - 1;
+}
+
 bool
 CObjCHAR::LinkDummy(HNODE hLinkNODE, short nDummyIDX) {
-    int iDummyCnt = ::getNumDummies(m_hNodeMODEL);
-    if (iDummyCnt >= nDummyIDX)
-        return (0 != ::linkDummy(m_hNodeMODEL, hLinkNODE, nDummyIDX));
+    int iDummyIDX = ResolveDummyIDX(m_hNodeMODEL, nDummyIDX, Get_CharNO());
+    if (iDummyIDX < 0)
+        return false;
 
-    return false;
+    return (0 != ::linkDummy(m_hNodeMODEL, hLinkNODE, iDummyIDX));
 }
 
 //--------------------------------------------------------------------------------
@@ -944,11 +971,11 @@ CObjCHAR::LinkEffectToPOINT(CEffect* pEffect, short nPartIDX, short nPointIDX) {
 
 bool
 CObjCHAR::LinkEffectToDUMMY(CEffect* pEffect, short nDummyIDX) {
-    int iDummyCnt = ::getNumDummies(m_hNodeMODEL);
-    if (iDummyCnt < nDummyIDX)
+    int iDummyIDX = ResolveDummyIDX(m_hNodeMODEL, nDummyIDX, Get_CharNO());
+    if (iDummyIDX < 0)
         return false;
 
-    pEffect->LinkDUMMY(this->GetZMODEL(), nDummyIDX);
+    pEffect->LinkDUMMY(this->GetZMODEL(), iDummyIDX);
 
     return true;
 }

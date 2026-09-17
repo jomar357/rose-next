@@ -921,9 +921,18 @@ void zz_model::link_dummy (zz_visible * vis, uint32 dummy_index)
 {
 	zz_assert(vis);
 	zz_assert(skeleton);
-	zz_assertf(dummy_index < skeleton->get_num_dummies(),
-		"link_dummy(%s, %d) failed. dummy_index(%d) is less than num_dummies(%d).",
-		vis->get_name(), dummy_index, dummy_index, skeleton->get_num_dummies());
+
+	// Refuse an out-of-range index instead of asserting. The release build kept
+	// zz_assertf live, and its "Ignore" button continued straight into
+	// get_dummy(), which only has a compiled-out assert() and read one pointer
+	// past the dummy vector (Blood Attack on a 3-dummy Ikaness, 2026-09-17).
+	// The caller (CObjCHAR::LinkDummy) clamps before it gets here; this is the
+	// last line of defence for the raw linkDummy() users.
+	if (!vis || !skeleton || dummy_index >= skeleton->get_num_dummies()) {
+		ZZ_LOG("model: link_dummy(%s, %d) refused. num_dummies(%d)\n",
+			vis ? vis->get_name() : "(null)", dummy_index, get_num_dummies());
+		return;
+	}
 	
 	zz_dummy * dummy = get_dummy(dummy_index);
 	assert(dummy);
@@ -941,8 +950,14 @@ void zz_model::link_dummy (zz_visible * vis, uint32 dummy_index)
 //--------------------------------------------------------------------------------
 vec3& zz_model::get_dummy_position_world (vec3& world_pos, int dummy_index )
 {
-	assert(skeleton);
-	assert(dummy_index < (int)skeleton->get_num_dummies());
+	// Same guard as link_dummy(): a bad index used to read past the dummy list.
+	// Fall back to the model's own world position.
+	if (!skeleton || dummy_index < 0 || dummy_index >= (int)skeleton->get_num_dummies()) {
+		ZZ_LOG("model: get_dummy_position_world(%d) refused. num_dummies(%d)\n",
+			dummy_index, get_num_dummies());
+		get_position_world(world_pos);
+		return world_pos;
+	}
 	
 	vec3 local_pos = skeleton->get_dummy_translation(dummy_index);
 	
