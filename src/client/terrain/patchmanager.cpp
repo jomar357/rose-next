@@ -243,6 +243,9 @@ CPatchManager::ClearAllQuadPatchManager() {
         for (j = 0; j < 3; j += 1) {
 
             m_ppQuadPatchManager[i][j] = NULL;
+            /// The flag must die with the pointer: CalculateViewFrustumCulling()
+            /// and CalculatePickingPATCH() dereference on the flag alone.
+            m_isUse[i][j] = FALSE;
         }
     }
 }

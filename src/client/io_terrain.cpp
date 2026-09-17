@@ -4591,12 +4591,19 @@ CTERRAIN::UpdatePatchManager(short nCenterMapXIDX, short nCenterMapYIDX) {
         if (nZoneMapXIDX >= 0 && nZoneMapXIDX < MAP_COUNT_PER_ZONE_AXIS && nZoneMapYIDX >= 0
             && nZoneMapYIDX < MAP_COUNT_PER_ZONE_AXIS) {
 
-            if (m_pMAPS[nZoneMapYIDX][nZoneMapXIDX] != NULL) {
-                if (m_pMAPS[nZoneMapYIDX][nZoneMapXIDX]->IsUsing()) {
-                    m_PatchManager.m_ppQuadPatchManager[buffer_Y + 1][buffer_X + 1] =
-                        (m_pMAPS[nZoneMapYIDX][nZoneMapXIDX]->GetQaudManager());
-                    m_PatchManager.m_isUse[buffer_Y + 1][buffer_X + 1] = TRUE;
-                }
+            /// A slot that is allocated but not MAP_USING (freed, dirty, or a
+            /// load still in flight) must clear the flag too. It used to fall
+            /// through and keep last frame's TRUE next to the pointer that
+            /// ClearAllQuadPatchManager() had just NULLed, and the next
+            /// CalculateViewFrustumCulling() wrote through NULL + the member
+            /// offset (crash-20260918-014305, GetViewFrustumEq on this=0x22C0,
+            /// walking towards the Skaaj lighthouse). ClearAllQuadPatchManager()
+            /// now resets the flags as well; this keeps the two in step.
+            if (m_pMAPS[nZoneMapYIDX][nZoneMapXIDX] != NULL
+                && m_pMAPS[nZoneMapYIDX][nZoneMapXIDX]->IsUsing()) {
+                m_PatchManager.m_ppQuadPatchManager[buffer_Y + 1][buffer_X + 1] =
+                    (m_pMAPS[nZoneMapYIDX][nZoneMapXIDX]->GetQaudManager());
+                m_PatchManager.m_isUse[buffer_Y + 1][buffer_X + 1] = TRUE;
             } else {
                 m_PatchManager.m_ppQuadPatchManager[buffer_Y + 1][buffer_X + 1] = NULL;
                 m_PatchManager.m_isUse[buffer_Y + 1][buffer_X + 1] = FALSE;
