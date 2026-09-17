@@ -280,7 +280,8 @@ namespace Map_Editor.Engine
 
                 loadStep = "Loading Sky";
                 Output.WriteLine(Output.MessageType.Normal, "- Loading Sky");
-                Sky.Load(FileManager.STBs["LIST_SKY"].Cells[Convert.ToInt32(FileManager.STBs["LIST_ZONE"].Cells[mapID][8])][1], FileManager.STBs["LIST_SKY"].Cells[Convert.ToInt32(FileManager.STBs["LIST_ZONE"].Cells[mapID][8])][2]);
+                int skyID = SkyIndex(mapID);
+                Sky.Load(FileManager.STBs["LIST_SKY"].Cells[skyID][1], FileManager.STBs["LIST_SKY"].Cells[skyID][2]);
 
                 #endregion
 
@@ -618,6 +619,31 @@ namespace Map_Editor.Engine
         /// <returns>
         /// 	<c>true</c> if [is valid map] [the specified id]; otherwise, <c>false</c>.
         /// </returns>
+        /// <summary>
+        /// Resolves the LIST_SKY row for a map the way the client does: LIST_ZONE
+        /// column 8 (game column 7) parsed as an integer, where a blank or unparsable
+        /// cell is sky 0. A row past the end of LIST_SKY also falls back to 0 so a
+        /// foreign zone table cannot throw out of the load thread.
+        /// </summary>
+        /// <param name="id">The map ID.</param>
+        /// <returns>A valid LIST_SKY row index.</returns>
+        public static int SkyIndex(int id)
+        {
+            string cell = FileManager.STBs["LIST_ZONE"].Cells[id][8].Trim();
+            int skyID;
+
+            if (cell.Length == 0)
+                return 0;
+
+            if (!int.TryParse(cell, out skyID) || skyID < 0 || skyID >= FileManager.STBs["LIST_SKY"].Cells.Count)
+            {
+                Output.WriteLine(Output.MessageType.Error, string.Format("Map {0} has sky '{1}' which is not a LIST_SKY row; using sky 0", id, cell));
+                return 0;
+            }
+
+            return skyID;
+        }
+
         public static bool IsValidMap(int id)
         {
             // Missing ZON Path
@@ -632,9 +658,9 @@ namespace Map_Editor.Engine
             if (FileManager.STBs["LIST_ZONE"].Cells[id][4].Trim().Length == 0)
                 return false;
 
-            // Missing Sky Setting
-            if (FileManager.STBs["LIST_ZONE"].Cells[id][8].Trim().Length == 0)
-                return false;
+            // A blank sky column is not a missing sky: the client reads the cell as an
+            // integer, so blank means sky 0. Jrose leaves it blank on Skaaj and MyRoom2
+            // (see SkyIndex), and rejecting those hid whole maps from the Open dialog.
 
             // Missing Y IFO
             if (FileManager.STBs["LIST_ZONE"].Cells[id][10].Trim().Length == 0)

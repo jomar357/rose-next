@@ -162,6 +162,17 @@ Clear-Content '..\..\data\Map Editor.log'
 
 ## Compatibility Fixes Already Made
 
+- **A blank sky column no longer hides a map (2026-09-17).** `IsValidMap` rejected any
+  LIST_ZONE row whose sky cell (editor column 8, game column 7) was empty, and the load
+  path did `Convert.ToInt32` on it. The client reads that cell as an integer, so blank
+  means sky 0 -- Jrose leaves it blank on 11 maps (Skaaj `LZON079`, MyRoom2, 8, 9, 36,
+  73, 93, 133, 138, 140, 144) and none of them appeared in the Open dialog.
+  `MapManager.SkyIndex` now resolves the row the client's way (blank/unparsable/out of
+  range -> 0, with a log line for the latter two). Jrose's `LIST_ZONE_S.STL` is the old
+  `I_NUM` dialect the STL reader cannot parse, so its Open list shows keys (`LZON079`)
+  rather than names; the ID column is the reliable handle. Verified with a headless
+  `FileManager.Initialize()` harness against the Jrose data: 100 maps listed,
+  `IsValidMap(79)` true, `SkyIndex(79)` 0.
 - **Movement painting (2026-09-13).** Open a map, then **Tools > Movement (.MOV) >
   Paint movement permissions**, or the **MOV** toolbar button. Left-drag paints
   5 m cells with 1/3/5/7-cell square brushes; one drag is one undo command.
