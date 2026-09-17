@@ -589,6 +589,7 @@ The client has **no unhandled-exception filter and no minidump writer**, so a cr
 Chunk-display hitches are **resource creation at first render**, not chunk file I/O. The client `CLAUDE.md` has the full picture; the two things to know before touching it:
 
 - **Measure lead time, not queue depth.** Frames between a resource being queued and being force-loaded is what tells you which fix applies. Terrain meshes measured **1 frame** (no amortiser can help — cap the inserts, `[VIDEO] TERRAIN_INSERTS_PER_FRAME`); textures measured **200-300 frames** (the amortiser had slack and wasted it — `[VIDEO] LOAD_BUDGET_US`). Applying either fix to the other problem does nothing.
+- **A map tile that is allocated but not `MAP_USING` next to the player crashed the client** (2026-09-18, walking towards the Skaaj lighthouse; `GetViewFrustumEq` on `this = 0x22C0`, i.e. NULL plus the member offset). `ClearAllQuadPatchManager()` nulled the nine neighbour pointers but not `m_isUse`, and `UpdatePatchManager()` only rewrote the flag for a NULL or in-use neighbour, so a freed, dirty or still-loading slot kept last frame's TRUE beside a NULL pointer, and the next cull wrote through it. Both sites now clear the flag. The one unexplained Karkia crash of 2026-09-09 was preceded by the same `DeferredFreeMAP` teardown and is very likely this bug.
 - Diagnostics are opt-in: `[VIDEO] STREAM_SPIKE_LOG_MS` (0 = off) plus the `MapIO:`/`Flush:` debug-HUD rows and `/perfreset`.
 - **`STREAM_SPIKE_LOG_MS` only fires on streaming time**, so a hitch from any other phase writes nothing and is indistinguishable from a smooth frame. `[VIDEO] FRAME_SPIKE_LOG_MS` (0 = off) triggers on *total* frame time and logs that frame's own phase split (`netin/logic/scnupd/shadow/render/ui/present/oth` + the logic sub-slots + the flush counters), which is what names a non-streaming hitch. Reach for it first; the streaming log narrows down what it finds. Run with `VSYNC=0` while hunting, or the vsync wait in `present` masks everything.
 
@@ -681,6 +682,40 @@ Things that will bite:
 - **A lone boss point has the same slot shape as a carpet point.** ODFS01/ODGR01 are single-species carpets (`consolidate_carpet`, 60 m camps of 5, tacticPoint 100) and their 23 boss points are one species, count 1 — at **cap 1 and a 30-minute interval**. The carpet criterion requires `cap >= 2 and interval < 600`, or the kings fold into 20-second camps. Also: `*.IFO` + `*.ifo` globs double-count on Windows — the survey's 1406/890 points were 703/424.
 - 667's warp rows 178-180 collide with live Karkia gates (`GATE_REMAP` → 187/188/193). Cactus 2181 is a 667 "interactive object" NPC we cannot run (147 points removed). Bryll 2100 and Alana 2121 are placed mute (dialog file in no readable dump); the twelve fate vassals speak only once a fate is chosen — by design, not a defect (`scripts/audit-oro-idle-dialog.py` is the lua4-driven survey).
 - Drop columns come from RoseZA's rows (tables 773-851, empty in every dump we own -- RoseZA never authored them, and 667 keeps per-monster drops inline in its own LIST_NPC cols 88-102 against its own item numbering); the 19 new species got free tables 852-870. **Oro drops are authored by `scripts/add-oro-drops.py` (2026-09-16)**, the Karkia recipe in one script: it relocates the legacy tables squatting on Oro's zone rows (71/78/79/81/83/85 were the Eldeon Ikaness/Sikuku tables and the Junon town NPCs' -- a drop-table id and a zone id share one namespace), fills one table per species from the family materials `scripts/import-oro-materials.py` brings in from RoseZA (Asper Fang, Snapper Beak, Devourer Plate ...; 273/274 are *not* free rows, the STL still names them Archangel/Archdevil Feather and drop tables 63-71 reference them), and sets col 20 to 80 and money to 15 like Karkia. The lv240 armour (drop-only since the armour pass, and dropped by nothing until now) is Oro's signature: body/cap from the Fossil Sanctuary's field buckets, gauntlets/boots from its four kings at the same ~36% a Karkia boss pays a mythical -- never above it, Karkia is meant to have the better loot. `--simulate` prints the rates; `--restore` is cell-level for both STBs.
+
+### Skaaj Is Jrose's Cat-Folk Island (imported 2026-09-18, not yet validated in game)
+
+Jrose zone 79 (スカ, planet 5): a small tropical town, eleven cat-folk NPCs on the
+`ronya` skeleton, butterflies and clownfish for spawns, no monsters, no drops. Jrose
+used it as the hub of its housing and pet systems; we take the map, the townsfolk
+and the trip there. `scripts/import-skaaj.py` (`--stage 1-4`, `--dry-run`,
+`--verify`, `--selftest`) puts it at **our zone 89** (79 is the Wasteland) with STL
+key LZON100. Things that will bite:
+
+- **The xadet map editor hid it because its sky column is blank.** `IsValidMap`
+  rejected the row; the client reads the cell as an integer (blank = sky 0). The
+  editor now resolves it the client's way (`MapManager.SkyIndex`) and the importer
+  writes an explicit 0. Eleven Jrose maps were invisible for this reason.
+- **The whole town is gated on quest switch 90.** Every NPC's real greeting sits
+  behind `chk-Skaaj-Language-QSW`; the ungated line before it is cat-language.
+  `CEvent::Conversation` walks every root node and each NPCSAY replaces the last,
+  so the later gated line wins once the switch is on. Miakis, the divine envoy, is
+  the only one you understand and her "Thank you!" fires `Skaaj-Language-QSW-ON`.
+  Switch 90 is free here, so the QSD entities are copied verbatim into QP401.QSD.
+- **Trigger names are global across every QSD.** Wedgy's exits fire `gotoJunon`,
+  which our TUTORIAL.QSD already defines. The fix is not a bytecode patch: the QEX1
+  appendix runs after the main blob in the same `lua_State`, so redefining
+  `AT_gotoJunon` / `AT_gotoGrassland` / `TA_gotoJunon` there wins. The same
+  appendix defines `TA_Hidden` (returns 0), which four option nodes are re-pointed
+  at because their Lua reaches functions our client never registered
+  (`GF_openDeliveryStore`, `GF_openSpotBank`, `GF_PetDepositOpen`, `GF_IsWorldName`)
+  -- a missing Lua function pops an ErrorBOX. Check-function fields are patched in
+  place, the way `unlock-karkia-idle-dialog.py` does it.
+- **Jrose's `LIST_ZONE_S.STL` is the old `I_NUM` dialect** the editor cannot parse,
+  so its Open list shows keys (`LZON079`); open by ID. NPC 1774 is dead in Jrose too
+  (nameless, no CHR entry, placement names `EM79-012.con` while the file is
+  `EM79-12.CON`) and is dropped. Our `LIST_NPC.CHR` holds orphan "noname" entries at
+  1753-1759 that `import_characters` would keep; the importer clears them first.
 
 ### Data Repair Tooling
 
