@@ -978,7 +978,14 @@ CObjCHAR::Set_MOTION(short nActionIdx, float fMoveSpeed, float fAniSpeed, bool b
     if (!pMotion)
         return false;
 
-    if (this->Chg_CurMOTION(pMotion)) {
+    // Chg_CurMOTION returns false when the motion pointer is unchanged, which is every
+    // swing after the first in a standing attack sequence (ProcCMD_ATTACK re-issues
+    // Start_ATTACK at each motion end). Storing the rate only on a change meant an
+    // attack-speed buff applied mid-fight reached the cadence at the next motion
+    // *change*, not the next swing (only expiry had an explicit retune, in
+    // Proc_IngSTATUS). Re-arm it on every swing start; the client's Set_MOTION does the
+    // same for its animatable rate, so the two stay in step (2026-09-19).
+    if (this->Chg_CurMOTION(pMotion) || bAttackMotion) {
         m_fCurAniSPEED = fAniSpeed;
     }
     return true;

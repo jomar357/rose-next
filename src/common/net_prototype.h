@@ -909,9 +909,16 @@ struct tagShotDATA {
 };
 
 /*
-    계산 방법
-    1. 공격속도 = 무기로 계산된값 + 패시브 보정값 + 지속 보정값
-    2. 이동속도 = 서버에서 받은값(패시브포함) + 지속 보정값으로
+    Speed fields on the wire (gsv_AVT_CHAR, gsv_SPEED_CHANGED, FlatBuffer UpdateStats)
+    are the server's *totals* -- total_move_speed() / total_attack_speed(): weapon or
+    base value + passives + running buffs + goddess effect (+ server.toml
+    base_attack_speed for players). The client applies them verbatim to
+    stats.move_speed / stats.attack_speed and must NOT add its own m_EndurancePack
+    buff delta on top; the server owns the cadence, the client only animates it.
+
+    The original 2005 contract ("attack speed = weapon + passive + duration, computed
+    on the client") is dead: no client code ever folded passives, and adding the
+    duration term double-counted every attack-speed buff until 2026-09-19.
 */
 struct tag_CLAN_ID {
     DWORD m_dwClanID;
@@ -924,8 +931,9 @@ struct tag_CLAN_ID {
 };
 struct gsv_AVT_CHAR: public tag_ADD_CHAR {
     BYTE m_btCharRACE;
-    short m_nRunSpeed; // 패시브에 의해 보정된 값까지, 지속에 의해 보정된값 제외 ..
-    short m_nPsvAtkSpeed; // 패시브 값만...  기본속도, 지속에 의해 보정된값 제외 ..
+    short m_nRunSpeed; // total_move_speed(): base + passives + buffs. Client applies verbatim.
+    short m_nPsvAtkSpeed; // total_attack_speed(): weapon + passives + buffs + goddess + server base.
+                          // Name is historical ("passive only") -- see the comment block above.
     BYTE m_btWeightRate; // 현재소지량/최대소지량*100
     tagPartITEM m_PartITEM[MAX_BODY_PART];
     tagPartITEM costume[MAX_BODY_PART];
@@ -1537,8 +1545,8 @@ struct gsv_CLEAR_STATUS: public t_PACKETHEADER {
 
 struct gsv_SPEED_CHANGED: public t_PACKETHEADER {
     WORD m_wObjectIDX;
-    short m_nRunSPEED; // 패시브 상태를 포함, 지속 상태 제외
-    short m_nPsvAtkSPEED; // 패시브 값만...
+    short m_nRunSPEED; // total_move_speed(): base + passives + buffs. Client applies verbatim.
+    short m_nPsvAtkSPEED; // total_attack_speed(), same contract as gsv_AVT_CHAR.m_nPsvAtkSpeed.
     BYTE m_btWeightRate; // 현재소지량/최대소지량*100
 };
 

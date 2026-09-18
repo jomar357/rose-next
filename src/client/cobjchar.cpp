@@ -1713,7 +1713,8 @@ CObjCHAR::Set_MOTION(short nActionIdx,
         Attack_END();
     }
 
-    if (this->Chg_CurMOTION(this->Get_MOTION(nActionIdx))) {
+    const bool bMotionChanged = this->Chg_CurMOTION(this->Get_MOTION(nActionIdx));
+    if (bMotionChanged) {
 
 #ifndef __VIRTUAL_SERVER
 //		_ASSERT( fMoveSpeed >= 0.f && fMoveSpeed < 2000.f );
@@ -1727,6 +1728,19 @@ CObjCHAR::Set_MOTION(short nActionIdx,
 
         // 본 애니가 없는 경우에도 메쉬 애니가 있을수 있나????
         this->m_pCharMODEL->SetMeshMOTION(m_phPartVIS, this->Get_ActionIDX());
+    } else if (bAttackMotion) {
+        // Same motion pointer, new swing. Chg_CurMOTION returns false here, so the
+        // rate and repeat count above were skipped -- and between two swings of a
+        // remote attacker the refusal branch of ProcCMD_ATTACK has called Attack_END(),
+        // which resets the animatable rate to 1.0 without replacing the motion. The
+        // restart below then replayed the swing at 1.0x whatever Get_fAttackSPEED()
+        // said: a third of an avatar's swings (three attack clips picked at random)
+        // and every standing second-and-later swing of a monster (one clip). Re-arm
+        // the playback for every swing start; the server's Set_MOTION does the same
+        // for m_fCurAniSPEED so a buff takes effect on the next swing on both sides.
+        // Scoped to attack motions so move/stop playback is unchanged.
+        ::setAnimatableSpeed(this->m_hNodeMODEL, fAniSpeed);
+        ::setRepeatCount(this->m_hNodeMODEL, iRepeatCnt);
     }
 
     ::controlAnimatable(this->m_hNodeMODEL, 0);
@@ -6017,15 +6031,21 @@ CObjCHAR::Calc_AruaAddAbility() {}
 //-----------------------------------------------------------------------------
 float
 CObjCHAR::Get_fAttackSPEED() {
-    int iR = GetOri_ATKSPEED() + m_EndurancePack.GetStateValue(ING_INC_ATK_SPD)
-        - m_EndurancePack.GetStateValue(ING_DEC_ATK_SPD);
-
-    // Goddess effect doesn't stack with other buffs
-    auto goddess_effect = m_EndurancePack.get_goddess_effect();
-    if (goddess_effect) {
-        iR += max(0, goddess_effect->attack_speed - m_EndurancePack.GetStateValue(ING_INC_ATK_SPD));
-    }
-
+    // Reached by CObjAVT / CObjUSER only (CObjMOB, CObjNPC and CObjCART override).
+    //
+    // For an avatar, stats.attack_speed is the server's total_attack_speed(): weapon,
+    // passives, the server base, running buffs *and* the goddess effect are already in
+    // it. It arrives through gsv_AVT_CHAR.m_nPsvAtkSpeed, gsv_SPEED_CHANGED and
+    // UpdateStats, all of which the server fills from total_attack_speed() (the 2005
+    // "passive only" wire comments were wrong). Adding m_EndurancePack's INC/DEC_ATK_SPD
+    // and the goddess term on top -- what this did until 2026-09-19 -- counted every
+    // attack-speed buff twice, so a buffed player saw their own swings faster than the
+    // server actually ran them. Same rule as stats.move_speed, which the client also
+    // applies verbatim. The server owns the cadence; the client only animates it.
+    //
+    // CObjMOB keeps its STB + endurance-delta version because the server never syncs a
+    // monster's speed.
+    const int iR = this->GetOri_ATKSPEED();
     return (iR > 30) ? (iR / 100.f) : 0.3f;
 }
 
@@ -6513,7 +6533,20 @@ CObjAVT::Create(const D3DVECTOR& Position, BYTE btCharRACE) {
     charPos.z = g_pTerrain->GetHeightTop(Position.x, Position.y);
 
     if (CObjCHAR::CreateCHAR((char*)m_Name.c_str(), &m_CharMODEL, MAX_BODY_PART, charPos)) {
-        this->stats.attack_speed = 1500.f / (WEAPON_ATTACK_SPEED(BODY_PART_WEAPON_R) + 5);
+        // stats.attack_speed is server-authoritative. A remote avatar arrives with
+        // gsv_AVT_CHAR.m_nPsvAtkSpeed already written by Recv_gsv_AVT_CHAR (which runs
+        // *before* Add_AvtCHAR -> Create), and the local avatar gets UpdateStats right
+        // after JOIN_ZONE. This used to overwrite both unconditionally with
+        // 1500 / (WEAPON_ATTACK_SPEED(BODY_PART_WEAPON_R) + 5) -- but BODY_PART_WEAPON_R
+        // is the slot index (8), not an item number, so it read LIST_WEAPON row 8
+        // (Elven Sword, speed 10) and put every player on exactly 100 = 1.0x until a
+        // GSV_SPEED_CHANGED happened to arrive for them. Observers saw everyone swing
+        // at "normal speed" (2026-09-19). Only seed when nothing has been synced yet,
+        // and then from the weapon actually equipped, like the server's update_speed().
+        if (this->stats.attack_speed == 0) {
+            this->stats.attack_speed = (uint16_t)(1500.f
+                / (WEAPON_ATTACK_SPEED(this->GetPartITEM(BODY_PART_WEAPON_R)) + 5));
+        }
 
         m_iHP = 100;
 

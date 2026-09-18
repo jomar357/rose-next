@@ -150,8 +150,20 @@ CObjAI::Start_ATTACK(CObjCHAR* pTarget) {
         // attacks keep the legacy self-looping motion. See CanStartConfirmedSwing().
         const int iAttackRepeatCNT =
             static_cast<CObjCHAR*>(this)->IsLocalAvatarAttacker() ? 0 : 1;
-        this->Set_MOTION(
-            this->GetANI_Attack(), 0, this->Get_fAttackSPEED(), true, iAttackRepeatCNT);
+        const float fAttackRate = this->Get_fAttackSPEED();
+        this->Set_MOTION(this->GetANI_Attack(), 0, fAttackRate, true, iAttackRepeatCNT);
+
+        // One line per swing start, like "combat swing received". Pairing this with the
+        // server's "CombatTrace server combat swing" cadence is what shows whether this
+        // client animates an attacker at the rate the server actually swings; before
+        // 2026-09-19 observers ran every player at 1.00 (see CObjAVT::Create and
+        // CObjCHAR::Get_fAttackSPEED).
+        LogString(LOG_DEBUG_,
+            "CombatTrace attack motion start: obj %d rate %.2f synced %d repeat %d\n",
+            static_cast<CObjCHAR*>(this)->Get_INDEX(),
+            fAttackRate,
+            (int)this->stats.attack_speed,
+            iAttackRepeatCNT);
 
 #if defined(_DEBUG) && !defined(__SERVER)
         if (m_pCurMOTION->m_nActionPointCNT <= 0) {
