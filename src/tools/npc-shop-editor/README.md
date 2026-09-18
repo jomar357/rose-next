@@ -25,7 +25,11 @@ beside the executable (including `data.idx`), then those same locations under
 the working directory. An explicit command-line path overrides automatic loading.
 
 Names and descriptions come from the English STL tables, with raw STB names as
-a fallback. The item ID is the table row position used by the game. The type
+a fallback. Equipment variants include their translated `STR_ITEMPREFIX.STL`
+prefix (for example, **Golden Trunket Armor**), which is also searchable. If the
+prefix table is missing from an older package, prefixed equipment uses its raw
+table name and the browser shows a data warning.
+The item ID is the table row position used by the game. The type
 number shown beside the category is the first `/item` argument; **subtype** is
 the separate numeric equipment/item class stored in the table.
 
@@ -64,7 +68,7 @@ gm-item-browser.exe
 README.txt
 data/
   3DDATA/
-    STB/           (14 item tables and their English translation files)
+    STB/           (14 item tables, their translations, and STR_ITEMPREFIX.STL)
     CONTROL/RES/   (ITEM1.TSI and the icon sheets it references)
 ```
 

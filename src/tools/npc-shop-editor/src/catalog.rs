@@ -60,6 +60,15 @@ impl Catalog {
     pub fn load(assets: &Assets) -> Result<Self> {
         let mut items = Vec::new();
         let mut warnings = Vec::new();
+        let prefixes = match english_names(assets, "3DDATA/STB/STR_ITEMPREFIX.STL") {
+            Ok(prefixes) => Some(prefixes),
+            Err(e) => {
+                warnings.push(format!(
+                    "Item prefixes unavailable; using table names for prefixed equipment: {e:#}"
+                ));
+                None
+            }
+        };
         for &category in ItemCategory::ALL {
             let path = format!("3DDATA/STB/{}", category.stb_name());
             let table = (|| -> Result<STB> {
@@ -88,7 +97,7 @@ impl Catalog {
                 }
             };
             for (id, row) in table.data.iter().enumerate().skip(1) {
-                if let Some(item) = collect_item(category, id, row, &names) {
+                if let Some(item) = collect_item(category, id, row, &names, prefixes.as_ref()) {
                     items.push(item);
                 }
             }
@@ -135,6 +144,7 @@ fn collect_item(
     id: usize,
     row: &[String],
     names: &Names,
+    prefixes: Option<&Names>,
 ) -> Option<CatalogItem> {
     // Roselib retains root column 0; the engine skips it. Row position, not
     // the editable root label, is the ID that Cheat_item indexes on the server.
@@ -148,6 +158,38 @@ fn collect_item(
     let (mut name, description) = translated
         .cloned()
         .unwrap_or((raw_name.clone(), String::new()));
+    // Equipment variants share the base item's STL key. The penultimate
+    // on-disk column carries the STR_ITEMPREFIX key; column 30 is the socket/
+    // rare flag, not the name prefix. Only these five categories use prefixes
+    // (see CItem::GetItemRareType / CStringManager::GetItemName).
+    if translated.is_some()
+        && matches!(
+            category,
+            ItemCategory::Cap
+                | ItemCategory::Body
+                | ItemCategory::Arms
+                | ItemCategory::Foot
+                | ItemCategory::Weapon
+        )
+    {
+        let prefix_id = row
+            .iter()
+            .rev()
+            .nth(1)
+            .and_then(|value| value.trim().parse::<i32>().ok())
+            .unwrap_or(0);
+        if prefix_id > 0 {
+            if let Some(prefixes) = prefixes {
+                if let Some((prefix, _)) = prefixes.get(&prefix_id.to_string()) {
+                    name = format!("{prefix} {name}");
+                }
+            } else if !raw_name.trim().is_empty() {
+                // Older portable packages omit STR_ITEMPREFIX. Their raw
+                // names already include the prefix: keep variants distinct.
+                name = raw_name.clone();
+            }
+        }
+    }
     let icon_no = number(9);
     if name.trim().is_empty() && icon_no == 0 {
         return None;
@@ -324,7 +366,7 @@ mod tests {
             (35, "410"),
             (36, "12"),
         ]);
-        let item = collect_item(ItemCategory::Weapon, 1453, &row, &names).unwrap();
+        let item = collect_item(ItemCategory::Weapon, 1453, &row, &names, None).unwrap();
         assert_eq!(item.item.name, "Sword of Testing");
         assert_eq!(item.level, Some(240));
         assert_eq!(item.attack, Some(410));
@@ -347,13 +389,14 @@ mod tests {
             (35, "300"),
             (36, "150"),
         ]);
-        let vehicle = collect_item(ItemCategory::Vehicle, 3, &row, &HashMap::new()).unwrap();
+        let vehicle = collect_item(ItemCategory::Vehicle, 3, &row, &HashMap::new(), None).unwrap();
         assert_eq!(vehicle.level, Some(100));
         assert_eq!(vehicle.attack, Some(150));
         assert_eq!(vehicle.defense, None);
         assert_eq!(vehicle.resistance, None);
         assert_eq!(vehicle.command(100).as_deref(), Some("/item 14 3"));
-        let potion = collect_item(ItemCategory::UseItem, 1060, &row, &HashMap::new()).unwrap();
+        let potion =
+            collect_item(ItemCategory::UseItem, 1060, &row, &HashMap::new(), None).unwrap();
         assert_eq!(potion.level, Some(75));
         assert_eq!(potion.attack, None);
         assert_eq!(potion.command(200).as_deref(), Some("/item 10 1060 100"));
@@ -366,6 +409,7 @@ mod tests {
             1453,
             &row(&[(19, "31"), (20, "240"), (35, "400")]),
             &HashMap::new(),
+            None,
         )
         .unwrap();
         let mut filter = Filter::default();
@@ -387,7 +431,8 @@ mod tests {
 
     #[test]
     fn invalid_rows_have_no_command_and_unrestricted_items_have_level_zero() {
-        let mut item = collect_item(ItemCategory::Body, 2048, &row(&[]), &HashMap::new()).unwrap();
+        let mut item =
+            collect_item(ItemCategory::Body, 2048, &row(&[]), &HashMap::new(), None).unwrap();
         assert_eq!(item.level, Some(0));
         assert!(item.command(1).is_none());
         item.item.id = 0;
@@ -399,9 +444,98 @@ mod tests {
             ItemCategory::Body,
             1,
             &vec![String::new(); 40],
-            &HashMap::new()
+            &HashMap::new(),
+            None,
         )
         .is_none());
+    }
+
+    #[test]
+    fn shared_base_names_include_equipment_prefixes_in_display_and_search() {
+        let names = HashMap::from([(
+            "ITEM_KEY".into(),
+            ("Trunket Armor".into(), "Armor description".into()),
+        )]);
+        let prefixes = HashMap::from([("3".into(), ("Golden".into(), String::new()))]);
+        let base_row = row(&[(19, "31"), (20, "50"), (30, "1")]);
+        let base =
+            collect_item(ItemCategory::Body, 33, &base_row, &names, Some(&prefixes)).unwrap();
+        assert_eq!(base.item.name, "Trunket Armor");
+        let mut variant_row = base_row.clone();
+        variant_row[70] = "3".into();
+        variant_row[1] = "Golden Trunket Armor".into();
+        let variant = collect_item(
+            ItemCategory::Body,
+            316,
+            &variant_row,
+            &names,
+            Some(&prefixes),
+        )
+        .unwrap();
+        assert_eq!(variant.item.name, "Golden Trunket Armor");
+        assert_eq!(variant.description, "Armor description");
+        assert_eq!(variant.level, Some(50));
+        assert_eq!(variant.command(1).as_deref(), Some("/item 3 316"));
+        let filter = Filter {
+            search: "golden trunket".into(),
+            ..Default::default()
+        };
+        assert!(filter.matches(&variant));
+        assert!(!filter.matches(&base));
+        // Neither a missing translation nor an old package's missing prefix
+        // table should prepend a second prefix to an already complete raw name.
+        for (names, prefixes) in [(&names, None), (&HashMap::new(), Some(&prefixes))] {
+            let item =
+                collect_item(ItemCategory::Body, 316, &variant_row, names, prefixes).unwrap();
+            assert_eq!(item.item.name, "Golden Trunket Armor");
+        }
+        for category in [
+            ItemCategory::Cap,
+            ItemCategory::Arms,
+            ItemCategory::Foot,
+            ItemCategory::Weapon,
+        ] {
+            assert_eq!(
+                collect_item(category, 316, &variant_row, &names, Some(&prefixes))
+                    .unwrap()
+                    .item
+                    .name,
+                "Golden Trunket Armor"
+            );
+        }
+        for category in [
+            ItemCategory::Face,
+            ItemCategory::Back,
+            ItemCategory::Jewel,
+            ItemCategory::SubWpn,
+            ItemCategory::UseItem,
+            ItemCategory::Gem,
+            ItemCategory::Natural,
+            ItemCategory::QuestItem,
+            ItemCategory::Vehicle,
+        ] {
+            assert_eq!(
+                collect_item(category, 316, &variant_row, &names, Some(&prefixes))
+                    .unwrap()
+                    .item
+                    .name,
+                "Trunket Armor"
+            );
+        }
+        variant_row[70] = "17".into(); // Empty/unmapped prefix means no prefix.
+        assert_eq!(
+            collect_item(
+                ItemCategory::Body,
+                316,
+                &variant_row,
+                &names,
+                Some(&prefixes)
+            )
+            .unwrap()
+            .item
+            .name,
+            "Trunket Armor"
+        );
     }
 
     #[test]
@@ -410,9 +544,23 @@ mod tests {
         use crate::icons::IconStore;
         use std::{path::Path, sync::Arc};
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
-        for folder in ["data", "Exes"] {
-            let assets = Arc::new(Assets::open(&repo.join(folder)).unwrap());
+        let mut roots = vec![repo.join("data"), repo.join("Exes")];
+        if let Some(extra) = std::env::var_os("ROSE_GM_CATALOG_TEST_ROOT") {
+            roots.push(extra.into());
+        }
+        for root in roots {
+            let folder = root.display();
+            let assets = Arc::new(Assets::open(&root).unwrap());
             let catalog = Catalog::load(&assets).unwrap();
+            for (id, expected) in [(33, "Trunket Armor"), (316, "Golden Trunket Armor")] {
+                let item = catalog
+                    .items
+                    .iter()
+                    .find(|item| item.item.category == ItemCategory::Body && item.item.id == id)
+                    .unwrap();
+                assert_eq!(item.item.name, expected, "{folder}: body {id}");
+                println!("{folder}: body {id} = {}", item.item.name);
+            }
             assert!(catalog.items.len() > 1000);
             assert!(catalog
                 .items

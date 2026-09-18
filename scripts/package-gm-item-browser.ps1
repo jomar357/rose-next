@@ -32,6 +32,7 @@ foreach ($name in $tableNames) {
     $assets.Add("3DDATA/STB/$($name.Replace('.STB', '_S.STL'))")
 }
 $assets.Add('3DDATA/CONTROL/RES/ITEM1.TSI')
+$assets.Add('3DDATA/STB/STR_ITEMPREFIX.STL')
 
 # Read the atlas header rather than copying every texture in CONTROL/RES.
 $atlasPath = Join-Path $sourceRoot '3DDATA/CONTROL/RES/ITEM1.TSI'
