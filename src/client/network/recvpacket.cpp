@@ -1304,6 +1304,7 @@ CRecvPACKET::Recv_gsv_MOB_CHAR() {
     CObjCHAR* pChar = NULL;
     int iSkillOwner = 0;
     int iDoingSkillIDX = 0;
+    bool bSkillFromPacket = false;
 
     /// 소환수인가?
     if (m_pRecvPacket->m_gsv_MOB_CHAR.m_dwStatusFALG & FLAG_ING_DEC_LIFE_TIME) {
@@ -1328,18 +1329,38 @@ CRecvPACKET::Recv_gsv_MOB_CHAR() {
         if (m_pRecvPacket->m_gsv_MOB_CHAR.m_dwStatusFALG & FLAG_ING_DEC_ATK_SPEED)
             iIndex++;
 
-        iSkillOwner = nSTATUS[iIndex++];
+        iSkillOwner = ((WORD*)nSTATUS)[iIndex++];
         pChar = g_pObjMGR->Get_ClientCharOBJ(iSkillOwner, true);
 
+        // The server writes the summoning skill right after a non-zero owner index
+        // (CObjCHAR::Add_ADJ_STATUS -> GetSummonedSkillIDX). That is the skill
+        // CObjSUMMON::SetCallerOBJ scaled the summon with, so it is authoritative.
+        // The guesses below read the caster's *current* skill state, which is already
+        // cleared when this packet lands after the cast motion ended -- the summon
+        // then kept the raw NPC-table max HP and the info panel showed 0 stats.
+        if (iSkillOwner) {
+            const short nPacketEnd = m_pRecvPacket->m_HEADER.m_nSize;
+            if (nOffset + (short)(sizeof(short) * (iIndex + 1)) <= nPacketEnd) {
+                short nSummonSkillIDX = nSTATUS[iIndex++];
+                if (nSummonSkillIDX > 0) {
+                    iDoingSkillIDX = nSummonSkillIDX;
+                    bSkillFromPacket = true;
+                }
+            }
+        }
+
         /// 현재 캐스팅 중이 아니면 바로 소환
-        if (pChar && pChar->m_nActiveSkillIDX && !iDoingSkillIDX)
-            iDoingSkillIDX = pChar->m_nActiveSkillIDX;
+        // Fallback only: the caster's skill state, for a packet without the skill.
+        if (!bSkillFromPacket) {
+            if (pChar && pChar->m_nActiveSkillIDX && !iDoingSkillIDX)
+                iDoingSkillIDX = pChar->m_nActiveSkillIDX;
 
-        if (pChar && pChar->m_nToDoSkillIDX && !iDoingSkillIDX)
-            iDoingSkillIDX = pChar->m_nToDoSkillIDX;
+            if (pChar && pChar->m_nToDoSkillIDX && !iDoingSkillIDX)
+                iDoingSkillIDX = pChar->m_nToDoSkillIDX;
 
-        if (pChar && pChar->m_nDoingSkillIDX && iDoingSkillIDX)
-            iDoingSkillIDX = pChar->m_nDoingSkillIDX;
+            if (pChar && pChar->m_nDoingSkillIDX && iDoingSkillIDX)
+                iDoingSkillIDX = pChar->m_nDoingSkillIDX;
+        }
 
         /// 일단 바로소환
         // if( ( pChar != NULL ) &&
@@ -1394,7 +1415,7 @@ CRecvPACKET::Recv_gsv_MOB_CHAR() {
                 bool bIsThere =
                     ((CObjUSER*)pChar)
                         ->GetSummonedMobInfo(m_pRecvPacket->m_gsv_MOB_CHAR.m_wObjectIDX, mobInfo);
-                if (bIsThere)
+                if (bIsThere && !bSkillFromPacket)
                     iDoingSkillIDX = mobInfo.iSkillIDX;
 
                 ((CObjUSER*)pChar)

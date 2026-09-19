@@ -359,12 +359,14 @@ CEndurancePack::Update() {
         // HP mutation is gone.
 
         /// 소환수
-        if (m_EntityList[ING_DEC_LIFE_TIME]) {
-            if ((m_pObjCHAR->Get_HP() - STATE_APPLY_ABILITY_VALUE(43, 0)) > 0) {
-                if (m_pObjCHAR->Sub_HP(STATE_APPLY_ABILITY_VALUE(43, 0)) <= 0)
-                    m_pObjCHAR->Set_HP(1);
-            }
-        }
+        // The retail summon lifetime drain (LIST_STATUS row 43, once a second) was
+        // removed on the server -- StatusEffects::Proc no longer ticks
+        // FLAG_ING_DEC_LIFE_TIME -- so a summon's HP only ever moves by the damage it
+        // takes. The client-local subtraction that used to live here kept draining
+        // the *visible* bar down to 1 while the server stayed at full, and the next
+        // hit's hp_after checkpoint snapped it back up. The ING_DEC_LIFE_TIME entity
+        // itself stays: it is still the "this is a summon" marker (CNameBox, the
+        // attacker-is-summon test in CObjCHAR); only the HP mutation is gone.
 
         m_dwElapsedUpdateTime -= 1000;
     }
