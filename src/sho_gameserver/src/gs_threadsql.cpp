@@ -656,6 +656,17 @@ GS_CThreadSQL::Proc_cli_SELECT_CHAR(tagQueryDATA* pSqlPACKET) {
     json quest_json = json::parse(char_res.get_string(0, COL_QUESTS));
     from_json(quest_json, quest_data);
 
+    // The first job is picked at character creation here, so nobody runs the retail
+    // first-job quest (QJ000-01) whose reward does "job var 0 += 1". Every second-job
+    // dialog gates on that variable (Darren's TA_second_start wants >= 1), and no
+    // trigger in any QSD ever writes it back to 0, so a first-job character holding 0
+    // can only be one that skipped the quest. Repaired at load rather than at creation
+    // so existing characters and /set job testers are covered too; it must happen
+    // before Send_gsv_INVENTORYnQUEST_DATA, because the dialog check runs client-side.
+    if (basic_info.m_nClass % 100 == 11 && quest_data.m_nJobVAR[0] == 0) {
+        quest_data.m_nJobVAR[0] = 1;
+    }
+
     CInventory inventory;
     inventory.Clear();
     inventory.m_i64Money = char_res.get_int64(0, COL_MONEY);
