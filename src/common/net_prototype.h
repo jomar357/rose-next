@@ -1497,6 +1497,16 @@ struct gsv_EFFECT_OF_SKILL: public t_PACKETHEADER {
     unsigned short m_btSuccessBITS : 2; // 성공여부
     unsigned short m_nINT;              // 시전자의 지력
 #endif
+    /// Target HP after the server applied this packet's effect, filled by every
+    /// sender (Send_gsv_EFFECT_OF_SKILL as well as Send_gsv_DAMAGE_OF_SKILL). It
+    /// used to live only on gsv_DAMAGE_OF_SKILL, so a direct heal (type 10/11
+    /// AT_HP slot, e.g. Cure) shipped no HP at all: the client re-derived the
+    /// amount locally, which moved the visible bar but never the authoritative
+    /// shadow HP, and the next damage checkpoint folded the heal straight back
+    /// out. The client now treats this as an HP sync at receive (the same thing
+    /// the SET_HPnMP after a potion does) and reveals the raise at the caster's
+    /// action frame. See CObjCHAR::ReceiveHealCheckpoint.
+    int m_iHP_AFTER;
 };
 
 struct gsv_DAMAGE_OF_SKILL: public gsv_EFFECT_OF_SKILL {
@@ -1504,7 +1514,6 @@ struct gsv_DAMAGE_OF_SKILL: public gsv_EFFECT_OF_SKILL {
         uniDAMAGE m_Damage; // 피해가 있을경우 값이 들어 있음.
         int m_wDamage;
     };
-    int m_iHP_AFTER;
     tag_DROPITEM m_DropITEM[0]; // 죽는 데미지일경우에만 값이 들어 있다. 드롭된 아이템 인덱스
 };
 struct gsv_RESULT_OF_SKILL: public t_PACKETHEADER {

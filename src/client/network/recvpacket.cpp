@@ -2927,6 +2927,20 @@ CRecvPACKET::Recv_gsv_EFFECT_OF_SKILL() {
     short iSkillOwner = m_pRecvPacket->m_gsv_EFFECT_OF_SKILL.m_wSpellObjIDX;
     CObjCHAR* pChar = g_pObjMGR->Get_ClientCharOBJ(iSkillOwner, true);
 
+    // A direct heal (Cure and friends) carries the target's post-heal HP. Apply it
+    // to the target's authoritative HP now, at receive, the same way the SET_HPnMP
+    // after a potion is applied -- the visible raise itself waits for the caster's
+    // action frame, wherever the payload ends up being presented below.
+    if (m_pRecvPacket->m_gsv_EFFECT_OF_SKILL.m_iHP_AFTER > 0
+        && CObjCHAR::IsDirectHealPayload(m_pRecvPacket->m_gsv_EFFECT_OF_SKILL.m_nSkillIDX,
+            m_pRecvPacket->m_gsv_EFFECT_OF_SKILL.m_btSuccessBITS)) {
+        CObjCHAR* pHealTarget =
+            g_pObjMGR->Get_ClientCharOBJ(m_pRecvPacket->m_gsv_EFFECT_OF_SKILL.m_wObjectIDX, true);
+        if (pHealTarget) {
+            pHealTarget->ReceiveHealCheckpoint(m_pRecvPacket->m_gsv_EFFECT_OF_SKILL.m_iHP_AFTER);
+        }
+    }
+
     /// 현재 사용중인 스킬이 발사형이라면.. 바로 적용한다.
     int iDoingSkillIDX = 0;
 
@@ -3104,7 +3118,13 @@ CRecvPACKET::Recv_gsv_EFFECT_OF_SKILL() {
 
                         switch (SKILL_INCREASE_ABILITY(iSkillIDX, i)) {
                             case AT_HP:
-                                pEffectedChar->Add_HP(iIncValue);
+                                // No caster animation to wait for: reveal the
+                                // checkpoint applied above at once.
+                                if (m_pRecvPacket->m_gsv_EFFECT_OF_SKILL.m_iHP_AFTER <= 0
+                                    || !pEffectedChar->RevealAuthoritativeHPRaise(
+                                        "heal without caster")) {
+                                    pEffectedChar->Add_HP(iIncValue);
+                                }
                                 break;
                             case AT_MP:
                                 pEffectedChar->Add_MP(iIncValue);

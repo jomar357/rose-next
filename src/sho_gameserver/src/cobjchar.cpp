@@ -749,6 +749,11 @@ CObjCHAR::Send_gsv_EFFECT_OF_SKILL(int iSpellOBJ,
     pCPacket->m_gsv_EFFECT_OF_SKILL.m_nSkillIDX = nSkillIDX;
     pCPacket->m_gsv_EFFECT_OF_SKILL.m_btSuccessBITS = btResult;
     pCPacket->m_gsv_EFFECT_OF_SKILL.m_nINT = nSpellerINT;
+    // Skill_ApplyIngSTATUS has already run, so for a direct heal this is the
+    // post-heal HP. The client applies it as an HP sync at receive and reveals
+    // the raise at the caster's action frame; without it a heal was invisible to
+    // the client's shadow HP and folded back out on the next hit.
+    pCPacket->m_gsv_EFFECT_OF_SKILL.m_iHP_AFTER = this->Get_HP();
 
     this->GetZONE()->SendPacketToSectors(this, pCPacket);
     Packet_ReleaseNUnlock(pCPacket);

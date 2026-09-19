@@ -2535,7 +2535,15 @@ CObjCHAR::ApplyEffectOfSkill(int iSkillIDX,
 
                     switch (SKILL_INCREASE_ABILITY(iSkillIDX, i)) {
                         case AT_HP:
-                            pEffectedChar->Add_HP(iIncValue);
+                            // The packet's post-heal HP was applied to the shadow at
+                            // receive (ReceiveHealCheckpoint); this action frame is
+                            // where the player sees it. The locally derived amount is
+                            // only the fallback for a payload without a checkpoint.
+                            if (pEffectOfSkill->EffectOfSkill.m_iHP_AFTER <= 0
+                                || !pEffectedChar->RevealAuthoritativeHPRaise(
+                                    "heal action frame")) {
+                                pEffectedChar->Add_HP(iIncValue);
+                            }
                             break;
                         case AT_MP:
                             pEffectedChar->Add_MP(iIncValue);
@@ -5971,9 +5979,29 @@ CObjCHAR::SetReviseHP(int hp) {
 
 void
 CObjCHAR::Reconcile_HP(int hp) {
-    // Every authoritative HP sync (UpdateStats / GSV_SET_HPnMP) advances the arrival
-    // stamp. A damage event queued before this sync now has an older arrival_seq and
-    // its hp_after checkpoint is treated as superseded in ApplyPresentedCombatDamage.
+    ReceiveAuthoritativeHP(hp);
+
+    if (hp >= Get_HP()) {
+        m_iPendingCombatHPCorrection = 0;
+        ClearPendingAuthoritativeDeath();
+        Set_HP(hp);
+        return;
+    }
+
+    if (hp <= DEAD_HP && g_pAVATAR == this) {
+        MarkPendingAuthoritativeDeath("hp reconciliation");
+        return;
+    }
+
+    DeferCombatHPDriftIfIdle("hp reconciliation");
+}
+
+void
+CObjCHAR::ReceiveAuthoritativeHP(int hp) {
+    // Every authoritative HP sync (UpdateStats / GSV_SET_HPnMP / a heal checkpoint)
+    // advances the arrival stamp. A damage event queued before this sync now has an
+    // older arrival_seq and its hp_after checkpoint is treated as superseded in
+    // ApplyPresentedCombatDamage.
     m_dwLastAuthoritativeSyncSeq = NextHPAuthoritySeq();
     SetAuthoritativeHP(hp);
 
@@ -5999,20 +6027,93 @@ CObjCHAR::Reconcile_HP(int hp) {
     if (hp > DEAD_HP && m_bPendingAuthoritativeDeath) {
         ClearAllDamage();
     }
+}
 
-    if (hp >= Get_HP()) {
-        m_iPendingCombatHPCorrection = 0;
-        ClearPendingAuthoritativeDeath();
-        Set_HP(hp);
-        return;
+void
+CObjCHAR::ReceiveHealCheckpoint(int hp) {
+    // A direct heal used to be presented purely locally: the client re-derived the
+    // amount and Add_HP'd the visible bar at the caster's action frame, and nothing
+    // ever raised the shadow HP. The next hit's checkpoint then sat above the stale
+    // shadow, the fold dragged the bar back to the pre-heal value, and only a later
+    // regen sync (none at full HP) put it right. The server now ships the post-heal
+    // HP in the effect packet; this is the same contract as the SET_HPnMP that
+    // follows a potion, applied at receive so it is fresh by construction and
+    // TCP-ordered against every queued hit -- older hits are caught by the
+    // heal-in-flight guard, newer ones fold to their own lower checkpoints.
+    //
+    // What differs from Reconcile_HP is only that the visible raise waits for the
+    // heal animation (RevealAuthoritativeHPRaise at the action frame). A checkpoint
+    // *below* the visible bar means a queued older hit outweighs the heal; that is
+    // the ordinary lower path.
+    const int visibleBefore = Get_HP();
+    ReceiveAuthoritativeHP(hp);
+
+    if (hp < visibleBefore) {
+        DeferCombatHPDriftIfIdle("heal checkpoint");
     }
 
-    if (hp <= DEAD_HP && g_pAVATAR == this) {
-        MarkPendingAuthoritativeDeath("hp reconciliation");
-        return;
+    LogString(LOG_DEBUG_,
+        "CombatTrace heal checkpoint received: target %d hp_after %d visible hp %d seq %u queue %d\n",
+        this->Get_INDEX(),
+        hp,
+        visibleBefore,
+        m_dwLastAuthoritativeSyncSeq,
+        static_cast<int>(m_CombatDamageQueue.size()));
+}
+
+bool
+CObjCHAR::RevealAuthoritativeHPRaise(const char* reason) {
+    if (!m_bHasAuthoritativeHP) {
+        return false;
     }
 
-    DeferCombatHPDriftIfIdle("hp reconciliation");
+    const int visibleBefore = Get_HP();
+    if (m_iAuthoritativeHP <= visibleBefore) {
+        // Already revealed -- by a regen sync that arrived in between, or by a
+        // newer hit whose overshoot clamp lifted the bar to the healed checkpoint.
+        // Never lower here: a lower shadow is a queued hit's business.
+        LogString(LOG_DEBUG_,
+            "CombatTrace heal reveal no-op (%s): target %d visible hp %d authoritative hp %d\n",
+            reason ? reason : "unknown",
+            this->Get_INDEX(),
+            visibleBefore,
+            m_iAuthoritativeHP);
+        return true;
+    }
+
+    m_iPendingCombatHPCorrection = 0;
+    ClearPendingAuthoritativeDeath();
+    Set_HP(m_iAuthoritativeHP);
+
+    LogString(LOG_DEBUG_,
+        "CombatTrace heal revealed (%s): target %d visible hp %d -> %d queue %d\n",
+        reason ? reason : "unknown",
+        this->Get_INDEX(),
+        visibleBefore,
+        m_iAuthoritativeHP,
+        static_cast<int>(m_CombatDamageQueue.size()));
+    return true;
+}
+
+bool
+CObjCHAR::IsDirectHealPayload(int iSkillIDX, int btSuccessBITS) {
+    const int iSkillType = SKILL_TYPE(iSkillIDX);
+    if (iSkillType != SKILL_ACTION_SELF_BOUND && iSkillType != SKILL_ACTION_TARGET_BOUND) {
+        return false;
+    }
+
+    for (int i = 0; i < 2; i++) {
+        if (!((0x01 << i) & btSuccessBITS)) {
+            continue;
+        }
+        if (SKILL_STATE_STB(iSkillIDX, i) != 0) {
+            continue;
+        }
+        if (SKILL_INCREASE_ABILITY(iSkillIDX, i) == AT_HP) {
+            return true;
+        }
+    }
+    return false;
 }
 
 ///현재 서버와 클라이언트와 MP양이 틀린경우 그 값을 저장한다.

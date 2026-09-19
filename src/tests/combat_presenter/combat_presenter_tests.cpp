@@ -175,6 +175,34 @@ struct HpHarness {
         }
     }
 
+    // Mirrors CObjCHAR::ReceiveHealCheckpoint: a direct heal's hp_after is an HP
+    // sync at receive (shadow + supersession stamp) whose visible raise is held
+    // back for the caster's action frame.
+    void receive_heal_checkpoint(int hp) {
+        const int visible_before = visible_hp;
+        last_sync_seq = next_hp_authority_seq();
+        authoritative_hp = hp;
+        has_authoritative_hp = true;
+        if (hp > 0 && pending_authoritative_death) {
+            queue.clear();
+            pending_correction = 0;
+            pending_authoritative_death = false;
+        }
+        if (hp < visible_before) {
+            defer_if_idle();
+        }
+    }
+
+    // Mirrors CObjCHAR::RevealAuthoritativeHPRaise at the heal's action frame:
+    // raise the bar to the shadow if it sits below it, never lower it.
+    void reveal_heal() {
+        if (has_authoritative_hp && authoritative_hp > visible_hp) {
+            visible_hp = authoritative_hp;
+            pending_correction = 0;
+            pending_authoritative_death = false;
+        }
+    }
+
     PresentationResult hit(uint32_t attacker) {
         return hit_internal(attacker, false, nullptr);
     }
@@ -871,6 +899,125 @@ main() {
             "stale-healed checkpoint must hold the bar at full even with a second hit queued (no dip-then-snap)");
         expect(h.displayed_damage == 400,
             "healed checkpoint must not alter the skill damage digit");
+    }
+
+    {
+        // Skill heal (Cure): the effect packet's hp_after is applied to the shadow at
+        // receive and the bar is raised only at the caster's action frame. With no
+        // hits in flight the reveal is the whole presentation.
+        HpHarness h;
+        h.visible_hp = 400;
+        h.authoritative_hp = 400;
+
+        h.receive_heal_checkpoint(900);
+        expect(h.visible_hp == 400, "heal checkpoint must not move the bar at receive");
+        expect(h.authoritative_hp == 900, "heal checkpoint raises the shadow at receive");
+        expect(h.pending_correction == 0, "a heal above the bar stages no correction");
+
+        h.reveal_heal();
+        expect(h.visible_hp == 900, "action frame reveals the healed HP");
+    }
+
+    {
+        // Hit applied by the server AFTER the heal, presented after the reveal: the
+        // ordinary case. Digit shows, bar lands on the hit's own checkpoint.
+        HpHarness h;
+        h.visible_hp = 400;
+        h.authoritative_hp = 400;
+
+        h.receive_heal_checkpoint(900);
+        DamageEvent swing = event(1, 10, 50, 850);
+        swing.arrival_seq = next_hp_authority_seq();
+        h.queue.push(swing);
+
+        h.reveal_heal();
+        expect(h.visible_hp == 900, "reveal shows the healed HP before the newer hit presents");
+        expect(h.hit(10) == PresentationResult::PresentedDamage, "newer hit presents");
+        expect(h.visible_hp == 850, "newer hit lands on its own checkpoint below the heal");
+        expect(h.displayed_damage == 50, "newer hit shows its full digit");
+    }
+
+    {
+        // Hit applied by the server BEFORE the heal but presented after the reveal
+        // (hit frames lag the packet by 1-3 s). The heal's checkpoint already
+        // includes that hit, so the heal-in-flight guard must floor the bar at the
+        // healed HP: the digit shows and the bar does not dip. This is the
+        // "next attack does no damage" look, which is the honest rendering.
+        HpHarness h;
+        h.visible_hp = 400;
+        h.authoritative_hp = 400;
+
+        DamageEvent swing = event(1, 10, 100, 300);
+        swing.arrival_seq = next_hp_authority_seq();
+        h.queue.push(swing);
+
+        h.receive_heal_checkpoint(1000); // server: 400 - 100 + 700
+        expect(h.last_sync_seq > swing.arrival_seq, "heal checkpoint out-ranks the older queued hit");
+
+        h.reveal_heal();
+        expect(h.visible_hp == 1000, "reveal shows the healed HP with the older hit still queued");
+        expect(h.hit(10) == PresentationResult::PresentedDamage, "older hit still presents");
+        expect(h.displayed_damage == 100, "older hit shows its full digit");
+        expect(h.visible_hp == 1000, "older hit is stale against the heal: bar stays at the healed HP");
+    }
+
+    {
+        // Newer hit presents BEFORE the heal's action frame (fast swing, slow cast
+        // animation). Its overshoot clamp lifts the bar to its own checkpoint, which
+        // already reflects the heal; the later reveal must then be a no-op rather
+        // than overshoot back up to the pre-hit healed value.
+        HpHarness h;
+        h.visible_hp = 400;
+        h.authoritative_hp = 400;
+
+        h.receive_heal_checkpoint(900);
+        DamageEvent swing = event(1, 10, 50, 850);
+        swing.arrival_seq = next_hp_authority_seq();
+        h.queue.push(swing);
+
+        expect(h.hit(10) == PresentationResult::PresentedDamage, "newer hit presents first");
+        expect(h.visible_hp == 850, "newer hit reveals the heal through its own checkpoint");
+        expect(h.displayed_damage == 50, "newer hit keeps its digit");
+
+        h.reveal_heal();
+        expect(h.visible_hp == 850, "late reveal must not overshoot above the newer hit's checkpoint");
+    }
+
+    {
+        // A regen sync between receive and reveal already raised the bar (existing
+        // Reconcile_HP behaviour); the reveal must not lower it back to the heal.
+        HpHarness h;
+        h.visible_hp = 400;
+        h.authoritative_hp = 400;
+
+        h.receive_heal_checkpoint(900);
+        h.reconcile(910);
+        expect(h.visible_hp == 910, "regen sync raises immediately, as before");
+        h.reveal_heal();
+        expect(h.visible_hp == 910, "reveal never lowers");
+    }
+
+    {
+        // Heal checkpoint below the visible bar: an older queued hit outweighs the
+        // heal. Nothing moves until that hit presents; then it folds to the healed
+        // checkpoint (stale-healed guard) with its full digit.
+        HpHarness h;
+        h.visible_hp = 1000;
+        h.authoritative_hp = 1000;
+
+        DamageEvent swing = event(1, 10, 600, 400);
+        swing.arrival_seq = next_hp_authority_seq();
+        h.queue.push(swing);
+
+        h.receive_heal_checkpoint(700); // 1000 - 600 + 300
+        expect(h.visible_hp == 1000, "a checkpoint under the bar waits for the queued hit");
+        expect(h.pending_correction == 0, "no correction staged while the hit is pending");
+        h.reveal_heal();
+        expect(h.visible_hp == 1000, "reveal has nothing to raise");
+
+        expect(h.hit(10) == PresentationResult::PresentedDamage, "the big hit presents");
+        expect(h.displayed_damage == 600, "big hit shows its full digit");
+        expect(h.visible_hp == 700, "big hit floors at the healed checkpoint instead of its stale 400");
     }
 
     {

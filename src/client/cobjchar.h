@@ -991,6 +991,24 @@ public:
     void SetReviseHP(int hp);
     void SetReviseMP(int mp);
     void Reconcile_HP(int hp);
+    /// The authority half of Reconcile_HP: stamp supersession, set the shadow HP
+    /// and retire a pending death the server has just contradicted. Touches
+    /// nothing visible.
+    void ReceiveAuthoritativeHP(int hp);
+    /// A direct heal's post-heal HP (gsv_EFFECT_OF_SKILL::m_iHP_AFTER), applied at
+    /// packet receive exactly like the SET_HPnMP that follows a potion, except the
+    /// visible raise is held for the caster's action frame
+    /// (RevealAuthoritativeHPRaise). Queued hits then reconcile against the healed
+    /// shadow: older ones hit the heal-in-flight guard, newer ones fold normally.
+    void ReceiveHealCheckpoint(int hp);
+    /// Raise the visible bar to the shadow HP if it sits below it. This is the
+    /// presentation of a heal whose checkpoint was received earlier; it never
+    /// lowers. Returns false when no authoritative HP is held (caller falls back
+    /// to the legacy local Add_HP).
+    bool RevealAuthoritativeHPRaise(const char* reason);
+    /// True for a type 10/11 payload whose succeeded slot is a plain AT_HP change
+    /// (no status row): the payloads that carry a meaningful m_iHP_AFTER heal.
+    static bool IsDirectHealPayload(int iSkillIDX, int btSuccessBITS);
     void SetPendingMountedAttackTarget(int iServerTarget, DWORD dwTime);
     void ClearPendingMountedAttackTarget();
     bool HasPendingMountedAttackTarget(int iServerTarget, DWORD dwNow, DWORD dwWindow) const;
