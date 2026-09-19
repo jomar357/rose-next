@@ -382,6 +382,14 @@ CObjAI::SetCMD_ATTACK(int iServerTarget) {
     }
 #endif
 
+    // A repeat order on the target we are already attacking changes nothing. It must
+    // not fall into the refusal branch below, which would stop the character -- a
+    // double click on a monster used to cancel the attack that the first click started
+    // (can_attack() answers false for "already attacking" as well as for "may not").
+    if (CMD_ATTACK == m_wCommand && iServerTarget == this->Get_TargetIDX()) {
+        return false;
+    }
+
     this->update_speed();
 
     if (this->can_attack(iServerTarget)) {
