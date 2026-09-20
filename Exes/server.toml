@@ -1,5 +1,5 @@
 [database]
-connection_string = "postgres://postgres:0809@localhost/rose-next"
+connection_string = "postgres://postgres:password@localhost/rose-next"
 
 [loginserver]
 ip = "127.0.0.1"
