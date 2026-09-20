@@ -523,6 +523,8 @@ CNameBox::DrawMyName(float x, float y, float z, CObjCHAR* pCharOBJ, bool bTarget
     int iWidthBackImage = 115;
     int iWidthGuage = 115;
     int iHeightGuage = 14;
+    /// Height of the name row stacked above the gauge.
+    int iHeightNameRow = 18;
 
     float fGuageDrawX = x - iWidthBackImage / 2;
     float fGuageDrawY = y - NAMEBOX_HEIGHT / 2 + 4;
@@ -567,7 +569,7 @@ CNameBox::DrawMyName(float x, float y, float z, CObjCHAR* pCharOBJ, bool bTarget
     ::setTransformSprite(matName);
 
     RECT rt = {iWidthGuage / 2 - nameSize.cx / 2 - 5,
-        -18,
+        -iHeightNameRow,
         iWidthGuage / 2 + nameSize.cx / 2 + 5,
         0};
     ::drawFont(g_GameDATA.m_hFONT[FONT_NORMAL_OUTLINE],
@@ -580,7 +582,10 @@ CNameBox::DrawMyName(float x, float y, float z, CObjCHAR* pCharOBJ, bool bTarget
     //---------------------------------------------------------------------------------------------
     /// 클랜에 소속되어 있다면..
     if (g_pAVATAR->GetClanID()) {
-        D3DVECTOR vDrawClanMark = GetClanMarkDrawPos(g_pAVATAR, x, y, z);
+        /// GetClanMarkDrawPos assumes the name sits where the gauge is here (true
+        /// for other players). Our name is one row higher, above the gauge, so the
+        /// clan row has to be lifted by the same amount or it lands on the name.
+        D3DVECTOR vDrawClanMark = GetClanMarkDrawPos(g_pAVATAR, x, y - iHeightNameRow, z);
         CClanMarkView::Draw(g_pAVATAR, vDrawClanMark);
 
         D3DXMATRIX mat;
