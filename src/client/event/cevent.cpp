@@ -959,8 +959,130 @@ ResolveQuestTrigger(CQuestTRIGGER* pEntry, bool& bAccept, bool& bTurnIn, int& iA
     return false;
 }
 
+// lua_init.cpp
+void QF_InitProbe(lua_State* L);
+void QF_SetProbeTriggerSink(std::vector<std::string>* pNames);
+
+// Conversation() without the UI: which options would be on screen after opening
+// iMenuIDX. Item order matters -- an NPCSAY/NEXTMSG whose check passes clears
+// every option gathered so far (Del_ClickITEMS) and continues into its child, so
+// within one menu the last passing NPC line wins, exactly as it does on screen.
+void
+CEvent::ProbeMenu(classLUA& LUA,
+    int iMenuIDX,
+    std::vector<tagSCRIPTITEM*>& Options,
+    std::vector<std::string>& Names,
+    int iDepth) {
+    if (iMenuIDX < 0 || iMenuIDX >= m_iScrDataCNT || iDepth > 32)
+        return;
+
+    for (short nI = 0; nI < m_pScrDATA[iMenuIDX].m_iScrItemCNT; nI++) {
+        tagSCRIPTITEM* pItem = &m_pScrDATA[iMenuIDX].m_pScrITEM[nI];
+
+        // A failing check's trigger names are dropped again: it may well name
+        // the trigger before the clause that rejects it.
+        const char* szCheck = pItem->m_CheckFunc.Get();
+        size_t nNamesBefore = Names.size();
+        if (szCheck && szCheck[0] && !CallQuestCheckFunc(LUA, this, szCheck)) {
+            Names.resize(nNamesBefore);
+            continue;
+        }
+
+        switch (pItem->m_iType) {
+            case SC_MSG_CLOSE:
+            case SC_MSG_PLAYERSELECT:
+            case SC_MSG_JUMPSELECT:
+                Options.push_back(pItem);
+                break;
+
+            case SC_MSG_NPCSAY:
+            case SC_MSG_NEXTMSG:
+                Options.clear();
+                this->ProbeMenu(LUA, pItem->m_lChildDataIDX, Options, Names, iDepth + 1);
+                break;
+        }
+    }
+}
+
+// Collects the trigger names this conversation can actually reach right now.
+//
+// A passing QSD trigger is necessary for an offer but not sufficient: the dialog
+// decides what to show from its own Lua, and that Lua gates on things the QSD
+// never sees. Three live cases in Zant alone (2026-09-20): Spero's whole quest
+// line sits behind TA_hideMenu, which returns 0 unconditionally (retail switched
+// the chain off in the dialog and left the QSD alone); Cornell's daily quest needs
+// his NPC event value to be 1 (COND_011 always passes client-side); Judy's
+// festival quests need an event value nobody sets. All three showed "!" with
+// nothing to accept.
+//
+// So walk the tree the way Conversation()/Click_ITEM do -- root check, then every
+// item whose check function passes, recursing through NPCSAY/NEXTMSG children and
+// through the children of selectable items as if each had been clicked -- in a
+// probe state where nothing acts on the world (QF_InitProbe), running the click
+// functions too, since that is where QF_doQuestTrigger lives. Measured over every
+// retail .CON: 435 of 437 classified triggers are named by a node function (the
+// two that are not are the PvP arena accepts on EM02-008/-010).
+//
+// Returns false when the probe could not run (no Lua, load error); the caller
+// then keeps the unfiltered QSD verdict rather than hiding everything.
+bool
+CEvent::CollectReachableTriggers(int iOwnerObjIDX, std::vector<std::string>& Names) {
+    if (m_pLuaDATA == NULL || m_iLuaDataLEN <= 0 || m_pScrDATA == NULL || m_iScrDataCNT <= 0)
+        return false;
+
+    classLUA LUA;
+    if (LUA.Do_Buffer(m_pLuaDATA, m_iLuaDataLEN) != 0)
+        return false;
+    if (m_pLuaAppendixDATA && m_iLuaAppendixLEN > 0
+        && LUA.Do_Buffer(m_pLuaAppendixDATA, m_iLuaAppendixLEN) != 0)
+        return false;
+
+    QF_InitProbe(LUA.m_pState);
+
+    // QF_getEventOwner reads this; an open dialog on another NPC sharing the file
+    // must get its own value back.
+    int iSavedOwner = m_iOwnerObjIDX;
+    m_iOwnerObjIDX = iOwnerObjIDX;
+    QF_SetProbeTriggerSink(&Names);
+
+    bool bRootOK = true;
+    const char* szRootCheck = m_pScrMSG ? m_pScrMSG[0].m_CheckFunc.Get() : NULL;
+    if (szRootCheck && szRootCheck[0])
+        bRootOK = CallQuestCheckFunc(LUA, this, szRootCheck);
+
+    if (bRootOK) {
+        // One entry per screen: a menu opened fresh, either the root or the child
+        // of an option the player could click.
+        std::vector<bool> Opened(m_iScrDataCNT, false);
+        std::vector<int> Screens;
+        Screens.push_back(0);
+
+        while (!Screens.empty()) {
+            int iScreen = Screens.back();
+            Screens.pop_back();
+            if (iScreen < 0 || iScreen >= m_iScrDataCNT || Opened[iScreen])
+                continue;
+            Opened[iScreen] = true;
+
+            std::vector<tagSCRIPTITEM*> Options;
+            this->ProbeMenu(LUA, iScreen, Options, Names, 0);
+
+            for (size_t i = 0; i < Options.size(); i++) {
+                const char* szClick = Options[i]->m_ClickFunc.Get();
+                if (szClick && szClick[0])
+                    CallQuestCheckFunc(LUA, this, szClick);
+                Screens.push_back(Options[i]->m_lChildDataIDX);
+            }
+        }
+    }
+
+    QF_SetProbeTriggerSink(NULL);
+    m_iOwnerObjIDX = iSavedOwner;
+    return true;
+}
+
 short
-CEvent::GetQuestSignal() {
+CEvent::GetQuestSignal(int iOwnerObjIDX) {
     if (g_pAVATAR == NULL)
         return 0;
 
@@ -976,7 +1098,13 @@ CEvent::GetQuestSignal() {
     // link; a chain holding both an advance and an offer must not be read as a
     // turn-in when it is the offer that passes. Turn-in still beats available
     // when an NPC genuinely has both.
-    bool bAvailable = false, bComplete = false;
+    //
+    // A passing trigger is only a candidate. The dialog has the last word on
+    // whether it is offered (see CollectReachableTriggers), so the candidates are
+    // checked against one headless walk of the conversation -- run only when
+    // there is something to confirm, so an NPC with nothing on offer costs no
+    // Lua state at all.
+    std::vector<std::pair<const tagQuestTriggerRef*, bool>> Candidates; // (ref, is turn-in)
     for (size_t i = 0; i < m_QuestTriggerRefs.size(); i++) {
         const tagQuestTriggerRef& Ref = m_QuestTriggerRefs[i];
         if (Ref.m_pTrigger == NULL)
@@ -987,16 +1115,33 @@ CEvent::GetQuestSignal() {
         if (!ResolveQuestTrigger(Ref.m_pTrigger, bAccept, bTurnIn, iAddQuestSN))
             continue;
 
-        if (bTurnIn) {
-            bComplete = true;
-            break;
-        }
+        if (bTurnIn)
+            Candidates.push_back(std::make_pair(&Ref, true));
         // Never re-offer a quest that is already in the log (retail register
         // triggers do not always carry that guard themselves).
-        if (bAccept
+        else if (bAccept
             && (iAddQuestSN < 0
                 || g_pAVATAR->Quest_GetRegistered(iAddQuestSN) >= QUEST_PER_PLAYER))
-            bAvailable = true;
+            Candidates.push_back(std::make_pair(&Ref, false));
+    }
+
+    bool bAvailable = false, bComplete = false;
+    if (!Candidates.empty()) {
+        std::vector<std::string> Reachable;
+        bool bProbed = this->CollectReachableTriggers(iOwnerObjIDX, Reachable);
+
+        for (size_t i = 0; i < Candidates.size(); i++) {
+            bool bOffered = !bProbed;
+            for (size_t j = 0; j < Reachable.size() && !bOffered; j++)
+                bOffered = (Reachable[j] == Candidates[i].first->m_Name);
+            if (!bOffered)
+                continue;
+
+            if (Candidates[i].second)
+                bComplete = true;
+            else
+                bAvailable = true;
+        }
     }
 
     if (bComplete)

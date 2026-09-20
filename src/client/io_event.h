@@ -36,7 +36,7 @@ public:
 
     // Overhead quest icon: evaluate the NPC's conversation quest options without
     // opening the dialog. 0 = none, 1 = available, 3 = ready to turn in.
-    short GetNpcQuestSignal(short nQuestIDX);
+    short GetNpcQuestSignal(int iOwnerObjIDX, short nQuestIDX);
 };
 extern CEventLIST* g_pEventLIST;
 

@@ -89,7 +89,7 @@ CEventLIST::Run_EVENT(int iOwnerObjIDX, short nQuestIDX, short nEventIDX, int iE
 
 //-------------------------------------------------------------------------------------------------
 short
-CEventLIST::GetNpcQuestSignal(short nQuestIDX) {
+CEventLIST::GetNpcQuestSignal(int iOwnerObjIDX, short nQuestIDX) {
     if (nQuestIDX <= 0)
         return 0;
 
@@ -105,7 +105,7 @@ CEventLIST::GetNpcQuestSignal(short nQuestIDX) {
     if (pEvent == NULL)
         return 0;
 
-    return pEvent->GetQuestSignal();
+    return pEvent->GetQuestSignal(iOwnerObjIDX);
 }
 
 //-------------------------------------------------------------------------------------------------

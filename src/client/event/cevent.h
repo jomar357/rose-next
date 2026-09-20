@@ -121,6 +121,15 @@ private:
     std::vector<tagQuestTriggerRef> m_QuestTriggerRefs;
     void ScanQuestTriggerRefs();
 
+    // Headless walk of the conversation in a side-effect-free Lua state: the
+    // trigger names the dialog would really let the player reach right now.
+    bool CollectReachableTriggers(int iOwnerObjIDX, std::vector<std::string>& Names);
+    void ProbeMenu(classLUA& LUA,
+        int iMenuIDX,
+        std::vector<tagSCRIPTITEM*>& Options,
+        std::vector<std::string>& Names,
+        int iDepth);
+
     char* ParseMESSAGE(char* szMessage);
     classDLLNODE<tagEventITEM>* Add_ClickITEM(tagSCRIPTITEM* pScrITEM);
     void Del_ClickITEMS(void);
@@ -142,8 +151,9 @@ public:
     // Headless probe of this conversation's quest options for the NPC overhead
     // icon: 0 = no quest, 1 = quest available (accept check passes), 3 = quest
     // ready to turn in (complete check passes). Uses a throwaway Lua state and
-    // never touches m_pLUA / the dialog UI.
-    short GetQuestSignal();
+    // never touches m_pLUA / the dialog UI. iOwnerObjIDX is the NPC asking (the
+    // dialog reads that NPC's event value through QF_getEventOwner).
+    short GetQuestSignal(int iOwnerObjIDX);
 
     static void Click_ITEM(int iHandle);
     static void Click_CLOSE(int iHandle);

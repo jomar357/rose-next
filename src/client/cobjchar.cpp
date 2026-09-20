@@ -6505,7 +6505,7 @@ CObjNPC::Proc() {
 
         if (m_nQuestSignal < 0 || g_pAVATAR->m_bQuestUpdate
             || dwNow - m_dwQuestSignalTIME >= QUEST_SIGNAL_REFRESH_MS) {
-            m_nQuestSignal = g_pEventLIST->GetNpcQuestSignal(m_nQuestIDX);
+            m_nQuestSignal = g_pEventLIST->GetNpcQuestSignal(this->Get_INDEX(), m_nQuestIDX);
             m_dwQuestSignalTIME = dwNow;
         }
     }
