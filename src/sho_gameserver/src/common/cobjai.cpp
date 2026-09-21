@@ -853,5 +853,11 @@ CObjAI::can_attack(int target_id) {
         return false;
     }
 
+    // The client refuses to target an ally (clan mate in a clan field, party
+    // member in a party zone); refuse it here too so a crafted CLI_ATTACK cannot.
+    if (this->IsUSER() && target->IsUSER() && this->Is_ALLIED(target)) {
+        return false;
+    }
+
     return true;
 }

@@ -1310,7 +1310,11 @@ CObjCHAR::Skill_IsPassFilter(CObjCHAR* pTarget, short nSkillIDX) {
             break;
 
         case SKILL_TARGET_FILTER_GUILD: ///< 길드원
-            bResult = (this->GetGUILD() && pTarget->GetGUILD() == this->GetGUILD());
+            // GetGUILD() is a stub that always returns NULL; the clan id lives on CObjAVT.
+            if (this->IsUSER() && pTarget->IsUSER()) {
+                DWORD dwClanID = static_cast<CObjAVT*>(this)->GetClanID();
+                bResult = (dwClanID && dwClanID == static_cast<CObjAVT*>(pTarget)->GetClanID());
+            }
             break;
 
         case SKILL_TARGET_FILTER_FRIEND_ALL: ///< 아군 (아바타, 소환몹)

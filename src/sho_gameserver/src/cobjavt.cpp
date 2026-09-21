@@ -1111,10 +1111,20 @@ CObjAVT::Is_ALLIED(CAI_OBJ* pDestOBJ) {
                 if (this->GetPARTY() && this->GetPARTY() == pDestCHAR->GetPARTY())
                     return true;
                 break;
-            case PvpState::AllExceptClan:
-                if (this->GetGUILD() && this->GetGUILD() == pDestCHAR->GetGUILD())
+            case PvpState::AllExceptClan: {
+                // GetGUILD() is an un-overridden stub that always returns NULL,
+                // so the clan test has to use the clan id the world server sent.
+                CObjAVT* pDestAVT = static_cast<CObjAVT*>(pDestCHAR);
+                if (this->GetClanID() && this->GetClanID() == pDestAVT->GetClanID())
+                    return true;
+                // The client decides "enemy" from the team number the zone's entry
+                // trigger assigned (REWD_020 -> 100 + ClanID) and refuses to target
+                // anyone else. An AOE has no client-side target to filter, so whoever
+                // the client cannot target must not be hit here either.
+                if (CAI_OBJ::Is_ALLIED(pDestOBJ))
                     return true;
                 break;
+            }
             default:
                 break;
         }
