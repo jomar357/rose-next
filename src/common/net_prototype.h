@@ -880,6 +880,10 @@ struct tag_ADD_CHAR: public t_PACKETHEADER {
 
         if ( tag_ADD_CHAR.m_dwStatusFALG &	FLAG_ING_DEC_LIFE_TIME ) )		// 2004. 4. 16 추가..
             owner_obj_idx = (WORD) pAdjSTATUS[ btIDX++ ];
+            if ( owner_obj_idx ) {
+                summon_skill_idx = pAdjSTATUS[ btIDX++ ];
+                summon_max_hp = (int) pAdjSTATUS[ btIDX .. btIDX+1 ];	// memcpy, short-aligned
+            }
     }
     */
 };

@@ -1305,6 +1305,7 @@ CRecvPACKET::Recv_gsv_MOB_CHAR() {
     int iSkillOwner = 0;
     int iDoingSkillIDX = 0;
     bool bSkillFromPacket = false;
+    int iSummonMaxHP = 0;
 
     /// 소환수인가?
     if (m_pRecvPacket->m_gsv_MOB_CHAR.m_dwStatusFALG & FLAG_ING_DEC_LIFE_TIME) {
@@ -1345,6 +1346,14 @@ CRecvPACKET::Recv_gsv_MOB_CHAR() {
                 if (nSummonSkillIDX > 0) {
                     iDoingSkillIDX = nSummonSkillIDX;
                     bSkillFromPacket = true;
+                }
+
+                // ...and the scaled max HP after it, as an int. The formula needs the
+                // owner's level at summon time, which only the server has -- an observer
+                // may not even hold the owner object. Absent from an older server.
+                if (nOffset + (short)(sizeof(short) * iIndex + sizeof(int)) <= nPacketEnd) {
+                    memcpy(&iSummonMaxHP, &nSTATUS[iIndex], sizeof(int));
+                    iIndex += sizeof(int) / sizeof(short);
                 }
             }
         }
@@ -1405,6 +1414,19 @@ CRecvPACKET::Recv_gsv_MOB_CHAR() {
             CObjCHAR* mob = g_pObjMGR->Get_CharOBJ(nCObj, false);
             if (mob) {
                 mob->pvp_state = m_pRecvPacket->m_gsv_MOB_CHAR.pvp_state;
+
+                // A summon's max HP is the server's scaled value, for every viewer.
+                // CObjMOB::Create seeded NPC_HP * NPC_LEVEL, the wild-monster formula,
+                // and only the owner's client used to correct it (below) -- anyone else
+                // targeting the summon saw e.g. 2895/141752.
+                if (iSummonMaxHP > 0) {
+                    ((CObjMOB*)mob)->Set_MaxHP(iSummonMaxHP);
+                } else if (pChar && !pChar->IsA(OBJ_USER) && bSkillFromPacket) {
+                    // Older server: approximate from the owner's current level.
+                    short nMobCharNo = m_pRecvPacket->m_gsv_MOB_CHAR.m_nCharIdx;
+                    ((CObjMOB*)mob)->Set_MaxHP((int)(NPC_HP(nMobCharNo)
+                        * (SKILL_LEVEL(iDoingSkillIDX) + 16) * (pChar->Get_LEVEL() + 85) / 2600.f));
+                }
             }
 
             //-------------------------------------------------------------------------------------
@@ -1429,8 +1451,9 @@ CRecvPACKET::Recv_gsv_MOB_CHAR() {
                     int iMaxHP =
                         (int)(NPC_HP(nMobCharNo) * (iSkillLevel + 16) * (iOwnerLevel + 85) / 2600.f);
 
+                    // Fallback only: the packet's max HP was applied above.
                     CObjCHAR* pMobChar = g_pObjMGR->Get_CharOBJ(nCObj, true);
-                    if (pMobChar) {
+                    if (pMobChar && iSummonMaxHP <= 0) {
                         ((CObjMOB*)pMobChar)->Set_MaxHP(iMaxHP);
                     }
 

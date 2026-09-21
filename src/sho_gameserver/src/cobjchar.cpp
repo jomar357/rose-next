@@ -723,6 +723,14 @@ CObjCHAR::Add_ADJ_STATUS(classPACKET* pCPacket) {
             ((WORD*)pAdjSTATUS)[btIDX++] = this->GetCallerUsrIDX();
             if (this->GetCallerUsrIDX()) {
                 pAdjSTATUS[btIDX++] = this->GetSummonedSkillIDX();
+
+                // The summon's max HP as CObjSUMMON::SetCallerOBJ scaled it. Only the
+                // owner's client could rebuild it (skill level + its own level); every
+                // other client kept the wild-monster NPC_HP * NPC_LEVEL and showed a
+                // total ~50x too high. The tail is short-aligned, hence memcpy.
+                int iOriMaxHP = this->GetOri_MaxHP();
+                memcpy(&pAdjSTATUS[btIDX], &iOriMaxHP, sizeof(int));
+                btIDX += sizeof(int) / sizeof(short);
             }
         }
 
