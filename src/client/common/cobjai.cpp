@@ -1479,8 +1479,18 @@ CObjAI::ProcCMD_MOVE() {
 
     if (pTarget && this->IsUSER()) {
         if (pTarget->Is_AVATAR()) {
+            // Walking up to a player is a 10 m "interact" approach (trade, personal
+            // store). Where both sides are PVP-flagged the walk is an attack chase
+            // (Recv_gsv_ATTACK -> SetCombatAttackIntent -> CMD_MOVE with target), and
+            // stopping at the interact ring parked the attacker 10 m short until the
+            // server's first CombatSwing restarted it. Chase to attack range instead,
+            // as the non-USER branch below does.
+            const bool bCombatChase = 
+                ((CObjCHAR*)this)->is_pvp_enabled() && pTarget->is_pvp_enabled();
+            const int iStopRange =
+                bCombatChase ? this->Get_AttackRange() : AVT_CLICK_EVENT_RANGE;
             /// ����� ����ڶ��
-            if (Goto_TARGET(pTarget, AVT_CLICK_EVENT_RANGE)) {
+            if (Goto_TARGET(pTarget, iStopRange)) {
 
                 if (this->IsA(OBJ_USER)) {
                     CObjAVT* pAvt = (CObjAVT*)pTarget;
