@@ -26,6 +26,8 @@ namespace {
 /// player hovers the stat name/value on the ABILITY tab. Each entry is a bold
 /// title, a one-line summary, then the concrete things the stat feeds into.
 /// Rows are ordered top-to-bottom exactly as DrawAbilityInfo() draws them.
+/// The weapon lists mirror the server's CObjAVT::Cal_ATTACK switch (and the
+/// CUserDATA::Cal_* formulas for the rest) -- keep them in sync if those change.
 struct StatToolTip {
     const char* pszTitle;
     const char* pszSummary;
@@ -35,34 +37,40 @@ struct StatToolTip {
 const StatToolTip kStatToolTips[6] = {
     {"Strength (STR)",
         "Boosts melee weapons and toughness.",
-        {"Melee attack power (swords, axes, spears)",
+        {"Attack power: swords, axes, spears, katars, dual swords, launchers",
             "Maximum HP",
             "Defense",
             "Carry weight"}},
     {"Dexterity (DEX)",
-        "Improves ranged attack and evasion.",
-        {"Bow attack power", "Dodge rate (avoid enemy hits)", NULL, NULL}},
+        "Improves bows, katars, dual swords and evasion.",
+        {"Attack power: bows, crossbows, katars, dual swords",
+            "Some gun attack power",
+            "Dodge rate (avoid enemy hits)",
+            "Movement speed"}},
     {"Intelligence (INT)",
         "Powers magic and your MP pool.",
         {"Maximum MP",
-            "Magic weapon attack power (wands, staves)",
-            "Magic resistance",
-            NULL}},
+            "Attack power: wands, staves",
+            "Magic skill damage, heal & buff strength",
+            "Magic resistance"}},
     {"Concentration (CON)",
         "Helps you land hits and recover.",
         {"Accuracy (hit rate)",
-            "Gun attack power",
+            "Attack power: guns, launchers",
             "HP & MP recovery speed",
-            NULL}},
+            "Crafting success, and a little critical"}},
     {"Charm (CHA)",
-        "Improves dealings with NPCs.",
-        {"Quest & NPC reward bonuses",
-            "Better trading prices",
-            "Most useful for merchant classes",
+        "Improves quest rewards and loot.",
+        {"Bigger quest EXP, zuly & item rewards",
+            "Dropped gear more often has bonus stats",
+            NULL,
             NULL}},
     {"Sensibility (SEN)",
-        "Sharpens critical and ranged/magic power.",
-        {"Critical hit rate", "Magic & ranged weapon attack power", NULL, NULL}},
+        "Sharpens criticals and skill damage.",
+        {"Critical hit rate",
+            "Skill damage",
+            "Attack power: wands, guns, launchers (bows a little)",
+            "Crafted gear more often has bonus stats"}},
 };
 
 /// Top Y (dialog-relative) of each stat value drawn in DrawAbilityInfo().
@@ -109,7 +117,7 @@ const StatToolTip kDerivedToolTips[8] = {
             NULL}},
     {"Move Speed",
         "How fast you move.",
-        {"Faster running and travel", "Raised by boots (and some buffs)", NULL, NULL}},
+        {"Faster running and travel", "Raised by boots and DEX (and some buffs)", NULL, NULL}},
 };
 
 /// Top Y (dialog-relative) of each derived stat value (right column).
