@@ -366,6 +366,54 @@ follow camera's minimum distance is 1.0 m, so a 5 m near plane clips the avatar 
 full zoom-in; that is expected, not a second bug. It writes no sidecar next to the
 STB on purpose, since `pack.rs` would bake one into the `.vfs`.
 
+### Coplanar Placements Flicker; Depth Precision Cannot Save Them (Data)
+
+A wall that "flashes" while the camera moves and settles a few seconds after it
+stops is two **placements** of one map object with faces in exactly the same plane.
+Junon Polis tiles its fountain-square wall with one 20 m segment (DECO 161
+`portstairwall01`) at 10-19 m strides, so consecutive copies overlap by 0.6-9.8 m at
+0.000 cm separation; the visible shape is the overlap region (a 61 cm stride
+remainder reads as a thin line, a 6.35 m one as a big square), and it shows only
+where the copies' per-placement lightmap cells disagree, since the mesh and texture
+are otherwise identical. It reproduces in every ROSE client because the data is the
+same, and the 24-bit depth buffer cannot touch it: the separation is zero, and a
+depth bias has no way to tell the two apart. The "few seconds" is
+`zz_camera_follow::interpolate_camera`, which approaches its target exponentially
+and keeps creeping by sub-pixel amounts after the mouse is released; a bit-stable
+camera gives a stable (if arbitrary) winner per pixel.
+
+`scripts/fix-coplanar-object-overlaps.py` (2026-09-22; `--dry-run`/`--verify`/
+`--restore`, manifest in `build/coplanar-overlaps/`) scans every zone's IFOs against
+real ZMS geometry and moves one placement of each fighting pair by the smallest
+multiple of 0.5 cm along a direction chosen per node, so every pair ends >= 1 cm
+apart, then re-checks the moved geometry with the client's own float32 rounding
+before writing. It rewrites only the twelve position bytes of a record. Across 60
+zone rows it found 612 fighting pairs in 25 map folders (Union War, Golden
+Colosseum, Junon Polis, Sikuku Prison, Junon Cartel and Forgotten Temple B1 carry
+almost all; field maps are clean) and moved 594 records, most by 1.5-2 cm, none by
+more than 7.5 cm. Applied 2026-09-22, not yet validated in game. Run it after any
+`import-*.py` that brings in map files, then bake.
+
+Things that will bite:
+
+- **Never delete a duplicate record.** `CMAP::LoadLightMapINFO` keys objects by
+  1-based ordinal within the lump, so removing a record shifts every lightmap after
+  it. An exact duplicate (same object, transform and position, usually a building
+  written into two neighbouring chunk files: Junon Polis DECO 153) is coplanar on
+  every face and cannot be separated by any nudge; the script **sinks** the later
+  record 100 m instead.
+- **Back-to-back faces are not a fight.** Map materials default to
+  `ZZ_CULLMODE_CW`, so one placement's top lying on another's bottom never draws
+  against it; the detector keeps the facing sign (dropping it doubled Union War's
+  count and pushed a stone wall 6 cm into the ground to dodge a phantom).
+- **Near pairs are constraints.** Two copies 1-13 cm apart are not fighting, but a
+  naive move of a neighbour makes them so; the planner carries signed per-plane
+  separations for every pair inside that band and plans against 1.2 cm to absorb
+  the rounding of normals and of float32 positions (an ulp is 1/16 cm at world
+  scale), which is what left 0.86-0.92 cm gaps on the first attempt.
+- Same-placement part overlaps (`road01`/`road01top`) are out of scope: they are a
+  ZSC matter, already non-zero, and covered by the depth-buffer work above.
+
 ### Object Lightmaps Are A Gutterless Atlas (Engine)
 
 Each map-object *part* gets one cell of a shared lightmap texture — `OBJECT_128_0.DDS`
@@ -729,6 +777,7 @@ Our `data/` is a translated iROSE dump with gaps; the reference dumps in `C:\Use
 - `scripts/fix-zmo-attack-frames.py` — rewrites the **action-frame events of a monster attack clip** whose family is wrong. A normal attack lands at frame 21 (melee) or fires at 22/23 (bow/gun); a bare-handed monster on a 22/23 clip has nothing to fire, so before 2026-09-22 the client never called `Hitted()` and the player took the damage with no digit, no impact and no HP movement (alpha #2: Hebarn Officer Pazugenti 2685). The Lich01 attack clip is 23/33 in the RoseZA/667/Evo lineage our copy came from and 21/31 in every other dump; the script flips the two trailer shorts (backups in `build/zmo-attack-frames/`, `--dry-run`/`--verify`/`--restore`). The client now also presents a fireless 22/23 frame as a melee hit (`CObjCHAR::PresentFirelessRangedFrame`), which carries the 36 rows `--audit` lists — Candle Ghost, Bebeg, Sikuku Tiger Captain and the non-combat Oro vassals sit on bullet-less ranged clips in every dump we own.
 - `scripts/prune-dead-skill-books.py` — clears NPC shop slots holding a **skill book whose skill row is blank** (pre-alpha #2: Darren sold Advance Crossbow Mastery, Crossbow Speed Mastery, Brave Howl, Concussor and the four stub Knight crossbow books, all "no class required"). A book has no class gate of its own — the tooltip and `Skill_LearnCondition` read the *target skill's* LIST_SKILL col 35, so a blank row reads as class 0 and the learn fails with `INVALID_SKILL`. Only "the skill row is effectively blank" (no name, no STL key, no type, no icon) is a trigger: `col 35 == 0` and "not in a skilltree XML" are **not**, because Leonard and Pony legitimately sell the class-less emote/basic books. Carries the reviewed `(tab, slot, item)` set and refuses newcomers without `--allow-new`; undo is cell-level (`build/dead-skill-books.json`). Darren's tabs 462-468 are shared with the four Akram Ministers and Arua's Fairy, so one cell fixes every seller.
 - `scripts/fix-skill-book-names.py` — makes every skill book's name **the name of the skill it teaches** (alpha #2: *Rain of Arrows* taught Range Bow Shot, *Knuckle Mastery* taught Combat Mastery). The book name (`LIST_USEITEM_S.STL`) and the skill name (`LIST_SKILL_S.STL` via `LIST_SKILL` col 86, one key per line) are resolved independently and the tooltip never prints the taught skill, so the book name is the only thing that tells a player what they are buying. Of 203 books 61 disagreed: the same-lineage dumps (ruff, QQ, titan) prove col 20 is right everywhere and only the strings drifted, so nothing is re-pointed. The skill is the anchor, except where the skill string is broken (Lightening, Puri, Luna Strone, Combat Matery, ` Sub Weapon Craft`) or the book's English is better (Gather → Pick Up, Calling Hawk → Call Hawk, Magickal Knife → Magic Knife): those 35 skill lines are renamed in the STL **English block only** — block 0 of `LIST_SKILL_S.STL` is real Korean for 228 of 234 keys — with `LIST_SKILL.STB` col 0 mirrored (the server's `SKILL_NAME`, only ever used as a blank check), and the book follows. 45 books whose skill has no STL key at all (dead rows, the GM block 871-896) are report-only. Carries the reviewed outcome (`EXPECTED`) and refuses newcomers without `--allow-new`; the sidecar stores the previous bytes so `--restore` is exact. Both STLs ship in the VFS.
+- `scripts/fix-coplanar-object-overlaps.py` — separates map-object **placements** whose faces are exactly coplanar (the camera-move wall flicker); see "Coplanar Placements Flicker" above. Position bytes only, ordinals untouched, manifest in `build/coplanar-overlaps/`.
 - `scripts/restore-warp-gates.py` — re-inserts `LUMP_TERRAIN_WARP` (type 10) objects into map `.IFO`s. `WARP.STB` and the destination `.ZON` event positions are usually fine; the missing piece is the trigger object the player walks into. Has a `--selftest` that proves the container rewrite is byte-identical before it touches anything.
 
 Note `src/pipeline/src/pack.rs` walks the data tree filtering only *hidden* entries — no extension filter — so any `.bak` these scripts leave behind gets baked into the `.vfs`. Clean them before a bake.
