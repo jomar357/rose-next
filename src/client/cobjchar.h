@@ -190,6 +190,13 @@ private:
     void ActionSkill(int iActionIDX);
     void ActionImmediateSkill(int iActionIDX);
 
+    /// The normal-attack hit moment (frame 21), also reached from a bow/gun fire
+    /// frame when the attacker has no bullet to fire.
+    void PresentNormalAttackHitFrame(CObjCHAR* pTarget);
+    /// Frame 22/23 with nothing to fire: present the queued swing as a melee hit
+    /// (remote attackers only). Returns true when it presented.
+    bool PresentFirelessRangedFrame(CObjCHAR* pTarget, int iActionIDX);
+
     /// The melee-skill hit moment, shared by action frame 25 (authored, avatar
     /// motions) and by ActionSkill()'s SKILL_ACTION_IMMEDIATE case on frame 24
     /// (what most mob skill motions actually carry).

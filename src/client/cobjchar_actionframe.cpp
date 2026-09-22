@@ -245,6 +245,135 @@ CObjCHAR::ActionSpecialFrame(int iActionIDX) {
     }
 }
 
+//----------------------------------------------------------------------------------------------------
+/// The normal-attack hit moment: pop this attacker's queued swing on the target
+/// with the weapon's (or a bare-handed mob's) impact effect and hit sound.
+/// Action frame 21 is its authored home. A bow/gun clip whose attacker has no
+/// bullet to fire lands here too, from ActionBow/ActionGun's fire frame -- that
+/// frame is the only hit moment such a clip will ever reach.
+//----------------------------------------------------------------------------------------------------
+void
+CObjCHAR::PresentNormalAttackHitFrame(CObjCHAR* pTarget) {
+    int iEffectIDX = 0;
+
+    //----------------------------------------------------------------------------------------------------
+    /// @brief 팻모드에 따라서 이펙트 선택( 팻은 Arms 의 정보로 부터 효과를 가져온다. )
+    //----------------------------------------------------------------------------------------------------
+    if (this->IsPET() == false) {
+        // When the rider is on a cart/castle gear, the cart is the real
+        // attacker and its own hit-frame drives damage timing. The rider's
+        // PETMODE_AVATAR_ANI_ATTACK motion is purely visual — don't let it
+        // fire Hitted() early and kill the monster before the cart's swing
+        // completes.
+        if (this->GetPetMode() >= 0) {
+            return;
+        }
+
+        /// 무기가 있을경우..
+        iEffectIDX = WEAPON_DEFAULT_EFFECT(this->Get_R_WEAPON());
+
+        /// 무기가 없을경우..
+        if (!this->Get_R_WEAPON()) {
+            if (this->IsA(OBJ_MOB))
+                iEffectIDX = NPC_HAND_HIT_EFFECT(this->Get_CharNO());
+        }
+
+        // A projectile skill performed with a motion that has no fire
+        // frame (24/34) never launches its bullet: this melee frame is
+        // the only hit moment it will ever reach. Present it AS the
+        // skill's impact -- bIsSkillEffect routes Hitted() through
+        // ProcessSkillHit(), which consumes the projectile registration
+        // and the caster's queued effect-of-skill payload (the status,
+        // the hit effect). Without this the plain melee pop ate the
+        // damage with no visual and the payload timed out 10 s later,
+        // so Mukuroji's Flame Heat burn ticked with no icon and no
+        // effect (import-karkia.py filled its casting/skill slots with
+        // the pig's idle/attack clips).
+        const int iDoingSkill = this->m_nDoingSkillIDX ? this->m_nDoingSkillIDX
+                                                        : this->m_nActiveSkillIDX;
+        const bool bFirelessProjectileSkill = iDoingSkill > 0
+            && !this->IsLocalAvatarAttacker()
+            && IsProjectilePresentedSkillDamage(iDoingSkill)
+            && m_pCurMOTION && !m_pCurMOTION->m_bHasProjectileFireFrame;
+        if (bFirelessProjectileSkill) {
+            LogString(LOG_DEBUG_,
+                "CombatTrace projectile skill presented on melee frame, motion has no fire frame: caster %d skill %d target %d\n",
+                this->Get_INDEX(),
+                iDoingSkill,
+                pTarget->Get_INDEX());
+            pTarget->Hitted(this, iEffectIDX, iDoingSkill, true);
+        } else {
+            pTarget->Hitted(this, iEffectIDX, this->m_nActiveSkillIDX);
+        }
+
+        /// 사운드
+        if (pTarget->IsUSER() == false) {
+            /// 타격사운드 출력
+            short nCharIdx = pTarget->Get_CharNO();
+
+            short nHitSound = WEAPON_ATK_HIT_SOUND(this->Get_R_WEAPON());
+            short nHittedSound = HIT_SOUND(nHitSound, NPC_HIT_MATERIAL_TYPE(nCharIdx));
+            if (nHittedSound) {
+                g_pSoundLIST->IDX_PlaySound3D(nHittedSound, pTarget->Get_CurPOS());
+            }
+        } else // 자기 아바타가 타겟인 경우
+        {
+            /// 타격사운드 출력
+            short nHitSound = WEAPON_ATK_HIT_SOUND(this->Get_R_WEAPON());
+            short nHittedSound = HIT_SOUND(nHitSound, 1);
+            if (nHittedSound) {
+                // g_pSoundLIST->IDX_PlaySound( nHittedSound ); // 안3D 로 출력
+                g_pSoundLIST->IDX_PlaySound3D(nHittedSound, Get_CurPOS());
+            }
+        }
+    } else {
+        ///<- 2005/7/25 카트 시스템 파츠 추가로 수정 : nAvy
+        ///전처리기 정의로 구조가 바뀜에 따라 다시 복구 2005/8/31
+        iEffectIDX = PAT_HIT_EFFECT(((CObjCART*)this)->GetPetParts(RIDE_PART_ARMS));
+
+        pTarget->Hitted(this, iEffectIDX, 0);
+
+        int iSoundIDX = 0;
+        ///<- 2005/7/25 카트 시스템 파츠 추가로 수정 : nAvy
+        ///전처리기 정의로 구조가 바뀜에 따라 다시 복구 2005/8/31 navye
+        iSoundIDX = PAT_HIT_SOUND(((CObjCART*)this)->GetPetParts(RIDE_PART_ARMS));
+
+        if (iSoundIDX)
+            g_pSoundLIST->IDX_PlaySound3D(iSoundIDX, Get_CurPOS());
+    }
+}
+
+//----------------------------------------------------------------------------------------------------
+/// A bow/gun fire frame (22/23) reached by an attacker with nothing to fire.
+/// The server applied that swing at frame 0 and queued it on the target as
+/// MeleeHitFrame (UsesProjectileAttackPresentation() is false without a bullet
+/// weapon), but a ranged clip carries no frame 21, so nothing ever consumed
+/// it: no digit, no HP move, and the 8 s orphan sweep folded it silently.
+/// Hebarn Officer Pazugenti (2685) was the report: bare-handed, on the Lich01
+/// attack clip, whose events read 23/33 in the RoseZA/667 lineage our copy
+/// came from and 21/31 in every other dump (fix-zmo-attack-frames.py repairs
+/// that clip). Candle Ghost, Bebeg and the Sikuku Tiger Captain sit on
+/// bullet-less ranged clips in every dump we own. The fire frame is the only
+/// hit moment such a clip has, so present the swing there as the melee hit it
+/// is. The local avatar is excluded: with no ammo the server never runs its
+/// attack, so there is nothing to present.
+//----------------------------------------------------------------------------------------------------
+bool
+CObjCHAR::PresentFirelessRangedFrame(CObjCHAR* pTarget, int iActionIDX) {
+    if (this->IsLocalAvatarAttacker()) {
+        return false;
+    }
+
+    LogString(LOG_DEBUG_,
+        "CombatTrace fireless ranged frame presented as melee hit: attacker %d frame %d target %d weapon %d\n",
+        this->Get_INDEX(),
+        iActionIDX,
+        pTarget->Get_INDEX(),
+        static_cast<int>(this->Get_R_WEAPON()));
+    PresentNormalAttackHitFrame(pTarget);
+    return true;
+}
+
 //////////////////////////////////////////////////////////////////////////
 /// 근접 공격 액션
 //////////////////////////////////////////////////////////////////////////
@@ -256,93 +385,7 @@ CObjCHAR::ActionInFighting(int iActionIDX) {
         switch (iActionIDX) {
                 /// 타격치
             case 21: {
-                int iEffectIDX = 0;
-
-                //----------------------------------------------------------------------------------------------------
-                /// @brief 팻모드에 따라서 이펙트 선택( 팻은 Arms 의 정보로 부터 효과를 가져온다. )
-                //----------------------------------------------------------------------------------------------------
-                if (this->IsPET() == false) {
-                    // When the rider is on a cart/castle gear, the cart is the real
-                    // attacker and its own hit-frame drives damage timing. The rider's
-                    // PETMODE_AVATAR_ANI_ATTACK motion is purely visual — don't let it
-                    // fire Hitted() early and kill the monster before the cart's swing
-                    // completes.
-                    if (this->GetPetMode() >= 0) {
-                        break;
-                    }
-
-                    /// 무기가 있을경우..
-                    iEffectIDX = WEAPON_DEFAULT_EFFECT(this->Get_R_WEAPON());
-
-                    /// 무기가 없을경우..
-                    if (!this->Get_R_WEAPON()) {
-                        if (this->IsA(OBJ_MOB))
-                            iEffectIDX = NPC_HAND_HIT_EFFECT(this->Get_CharNO());
-                    }
-
-                    // A projectile skill performed with a motion that has no fire
-                    // frame (24/34) never launches its bullet: this melee frame is
-                    // the only hit moment it will ever reach. Present it AS the
-                    // skill's impact -- bIsSkillEffect routes Hitted() through
-                    // ProcessSkillHit(), which consumes the projectile registration
-                    // and the caster's queued effect-of-skill payload (the status,
-                    // the hit effect). Without this the plain melee pop ate the
-                    // damage with no visual and the payload timed out 10 s later,
-                    // so Mukuroji's Flame Heat burn ticked with no icon and no
-                    // effect (import-karkia.py filled its casting/skill slots with
-                    // the pig's idle/attack clips).
-                    const int iDoingSkill = this->m_nDoingSkillIDX ? this->m_nDoingSkillIDX
-                                                                    : this->m_nActiveSkillIDX;
-                    const bool bFirelessProjectileSkill = iDoingSkill > 0
-                        && !this->IsLocalAvatarAttacker()
-                        && IsProjectilePresentedSkillDamage(iDoingSkill)
-                        && m_pCurMOTION && !m_pCurMOTION->m_bHasProjectileFireFrame;
-                    if (bFirelessProjectileSkill) {
-                        LogString(LOG_DEBUG_,
-                            "CombatTrace projectile skill presented on melee frame, motion has no fire frame: caster %d skill %d target %d\n",
-                            this->Get_INDEX(),
-                            iDoingSkill,
-                            pTarget->Get_INDEX());
-                        pTarget->Hitted(this, iEffectIDX, iDoingSkill, true);
-                    } else {
-                        pTarget->Hitted(this, iEffectIDX, this->m_nActiveSkillIDX);
-                    }
-
-                    /// 사운드
-                    if (pTarget->IsUSER() == false) {
-                        /// 타격사운드 출력
-                        short nCharIdx = pTarget->Get_CharNO();
-
-                        short nHitSound = WEAPON_ATK_HIT_SOUND(this->Get_R_WEAPON());
-                        short nHittedSound = HIT_SOUND(nHitSound, NPC_HIT_MATERIAL_TYPE(nCharIdx));
-                        if (nHittedSound) {
-                            g_pSoundLIST->IDX_PlaySound3D(nHittedSound, pTarget->Get_CurPOS());
-                        }
-                    } else // 자기 아바타가 타겟인 경우
-                    {
-                        /// 타격사운드 출력
-                        short nHitSound = WEAPON_ATK_HIT_SOUND(this->Get_R_WEAPON());
-                        short nHittedSound = HIT_SOUND(nHitSound, 1);
-                        if (nHittedSound) {
-                            // g_pSoundLIST->IDX_PlaySound( nHittedSound ); // 안3D 로 출력
-                            g_pSoundLIST->IDX_PlaySound3D(nHittedSound, Get_CurPOS());
-                        }
-                    }
-                } else {
-                    ///<- 2005/7/25 카트 시스템 파츠 추가로 수정 : nAvy
-                    ///전처리기 정의로 구조가 바뀜에 따라 다시 복구 2005/8/31
-                    iEffectIDX = PAT_HIT_EFFECT(((CObjCART*)this)->GetPetParts(RIDE_PART_ARMS));
-
-                    pTarget->Hitted(this, iEffectIDX, 0);
-
-                    int iSoundIDX = 0;
-                    ///<- 2005/7/25 카트 시스템 파츠 추가로 수정 : nAvy
-                    ///전처리기 정의로 구조가 바뀜에 따라 다시 복구 2005/8/31 navye
-                    iSoundIDX = PAT_HIT_SOUND(((CObjCART*)this)->GetPetParts(RIDE_PART_ARMS));
-
-                    if (iSoundIDX)
-                        g_pSoundLIST->IDX_PlaySound3D(iSoundIDX, Get_CurPOS());
-                }
+                PresentNormalAttackHitFrame(pTarget);
             } break;
 
                 /// 공격 사운드
@@ -392,7 +435,10 @@ CObjCHAR::ActionBow(int iActionIDX) {
                 // 발사
                 // 공격 동작시 장착된 무기 발사...
                 int iBulletIDX = Get_BulletNO();
-                if (pTarget && iBulletIDX) {
+                if (!iBulletIDX) {
+                    // Nothing to fire: this frame is the swing's only hit moment.
+                    PresentFirelessRangedFrame(pTarget, iActionIDX);
+                } else if (pTarget) {
                     if (!g_pBltMGR->Add_BULLET(this, pTarget, iBulletIDX)) {
                         pTarget->DiscardQueuedCombatDamageFromAttacker(this);
                     } else {
@@ -422,6 +468,13 @@ CObjCHAR::ActionBow(int iActionIDX) {
             case 32: {
                 /// 공격 사운드 설정
                 short nHitStartSound = WEAPON_ATK_START_SOUND(this->Get_R_WEAPON());
+
+                // Same fallback as melee frame 31: a bare-handed mob on a ranged
+                // clip has no weapon row to take its swing sound from.
+                if (!(this->Get_R_WEAPON()) && this->IsA(OBJ_MOB)) {
+                    nHitStartSound = NPC_ATTACK_SOUND(this->m_nCharIdx);
+                }
+
                 if (nHitStartSound) {
                     if (IsUSER())
                         // g_pSoundLIST->IDX_PlaySound( nHitStartSound );
@@ -465,7 +518,10 @@ CObjCHAR::ActionGun(int iActionIDX) {
                 // 발사
                 // 공격 동작시 장착된 무기 발사...
                 int iBulletIDX = Get_BulletNO();
-                if (pTarget && iBulletIDX) {
+                if (!iBulletIDX) {
+                    // Nothing to fire: this frame is the swing's only hit moment.
+                    PresentFirelessRangedFrame(pTarget, iActionIDX);
+                } else if (pTarget) {
                     if (!g_pBltMGR->Add_BULLET(this, pTarget, iBulletIDX)) {
                         pTarget->DiscardQueuedCombatDamageFromAttacker(this);
                     } else {
@@ -494,6 +550,13 @@ CObjCHAR::ActionGun(int iActionIDX) {
             case 33: {
                 /// 공격 사운드 설정
                 short nHitStartSound = WEAPON_ATK_START_SOUND(this->Get_R_WEAPON());
+
+                // Same fallback as melee frame 31: a bare-handed mob on a ranged
+                // clip has no weapon row to take its swing sound from.
+                if (!(this->Get_R_WEAPON()) && this->IsA(OBJ_MOB)) {
+                    nHitStartSound = NPC_ATTACK_SOUND(this->m_nCharIdx);
+                }
+
                 if (nHitStartSound) {
                     D3DXVECTOR3 Velocity =
                         pTarget->Get_CurPOS() - Get_CurPOS(); // 1초 동안에 이동하는 벡터
