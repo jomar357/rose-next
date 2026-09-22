@@ -911,6 +911,16 @@ def main():
     else:
         # build our row: source cols 0..n-2 + our key in the last column
         row = list(src[0:ocols - 2]) + [new_key]
+        # The column before the STL key is the STR_ITEMPREFIX id the client
+        # prepends to the name (1-8 rare grades, 9 "[Costume]", 10 "[Event]") and
+        # colours it by. A cash-shop donor carries its shop tag there: the lv210
+        # weapon tier shipped as "[Costume] Arcidian Sword" (alpha #2). Our
+        # imports are ordinary items, so start them with no prefix; a rare grade
+        # is a deliberate edit afterwards. Only the tables the client reads the
+        # column from (CItem::GetItemRareType); subwpn's last-but-one column is
+        # something else.
+        if args.type in ("weapon", "cap", "body", "arms", "foot"):
+            row[ocols - 3] = b""
     row[1] = b""  # vestigial model-path column; the game reads the ZSC instead
     if args.name:
         # Col 0 is what the *server* reports (ITEM_NAME is get_cstr(I, 0) there);
