@@ -31,8 +31,9 @@ at a skill that does not exist:
     217  26   649 Double Shot*                 -> 541   stub (Leonard)
 
 (* in-game English name; the STB's internal col-0 name is "Double Crossbow
-Shot". Book names are decorative -- several sold books are named after a
-different skill than the one col 20 teaches -- so the join is by id only.)
+Shot". Book names are decorative -- several sold books were named after a
+different skill than the one col 20 teaches, since fixed by
+`fix-skill-book-names.py` -- so the join is by id only.)
 
 Tabs 462/464/466/468 are Darren's (his `.CON` passes `bSpecialTab = 1`, so
 all four draw) and are **shared** with the Akram Ministers Gamp/Nell/Rodath/Mel
