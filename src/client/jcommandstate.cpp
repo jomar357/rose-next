@@ -188,6 +188,14 @@ CUserInputState::IsEnemy(CObjCHAR* pTarget) {
         return false;
     }
 
+    // You are never your own enemy. Without this, a friend-only skill on yourself
+    // (Cure, target filter FRIEND_ALL) failed in every AllExceptParty zone -- the
+    // party lookup below does not list the avatar itself -- and in an All zone,
+    // reading as "Invalid target" while Healing (a self-type skill) still worked.
+    if (pTarget == (CObjCHAR*)g_pAVATAR) {
+        return false;
+    }
+
     switch (pTarget->pvp_state) {
         case PvpState::AllExceptClan: {
             if (!g_pAVATAR->Is_ALLIED(pTarget)) {

@@ -404,6 +404,10 @@ The queued path for mouse messages calls `g_itMGR.MsgProc` → `CITStateNormal::
 
 Left-click, hover, and non-drag cursor motion all still flow through the queued path (UI must see them). Only `WM_MOUSEMOVE + MK_RBUTTON` is consumed early.
 
+## PVP: You Are Never Your Own Enemy
+
+`CUserInputState::IsEnemy` (`jcommandstate.cpp`) is the client's single hostile/friendly verdict for players (attack click, cursor, `CheckCastingTargetFilter`). It switches on the target's `pvp_state`: in an `AllExceptParty` zone (Junon Cartel, Crusader Training Camp, Lion's Plains, Union War, Desert of the Dead) it answers "enemy" for anyone not in the party list, and in an `All` zone for everyone — including the avatar itself, which the party list never contains. So Cure (type 11, target filter 3 `FRIEND_ALL`) on yourself printed "Invalid target" in those zones while Healing (type 10, a self-type skill that skips the filter) worked (alpha test #2, 2026-09-22). `IsEnemy` now returns false for `g_pAVATAR` before the switch. The server's `CObjAVT::Is_ALLIED` already had the `pDestCHAR == this` case.
+
 ## Summon Control (CTRL+Click)
 
 CTRL+click lets a player command their summons (move / attack) instead of moving the avatar. The logic is in `CUserInputState::TrySummonControlClick` (`jcommandstate.cpp`), called at the top of **both** `ClickObject` and `DBClickObject` for the active `CSevenHeartUserInput` (and `CDefaultUserInput`):
