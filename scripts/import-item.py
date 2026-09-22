@@ -57,7 +57,7 @@ Structure facts this relies on (verified against the live client/server loaders)
 
 After running: restart servers + client, spawn with /item <type>:<new id> (GM 2048).
 """
-import argparse, io, os, re, shutil, struct, sys
+import argparse, collections, io, os, re, shutil, struct, sys
 
 OURS = "data"
 FIELD_ZSC_REL = r"3DDATA\ITEM\LIST_FieldITEM.ZSC"
@@ -921,6 +921,21 @@ def main():
         # something else.
         if args.type in ("weapon", "cap", "body", "arms", "foot"):
             row[ocols - 3] = b""
+        # Weapon col 34 selects the animation set (1 = 1H sword, 5 = 2H sword,
+        # 8 = 2H axe ...). Sources author it freely -- QQ put a 1H sword on the
+        # 2H-sword set, so it was held two-handed here. Use whatever set every
+        # weapon of the same type in our own table already uses.
+        if args.type == "weapon":
+            same = collections.Counter(
+                o[34].strip() for o in odata[1:]
+                if o[0].strip() and o[4].strip() == row[4].strip() and o[34].strip())
+            if same:
+                ours = same.most_common(1)[0][0]
+                if row[34].strip() != ours:
+                    print("motion type %s from the source -> %s, the set our other type-%s "
+                          "weapons use" % (row[34].decode() or "(blank)", ours.decode(),
+                                           row[4].decode()))
+                    row[34] = ours
     row[1] = b""  # vestigial model-path column; the game reads the ZSC instead
     if args.name:
         # Col 0 is what the *server* reports (ITEM_NAME is get_cstr(I, 0) there);

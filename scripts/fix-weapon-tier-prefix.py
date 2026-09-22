@@ -1,4 +1,4 @@
-"""Clear the [Costume] name prefix that the lv210 weapon tier imported with.
+"""Repair the columns the lv210 weapon tier imported wrong: name prefix and motion type.
 
 `LIST_WEAPON.STB`'s second-to-last column is the STR_ITEMPREFIX id the client
 prepends to the item name (`CItem::GetItemRareType` -> `GetItemPrefix`; 1-8 are the
@@ -10,6 +10,13 @@ every column but the STL key, so Arcidian Sword and its eleven siblings (rows
 ordinary weapons here -- stats authored by the tier script, sold and dropped like any
 other -- so the column is cleared. `import-item.py` now blanks it on every stat-copying
 import, so a re-run of the tier cannot bring it back.
+
+Motion type (game col 34) picks the animation set the character uses with the
+weapon, independently of the item type: 1 = 1H sword, 3 = 1H blunt, 5 = 2H sword,
+8 = 2H axe ... QQ authored Arcidian Sword (a 1H sword) on the 2H-sword set and Flesh
+Reaver (a 2H sword) on the 2H-axe set, and both came through verbatim, so Arcidian
+Sword was held two-handed. `MOTION` puts them on the set every other weapon of their
+type uses.
 
 Scope is the reviewed row set below; a row whose name does not match is refused.
 Idempotent; `--dry-run` / `--verify` / `--restore` (backup in `build/weapon-tier-prefix/`,
@@ -32,6 +39,8 @@ ROWS = {
     1374: b"Heat Ray Gun", 1375: b"Intrepid Staff", 1376: b"Intrepid Wand",
     1377: b"Juxtapose Katar", 1378: b"Arcidian Dual Hand", 1379: b"Dromosaur Bow Gun",
 }
+MOTION_COL = 34
+MOTION = {1368: b"1", 1370: b"5"}  # row -> the motion set its weapon type uses
 
 
 def load_importer():
@@ -68,19 +77,22 @@ def main():
             sys.exit(f"row {r} is {data[r][0]!r}, expected {name!r}; refusing")
         v = data[r][prefix_col].strip()
         if v and v != b"0":
-            todo.append((r, name, v))
+            todo.append((r, name, prefix_col, v, b""))
+        if r in MOTION and data[r][MOTION_COL].strip() != MOTION[r]:
+            todo.append((r, name, MOTION_COL, data[r][MOTION_COL].strip(), MOTION[r]))
 
     if args.verify:
-        for r, name, v in todo:
-            print(f"DIFF row {r} {name.decode()}: prefix {v.decode()!r}")
-        print("verify:", "OK" if not todo else f"{len(todo)} row(s) still carry a prefix")
+        for r, name, col, old, new in todo:
+            print(f"DIFF row {r} {name.decode()} col {col}: {old.decode()!r} != {new.decode()!r}")
+        print("verify:", "OK" if not todo else f"{len(todo)} cell(s) differ")
         sys.exit(0 if not todo else 1)
 
     if not todo:
-        print("nothing to do; no reviewed row carries a prefix")
+        print("nothing to do; every reviewed cell is already in place")
         return
-    for r, name, v in todo:
-        print(f"row {r} {name.decode()}: prefix {v.decode()} -> (blank)")
+    for r, name, col, old, new in todo:
+        what = "prefix" if col == prefix_col else "motion"
+        print(f"row {r} {name.decode()}: {what} {old.decode() or '(blank)'} -> {new.decode() or '(blank)'}")
     if args.dry_run:
         print("dry run; nothing written")
         return
@@ -89,11 +101,11 @@ def main():
     if not os.path.exists(BACKUP):
         shutil.copyfile(STB, BACKUP)
         print(f"backup: {BACKUP}")
-    for r, _, _ in todo:
-        imp.stb_set_cell(STB, r, prefix_col, b"", False)
+    for r, _, col, _, new in todo:
+        imp.stb_set_cell(STB, r, col, new, False)
     _, _, _, _, data = imp.stb_read(STB)
-    assert all(not data[r][prefix_col].strip() for r, _, _ in todo)
-    print(f"cleared {len(todo)} row(s); verified by re-read")
+    assert all(data[r][col].strip() == new for r, _, col, _, new in todo)
+    print(f"wrote {len(todo)} cell(s); verified by re-read")
 
 
 if __name__ == "__main__":
