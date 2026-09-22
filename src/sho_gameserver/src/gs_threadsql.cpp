@@ -666,6 +666,17 @@ GS_CThreadSQL::Proc_cli_SELECT_CHAR(tagQueryDATA* pSqlPACKET) {
     if (basic_info.m_nClass % 100 == 11 && quest_data.m_nJobVAR[0] == 0) {
         quest_data.m_nJobVAR[0] = 1;
     }
+    // Same for the second job: its turn-in (QJx11-06 "1061-01" etc.) sets the class to
+    // x21/x22 and job var 1 = 2, and Darren's normal greeting -- the one with the shop
+    // (TA_normal in EM02-001.CON) -- requires exactly that value, otherwise he pushes
+    // the second-job quest again. A second-tier class holding anything else can only
+    // be a /set job tester.
+    const short nClassTier = basic_info.m_nClass % 100;
+    if ((nClassTier == 21 || nClassTier == 22) && quest_data.m_nJobVAR[1] != 2) {
+        if (quest_data.m_nJobVAR[0] == 0)
+            quest_data.m_nJobVAR[0] = 1;
+        quest_data.m_nJobVAR[1] = 2;
+    }
 
     CInventory inventory;
     inventory.Clear();

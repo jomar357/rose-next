@@ -1076,6 +1076,18 @@ classUSER::Cheat_set(classUSER* pUSER, char* pArg1, char* pArg2, char* pArg3) {
             } else
                 nJob = 0;
             pUSER->SetCur_JOB(nJob);
+            // The job quests' variables gate the NPC dialogs (Darren's shop needs job
+            // var 1 == 2 after the second job). Set them as the quests would.
+            // Verified in game to take effect without a relog.
+            if (nJob % 100 == 11) {
+                if (pUSER->Quest_GetJobVAR(0) == 0)
+                    pUSER->Quest_SetJobVAR(0, 1);
+            } else if (nJob % 100 == 21 || nJob % 100 == 22) {
+                if (pUSER->Quest_GetJobVAR(0) == 0)
+                    pUSER->Quest_SetJobVAR(0, 1);
+                pUSER->Quest_SetJobVAR(1, 2);
+            }
+            this->Send_gsv_WHISPER("SERVER", "Job set; job quest variables updated to match.");
             return CHEAT_SEND;
         } else if (!strcmpi(pArg1, "LEV")) {
             pUSER->Set_LEVEL(atoi(pArg2));
