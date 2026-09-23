@@ -1,13 +1,13 @@
 /* UI2 buff bar -- LAYOUT ONLY ( colours and materials: rose-theme.rcss ).
    Reload in game with /uireload. */
 
-/* Default spot is where the legacy strip drew ( ENDU_ICON_X/Y = 250, 40 ). */
+/* RoseRmlBuffBar moves this under the status panel every frame; left/top
+   here only matter for the first frame. */
 #buffs {
     position: absolute;
-    left: 250px;
-    top: 40px;
+    left: 3px;
+    top: 110px;
     width: 250px;              /* icons wrap after ten */
-    cursor: move;
 }
 
 /* --- icons ------------------------------------------------------------------ */
@@ -17,22 +17,33 @@
     flex-wrap: wrap;
 }
 
+/* NOT position: relative. RmlUi caps an absolute box's shrink-to-fit width at
+   its containing block, so a tip anchored to this 22 px icon wraps every word
+   onto its own line. With #buffs as the containing block, and left/top left
+   at auto, the tip still opens right under its own icon ( static position ). */
 .buff {
-    position: relative;        /* anchors its tooltip */
-    width: 22px;
+    width: 24px;
     margin-right: 3px;
     margin-bottom: 2px;
 }
 
+/* The backing square is a little larger than the 20 px icon, with the icon
+   centred in it. The img must be a block: as an inline it sits on the text
+   baseline, riding up out of the frame instead of inside it. */
 .frame {
-    width: 22px;
-    height: 22px;
+    box-sizing: border-box;    /* 24 px including the border, not 24 + 2 */
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     border: 1px #000000c0;
-    border-radius: 3px;
+    border-radius: 4px;
     background-color: #000000a0;
 }
 
 .frame img {
+    display: block;
     width: 20px;
     height: 20px;
 }
@@ -65,8 +76,7 @@
 .tip {
     display: none;
     z-index: 10;
-    left: 0px;
-    top: 26px;
+    margin-top: 2px;
     padding: 4px 6px;
     white-space: nowrap;
 }

@@ -210,6 +210,7 @@ Initialise(HWND hWnd, void* pD3DDevice, int iWidth, int iHeight) {
     g_DamageMeter.Initialise(g_pContext, kAssetDir);
     g_StatusPanel.Initialise(g_pContext, kAssetDir);
     g_BuffBar.Initialise(g_pContext, kAssetDir);
+    g_BuffBar.SetAnchor(g_StatusPanel.GetPanel());
 
     g_bInitialised = true;
     return true;

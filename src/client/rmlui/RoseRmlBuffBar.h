@@ -8,8 +8,8 @@
  *
  * Same data and rules as the legacy strip -- icons flash through their last
  * 10 s, the goddess blessing never does and lists its bonuses instead -- plus a
- * remaining-time label under each icon, and a tooltip on hover. Draggable;
- * the spot is saved like every UI2 panel.
+ * remaining-time label under each icon, and a tooltip on hover. It hangs
+ * under the status panel and follows it when that panel is dragged.
  *
  * Read-only: it enumerates CEndurancePack entities and item slots, and never
  * changes game state.
@@ -33,6 +33,10 @@ public:
 
     bool Initialise(Rml::Context* pContext, const std::string& strAssetDir);
     void Shutdown();
+
+    /// The panel to hang under ( the status panel ). Positioned from it every
+    /// frame, so dragging the status panel carries the buffs along.
+    void SetAnchor(Rml::Element* pAnchor) { m_pAnchor = pAnchor; }
 
     /// Per frame. Rebuilds the view model and dirties only what changed, so a
     /// steady buff set costs one comparison per icon and no relayout -- except
@@ -68,6 +72,7 @@ public:
 private:
     void SetVisible(bool bVisible);
     void Sample();
+    void FollowAnchor();
 
     template <typename T>
     void Assign(T& field, const T& value, const char* pszName) {
@@ -80,6 +85,9 @@ private:
     Rml::Context* m_pContext;
     Rml::ElementDocument* m_pDocument;
     Rml::Element* m_pPanel;
+    Rml::Element* m_pAnchor;
+    float m_fPlacedX;
+    float m_fPlacedY;
     Rml::DataModelHandle m_Model;
     bool m_bVisible;
 

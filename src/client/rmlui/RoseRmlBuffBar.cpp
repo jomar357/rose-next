@@ -31,6 +31,9 @@ const int kExpiringMs = 10000;
 /// Equipment below this life ( per mille ) is shown as worn -- the legacy 5%.
 const int kWornLife = 50;
 
+/// Space between the status panel and the strip hanging off it.
+const float kAnchorGap = 4.0f;
+
 Rml::String
 Printf(const char* pszFormat, ...) {
     char szBuf[128];
@@ -100,6 +103,9 @@ RoseRmlBuffBar::RoseRmlBuffBar():
     m_pContext(NULL),
     m_pDocument(NULL),
     m_pPanel(NULL),
+    m_pAnchor(NULL),
+    m_fPlacedX(-1.0f),
+    m_fPlacedY(-1.0f),
     m_bVisible(false),
     m_bSummon(false),
     m_fSummonWidth(0.0f),
@@ -155,7 +161,6 @@ RoseRmlBuffBar::Initialise(Rml::Context* pContext, const std::string& strAssetDi
     }
 
     m_pPanel = m_pDocument->GetElementById("buffs");
-    RoseRmlLayout::Track(m_pPanel, "buffs");
 
     LOG_INFO("[rmlui] buff bar document loaded");
     return true;
@@ -167,6 +172,7 @@ RoseRmlBuffBar::Shutdown() {
     m_pDocument = NULL;
     m_pContext = NULL;
     m_pPanel = NULL;
+    m_pAnchor = NULL;
     m_bVisible = false;
 }
 
@@ -272,6 +278,35 @@ RoseRmlBuffBar::Sample() {
 }
 
 void
+RoseRmlBuffBar::FollowAnchor() {
+    if (m_pAnchor == NULL || m_pPanel == NULL)
+        return;
+
+    /// Both documents' bodies sit at the screen origin, so absolute offsets
+    /// from one are positions in the other. This reads last frame's layout, so
+    /// the strip trails a dragged panel by one frame.
+    const Rml::Vector2f anchorPos = m_pAnchor->GetAbsoluteOffset(Rml::BoxArea::Border);
+    const Rml::Vector2f anchorSize = m_pAnchor->GetBox().GetSize(Rml::BoxArea::Border);
+    const Rml::Vector2f size = m_pPanel->GetBox().GetSize(Rml::BoxArea::Border);
+    if (anchorSize.y <= 0.0f)
+        return;
+
+    const Rml::Vector2i view = m_pContext->GetDimensions();
+    float x = anchorPos.x;
+    float y = anchorPos.y + anchorSize.y + kAnchorGap;
+    /// Near the bottom edge, hang above the panel instead of off screen.
+    if (y + size.y > (float)view.y)
+        y = anchorPos.y - size.y - kAnchorGap;
+
+    if (x == m_fPlacedX && y == m_fPlacedY)
+        return;
+    m_fPlacedX = x;
+    m_fPlacedY = y;
+    m_pPanel->SetProperty(Rml::PropertyId::Left, Rml::Property(x, Rml::Unit::PX));
+    m_pPanel->SetProperty(Rml::PropertyId::Top, Rml::Property(y, Rml::Unit::PX));
+}
+
+void
 RoseRmlBuffBar::Update() {
     if (m_pDocument == NULL)
         return;
@@ -287,6 +322,7 @@ RoseRmlBuffBar::Update() {
     SetVisible(bInWorld && (!m_Buffs.empty() || !m_Worn.empty() || m_bSummon || m_bFuel));
 
     if (m_bVisible) {
+        FollowAnchor();
         const Rml::Vector2i view = m_pContext->GetDimensions();
         RoseRmlLayout::Clamp(m_pPanel, view.x, view.y);
     }

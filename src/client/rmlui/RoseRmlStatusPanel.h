@@ -39,6 +39,9 @@ public:
     /// an idle frame costs no relayout.
     void Update();
 
+    /// The panel element ( the move target ), for panels that hang off it.
+    Rml::Element* GetPanel() const { return m_pPanel; }
+
 private:
     /// A bar that eases from where it is drawn now to a new target, restarting
     /// from its current position whenever the target moves -- the 667 gauge.
