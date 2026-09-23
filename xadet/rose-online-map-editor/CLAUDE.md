@@ -162,6 +162,29 @@ Clear-Content '..\..\data\Map Editor.log'
 
 ## Compatibility Fixes Already Made
 
+- **Saving a Karkia or Skaaj map destroyed its IFOs (2026-09-23).** Every Jrose-origin
+  IFO (all 141 in `KARKIA\*` and `SKAAJ\SKTOWN`) has no MapInfo lump 0, so
+  `MapInfo.MapName` stayed null and `IFO.Save` threw inside `BinaryWriter.Write`.
+  `FileHandler` opens for writing with `FileMode.Create`, so the first IFO was left
+  as a 188-byte stub (every object, NPC, spawn and warp gone), and the exception on
+  the raw save thread took the editor down with the ZON already rewritten.
+  `FileHandler.Write<BString>` now writes null as empty. Both the client
+  (`CMAP::ReadMapINFO`) and the server ignore lump 0, so the empty MapInfo lump the
+  editor now adds is inert, like the empty object/water lumps it always wrote.
+  Verified with a headless load-and-save of every map file through the editor's own
+  readers and writers (all Karkia zones, Skaaj, Zant JDT01, Sunshine Coast SUM_EVENT):
+  no failures, every object field and extra byte-identical, positions within 0.02 cm,
+  TIL and LIT byte-identical, HIM heights identical. The one intended difference: the
+  HIM trailer's per-patch height bounds, which Jrose stores as real values, are
+  rewritten as the +/-FLT_MAX placeholders every retail Junon HIM already carries --
+  conservative for culling, and correct after the terrain is reshaped.
+- **Deleting a placed decoration/construction object misassigns lightmaps (known,
+  not fixed).** LIT entries are keyed by 1-based ordinal within the block's lump and
+  `RemoveAt` does not renumber them, so every later object takes its neighbour's
+  lightmap; the client's `LoadLightMapINFO` also indexes `m_pObjectIndex` with that
+  ordinal unchecked. Move or sink an object instead of deleting it. New objects are
+  appended, get no LIT entry, and render without baked lighting.
+
 - **A blank sky column no longer hides a map (2026-09-17).** `IsValidMap` rejected any
   LIST_ZONE row whose sky cell (editor column 8, game column 7) was empty, and the load
   path did `Convert.ToInt32` on it. The client reads that cell as an integer, so blank

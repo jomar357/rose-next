@@ -590,7 +590,13 @@ namespace Map_Editor.Engine
             if (typeof(T) == typeof(string))
                 binaryWriter.Write(encoding.GetBytes((string)((object)value)));
             else if (typeof(T) == typeof(BString))
-                binaryWriter.Write((string)((BString)((object)value)));
+            {
+                // A string the file never had is written empty. IFO.MapInfo.MapName is
+                // null for every IFO without a MapInfo lump (all Karkia and Skaaj maps),
+                // and throwing here left the IFO truncated by FileMode.Create.
+                BString bstring = (BString)((object)value);
+                binaryWriter.Write((bstring == null ? null : (string)bstring) ?? string.Empty);
+            }
             else if (typeof(T) == typeof(BaseString))
                 binaryWriter.Write(((BaseString)((object)value)).ToCharArray());
             else if (typeof(T) == typeof(byte))
