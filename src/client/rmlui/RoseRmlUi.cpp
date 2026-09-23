@@ -278,6 +278,33 @@ Update() {
     g_pContext->Update();
 }
 
+int
+ReloadStyleSheets() {
+    if (!g_bInitialised || g_pContext == NULL)
+        return 0;
+
+    int iCount = 0;
+    for (int i = 0; i < g_pContext->GetNumDocuments(); ++i) {
+        Rml::ElementDocument* pDoc = g_pContext->GetDocument(i);
+        if (pDoc == NULL)
+            continue;
+
+        /// The debugger's documents are built in memory and have no file to
+        /// re-read; only the ones loaded from an .rml on disk are reloadable.
+        const Rml::String& strUrl = pDoc->GetSourceURL();
+        if (strUrl.size() < 4 || strUrl.compare(strUrl.size() - 4, 4, ".rml") != 0)
+            continue;
+
+        /// Clears the stylesheet cache and re-parses every <link>ed sheet, so
+        /// an edit to the shared theme reaches every panel at once.
+        pDoc->ReloadStyleSheet();
+        ++iCount;
+    }
+
+    LOG_INFO("[rmlui] reloaded stylesheets of {} document(s)", iCount);
+    return iCount;
+}
+
 void
 ToggleDamageMeter() {
     if (g_bInitialised)

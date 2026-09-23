@@ -1,6 +1,8 @@
 <rml>
 <head>
     <title>Damage Meter</title>
+    <!-- Theme first ( materials, colours, states ), then this panel's layout. -->
+    <link type="text/rcss" href="rose-theme.rcss"/>
     <link type="text/rcss" href="damagemeter.rcss"/>
 </head>
 <body data-model="damage_meter">
@@ -9,52 +11,46 @@
         side creates or positions an element. <handle move_target> gives the
         panel drag-to-move with no C++ at all.
 
-        No image files are used anywhere in this skin - the caption bar, bevels
-        and bars are gradients, and the rounded corners are tessellated by RmlUi.
+        Every ui-* class comes from rose-theme.rcss. This document only decides
+        structure; damagemeter.rcss only decides sizes.
     -->
-    <div id="meter">
-        <handle move_target="meter" class="titlebar">
-            <span class="title">ROSE Online - {{title}}</span>
-            <span class="titlebtn" data-event-click="close_panel()">X</span>
+    <div id="meter" class="ui-window">
+        <handle move_target="meter" class="ui-titlebar">
+            <span class="ui-title">Damage Meter <span class="ui-accent">&#183; {{title}}</span></span>
+            <span class="ui-close" data-event-click="close_panel()">X</span>
         </handle>
 
-        <div class="infobar">
-            <span class="info-left">Running combat timer: {{fight}}</span>
-            <span class="info-right">Total Party DPS: {{party_dps}}</span>
+        <div class="infobar ui-well">
+            <!-- Lit while CDamageMeter reports an active fight. -->
+            <div class="live-dot" data-class-on="live"></div>
+            <span class="info-left"><span class="ui-muted">Combat</span> {{fight}}</span>
+            <span class="info-right"><span class="ui-muted">Party DPS</span> {{party_dps}}</span>
         </div>
 
-        <div class="colheads">
-            <span class="ch-rank"></span>
-            <span class="ch-name"></span>
-            <span class="ch-dps">DPS</span>
-            <span class="ch-dmg">Total DMG</span>
-            <span class="ch-pct">% Contribution</span>
-        </div>
-
-        <div class="rows">
-            <div class="row" data-for="row : rows"
-                 data-class-p1="row.place == 1"
-                 data-class-p2="row.place == 2"
-                 data-class-p3="row.place == 3"
-                 data-class-p4="row.place > 3"
-                 data-class-self="row.self">
+        <div class="rows ui-well">
+            <div class="row" data-for="row : rows" data-class-self="row.self">
                 <span class="rank">{{row.rank}}</span>
                 <span class="name">{{row.name}}</span>
-                <div class="track">
-                    <div class="fill" data-style-width="row.width + '%'"></div>
-                    <span class="dps">{{row.dps}}</span>
-                    <span class="dmg">{{row.dmg}}</span>
-                    <span class="pct">{{row.pct}}</span>
+                <div class="bar ui-gauge">
+                    <!-- Place picks the glass colour: ember, blue, gold, then steel. -->
+                    <div class="ui-gauge-fill"
+                         data-class-hp="row.place == 1"
+                         data-class-mp="row.place == 2"
+                         data-class-exp="row.place == 3"
+                         data-style-width="row.width + '%'"></div>
+                    <span class="dps ui-gauge-text">{{row.dps}}</span>
+                    <span class="dmg ui-gauge-text">{{row.dmg}}</span>
+                    <span class="pct ui-gauge-text">{{row.pct}}</span>
                 </div>
             </div>
         </div>
 
-        <div class="statusline">{{footer}}</div>
+        <div class="statusline ui-muted">{{footer}}</div>
 
         <div class="footer">
-            <span class="btn" data-event-click="reset_data()">[Reset]</span>
-            <span class="btn" data-event-click="cycle_view()">[Details]</span>
-            <span class="btn" data-event-click="close_panel()">[Close]</span>
+            <span class="ui-btn" data-event-click="reset_data()">Reset</span>
+            <span class="ui-btn" data-event-click="cycle_view()">Details</span>
+            <span class="ui-btn" data-event-click="close_panel()">Close</span>
         </div>
     </div>
 </body>

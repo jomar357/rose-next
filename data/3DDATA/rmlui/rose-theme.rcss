@@ -1,0 +1,274 @@
+/* rose-theme.rcss -- the shared look for every RmlUi panel.
+
+   The design language is the 667 build's "glass" UI ( GLASSUI_*.DDS,
+   UI2.TSI ): translucent charcoal panels with a thin grey rim, glossy bars,
+   grey glass buttons that turn ember-orange under the mouse. Nothing here is
+   an image -- every piece is re-expressed as gradients and borders, so the
+   whole look is editable in this file ( reload in game with /uireload ).
+
+   A panel document links this file FIRST, then its own stylesheet for layout
+   only ( sizes, columns, positions ). Anything that is a colour, a bevel or a
+   state belongs here, so that a second panel looks like the first for free.
+
+   ---------------------------------------------------------------------------
+   Palette. RCSS has no var(), so these are the values to copy -- they were
+   sampled from the 667 atlases, not invented:
+
+     glass panel      #1c1c1c b4    ( 667: #202020 at 8c; denser here so text
+                                      stays readable over a bright zone )
+     panel rim        #7f7f7f bf    1px, the lit outer edge of every panel
+     well / inset     #000000 70    dark top edge, faint light bottom edge
+     text             #e6e6e6       body
+     text muted       #9a9a9a       labels, secondary numbers
+     text accent      #ff9a5a       ember: selection, self, emphasis
+
+     gloss bases ( the colour UNDER the gloss; ui-gloss adds the highlight ):
+     ember / hp       #922500       rim #5f2410
+     blue / mp        #0066b8       rim #174691
+     gold / exp       #a8ac30       rim #6a6e30
+     green            #4f9a28       rim #3c6a26
+     violet / summon  #8a2aa0       rim #4e1a5c
+     steel            #4a4a4a       rim #2a2a2a
+     grey glass       #3a3a3a       rim #565656  ( buttons, title strips )
+
+   Backend limits ( see doc/rmlui-evaluation.md ): linear-gradient only -- no
+   radial/conic, no blurred box-shadow, no filter/transform. The 667 art's
+   orange outer glow is therefore suggested by a warm rim, not drawn.
+   --------------------------------------------------------------------------- */
+
+
+/* --- named decorators: the reusable "materials" --------------------------- */
+
+/* The 667 gloss, colour-neutral. It is a white overlay over background-color,
+   so ONE definition serves every colour: set background-color and you get a
+   glass bar of that colour. Measured off the atlas: a bright 1px top line, a
+   lighter upper half, a hard step just under the middle, a lower half that
+   brightens towards a lit bottom lip. */
+@decorator ui-gloss : linear-gradient {
+    decorator: to bottom,
+        #ffffff70 0%,
+        #ffffff40 9%,
+        #ffffff34 46%,
+        #ffffff00 50%,
+        #ffffff14 84%,
+        #ffffff48 100%;
+}
+
+/* The same shape, dimmer, for large surfaces where full gloss is too loud. */
+@decorator ui-gloss-soft : linear-gradient {
+    decorator: to bottom,
+        #ffffff30 0%,
+        #ffffff18 8%,
+        #ffffff12 46%,
+        #ffffff00 50%,
+        #ffffff08 88%,
+        #ffffff20 100%;
+}
+
+/* 667 panels darken for ~4px inside the rim on every side. Two straight
+   gradients stacked reproduce that inner vignette. */
+@decorator ui-vignette-v : linear-gradient {
+    decorator: to bottom, #00000060 0px, #00000000 5px, #00000000 97%, #00000060 100%;
+}
+@decorator ui-vignette-h : linear-gradient {
+    decorator: to right, #00000060 0px, #00000000 5px, #00000000 99%, #00000060 100%;
+}
+
+
+/* --- base ------------------------------------------------------------------ */
+
+body {
+    font-family: Verdana;      /* the client's own UI font */
+    font-size: 11px;
+    color: #e6e6e6;
+
+    /* DO NOT REMOVE. ElementHandle clamps a drag to the move target's
+       containing block, which for an absolutely-positioned panel is <body>.
+       Without a full-viewport body the panel can only be nudged a few pixels
+       near the top-left corner. ( RoseRmlUi decides input consumption from
+       panel geometry, not from the hovered element, precisely so this is
+       safe. ) Every panel must also be a DIRECT child of <body> for that
+       geometry test to see it. */
+    width: 100%;
+    height: 100%;
+}
+
+.ui-muted  { color: #9a9a9a; }
+.ui-accent { color: #ff9a5a; }
+
+
+/* --- window ------------------------------------------------------------------ */
+
+.ui-window {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+
+    padding: 4px;
+    border: 1px #7f7f7fbf;
+    border-radius: 4px;
+    background-color: #1c1c1cb4;
+    decorator: ui-vignette-v, ui-vignette-h;
+}
+
+/* A grey glass strip; the drag handle of a window. */
+.ui-titlebar {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    height: 22px;
+    padding-left: 8px;
+    padding-right: 3px;
+    margin-bottom: 4px;
+
+    border: 1px #565656ff;
+    border-radius: 3px;
+    background-color: #343434ff;
+    decorator: ui-gloss;
+    cursor: move;
+}
+
+.ui-title {
+    flex-grow: 1;
+    font-size: 12px;
+    font-weight: bold;
+    color: #f0f0f0;
+    font-effect: shadow(1px 1px #000000c0);
+}
+
+/* Small ember glass square, the 667 X button. */
+.ui-close {
+    width: 16px;
+    height: 16px;
+    line-height: 15px;
+    text-align: center;
+    font-size: 10px;
+    font-weight: bold;
+    color: #ffffff;
+    font-effect: shadow(1px 1px #00000090);
+
+    border: 1px #5f2410ff;
+    border-radius: 3px;
+    background-color: #7a2206ff;
+    decorator: ui-gloss;
+    cursor: pointer;
+}
+.ui-close:hover  { background-color: #b0360eff; border-color: #e0602aff; }
+.ui-close:active { background-color: #5a1804ff; }
+
+
+/* --- inset well ---------------------------------------------------------- */
+
+/* Dark recess: shadowed top edge, faintly lit bottom edge -- the opposite of
+   a raised bevel. Used for info strips and list areas. */
+.ui-well {
+    border-width: 1px;
+    border-top-color: #000000c0;
+    border-left-color: #00000090;
+    border-right-color: #00000090;
+    border-bottom-color: #ffffff24;
+    border-radius: 3px;
+    background-color: #00000070;
+}
+
+
+/* --- buttons -------------------------------------------------------------- */
+
+/* Grey glass at rest, ember glass under the mouse, dark ember pressed --
+   the three states of every 667 button sheet. */
+.ui-btn {
+    height: 20px;
+    line-height: 19px;
+    padding-left: 12px;
+    padding-right: 12px;
+    text-align: center;
+
+    font-weight: bold;
+    color: #e6e6e6;
+    font-effect: shadow(1px 1px #000000a0);
+
+    border: 1px #565656ff;
+    border-radius: 3px;
+    background-color: #3a3a3aff;
+    decorator: ui-gloss;
+    cursor: pointer;
+    /* RmlUi has no plain "linear" tween -- only linear-in / -out / -in-out.
+       Writing `linear` is a parse error and the whole declaration is dropped. */
+    transition: background-color border-color 0.12s linear-in-out;
+}
+.ui-btn:hover  { color: #ffffff; background-color: #922500ff; border-color: #d0501aff; }
+.ui-btn:active { background-color: #621800ff; border-color: #8a3010ff; }
+
+
+/* --- gauges --------------------------------------------------------------- */
+
+/* The recessed track a fill sits in. Positioned so the fill and any overlay
+   text can be placed absolutely inside it. */
+.ui-gauge {
+    position: relative;
+    border-width: 1px;
+    border-top-color: #000000c8;
+    border-left-color: #000000a0;
+    border-right-color: #000000a0;
+    border-bottom-color: #ffffff20;
+    border-radius: 3px;
+    background-color: #0a0a0aa0;
+}
+
+/* The glass fill. Width comes from the owner ( data-style-width ); colour
+   from one of the modifiers below. Default is steel. */
+.ui-gauge-fill {
+    position: absolute;
+    left: 0px;
+    top: 0px;
+    bottom: 0px;
+
+    border: 1px #2a2a2aff;
+    border-radius: 2px;
+    background-color: #4a4a4aff;
+    decorator: ui-gloss;
+}
+.ui-gauge-fill.hp     { background-color: #922500ff; border-color: #5f2410ff; }
+.ui-gauge-fill.mp     { background-color: #0066b8ff; border-color: #174691ff; }
+.ui-gauge-fill.exp    { background-color: #a8ac30ff; border-color: #6a6e30ff; }
+.ui-gauge-fill.green  { background-color: #4f9a28ff; border-color: #3c6a26ff; }
+.ui-gauge-fill.violet { background-color: #8a2aa0ff; border-color: #4e1a5cff; }
+.ui-gauge-fill.steel  { background-color: #4a4a4aff; border-color: #2a2a2aff; }
+
+/* Text drawn over a bar. The fill is positioned and so paints in a later
+   layer than in-flow content; overlay text must be positioned too, with a
+   higher z-index, or the bar covers it. The outline keeps white digits
+   legible over the gold and green fills. */
+.ui-gauge-text {
+    position: relative;
+    z-index: 1;
+    font-weight: bold;
+    color: #ffffff;
+    font-effect: outline(1px #000000a0);
+}
+
+
+/* --- scrollbars ------------------------------------------------------------ */
+
+/* Thin dark track, grey glass thumb, no arrow buttons. Without these rules
+   RmlUi's scrollbar is unstyled and effectively invisible. */
+scrollbarvertical {
+    width: 8px;
+    margin-left: 2px;
+}
+scrollbarvertical slidertrack {
+    background-color: #00000060;
+    border-radius: 4px;
+}
+scrollbarvertical sliderbar {
+    border: 1px #565656ff;
+    border-radius: 4px;
+    background-color: #505050ff;
+    decorator: ui-gloss-soft;
+}
+scrollbarvertical sliderbar:hover  { background-color: #922500ff; border-color: #d0501aff; }
+scrollbarvertical sliderarrowdec,
+scrollbarvertical sliderarrowinc {
+    width: 0px;
+    height: 0px;
+}

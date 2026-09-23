@@ -553,6 +553,26 @@ CChatDLG::SendChatMsg(char* szMsg) {
         return;
     }
 
+    /// "/uireload" re-reads the RmlUi stylesheets ( rose-theme.rcss and each
+    /// panel's own ) from the loose 3ddata/rmlui folder, so a skin can be tuned
+    /// without restarting. Styles only. Local command, never sent.
+    if (stMsg == "/uireload") {
+        if (RoseRmlUi::IsEnabled()) {
+            char szBuf[64];
+            _snprintf(szBuf, sizeof(szBuf), "UI styles reloaded (%d panel(s)).",
+                RoseRmlUi::ReloadStyleSheets());
+            szBuf[sizeof(szBuf) - 1] = '\0';
+            g_itMGR.AppendChatMsg(szBuf, IT_MGR::CHAT_TYPE_SYSTEM);
+        } else {
+            g_itMGR.AppendChatMsg("RmlUi is off ( [VIDEO] RMLUI=1 ).", IT_MGR::CHAT_TYPE_SYSTEM);
+        }
+
+        CWinCtrl* pEditCtrl = Find(IID_EDITBOX);
+        if (pEditCtrl != NULL && pEditCtrl->GetControlType() == CTRL_EDITBOX)
+            ((CTEditBox*)pEditCtrl)->clear_text();
+        return;
+    }
+
     ///아이템 링크: "[Name]" → wire token 치환 ( GM 명령어는 제외 )
     if (stMsg[0] != '/')
         SubstitutePendingItemLinks(stMsg);

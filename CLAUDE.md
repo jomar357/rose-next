@@ -246,6 +246,15 @@ integration. The purpose is quick, player-editable interfaces, **not** reproduci
 TSI/atlas workflow: `.rml`/`.rcss` are loaded loose (never via the VFS) so players can edit them, and
 texture loading resolves **disk first, VFS second** so a player's file overrides shipped art.
 
+**The shared look lives in `3ddata/rmlui/rose-theme.rcss`** (2026-09-23): the 667 build's "glass"
+UI re-expressed as gradients — palette sampled from `GLASSUI_*.DDS`, a colour-neutral `ui-gloss`
+`@decorator` laid over `background-color` so one definition makes a glass bar of any colour, and
+`ui-window` / `ui-titlebar` / `ui-well` / `ui-btn` / `ui-gauge` component classes. A panel links the
+theme first and keeps its own `.rcss` to layout only; the damage meter is the reference. RCSS has no
+`var()`, so the palette is a comment block, not tokens. `/uireload` re-reads every stylesheet in
+game (styles only — markup still needs a restart). Each gradient is one draw call and the backend
+does not batch; fine for a few panels, revisit before moving the whole HUD over.
+
 Linear gradients are implemented in the D3D9 backend without a shader, and `border-radius` needs no
 renderer support, so skins need no image files at all. Radial/conic gradients, blurred `box-shadow`,
 `filter` and `transform` are **not** implemented and will warn or do nothing. Full design notes,

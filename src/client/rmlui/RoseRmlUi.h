@@ -45,6 +45,12 @@ bool ProcessWndMsg(HWND hWnd, UINT uiMsg, WPARAM wParam, LPARAM lParam);
 /// Draw-call count of the last rendered frame, for the debug HUD.
 int GetDrawCallCount();
 
+/// Re-reads every stylesheet of every loaded .rml document from disk ( the
+/// "/uireload" chat command ), so a skin can be tuned with the game running.
+/// Styles only: markup and data bindings still need a restart. Returns the
+/// number of documents reloaded.
+int ReloadStyleSheets();
+
 /// --- damage meter -------------------------------------------------------
 /// The RmlUi-drawn damage meter. When the overlay is enabled, "/dps" opens
 /// this instead of the legacy CDamageMeterPanel; both read the same
