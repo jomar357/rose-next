@@ -1,7 +1,12 @@
 <#
 Build a portable tester tool with only its loose item tables, translations,
 item atlas, and the DDS sheets named by that atlas. No VFS or game install needed.
-Run again after editing item data to refresh the tester package.
+Run again after editing item or monster data to refresh the tester package.
+
+The monster tab needs LIST_NPC and its model tables, but not the meshes,
+textures and motions they name: the browser writes those tables plus
+ASSET_MANIFEST.TXT (every referenced model file that exists in the source),
+so its missing-file checks match the full data exactly.
 #>
 [CmdletBinding()]
 param (
@@ -78,22 +83,44 @@ foreach ($asset in $assets) {
         throw "Copied asset did not verify: $asset"
     }
 }
+
+# Monster tables + asset manifest. The release exe has no console, so wait on
+# it explicitly and read its error output from a file.
+$monsterLog = Join-Path ([IO.Path]::GetTempPath()) 'gm-browser-package-monsters.txt'
+$process = Start-Process -FilePath (Join-Path $packageRoot 'gm-item-browser.exe') `
+    -ArgumentList @('--package-monsters', "`"$sourceRoot`"", "`"$packageData`"") `
+    -Wait -PassThru -NoNewWindow -RedirectStandardError $monsterLog
+if ($process.ExitCode -ne 0) {
+    throw "Packaging monster data failed:`n$(Get-Content -LiteralPath $monsterLog -Raw)"
+}
+$manifestCount = (Get-Content -LiteralPath (Join-Path $packageData 'ASSET_MANIFEST.TXT')).Count - 1
+
 @'
-ROSE GM Item Browser
+ROSE GM Browser
 
 Launch gm-item-browser.exe. Keep the data folder beside it; it loads automatically.
 No game installation or VFS files are needed.
 
-Search by name or ID, filter by item type and stats, and click Copy to copy the
-/item command. Paste it into game chat. GM access is required in the game.
-Select an item name for details and quantities on stackable items.
+Items tab: search by name or ID, filter by item type and stats, and click Copy
+to copy the /item command. Select an item name for details and quantities on
+stackable items.
+
+Monsters tab: search by name or ID (#123 matches exactly ID 123), filter by
+level and HP, set the spawn count, and click Copy for the /mon command.
+Names in rose are broken rows: the server refuses them, or they would spawn
+invisible, untextured or frozen. Select one to see exactly why. An amber
+status marks minor problems such as a missing weapon prop or a blank name.
+
+Paste commands into game chat. GM access is required in the game.
+Ctrl+F jumps to the search box; double-click a name to copy its command.
 
 Open data folder selects another loose data set. Open VFS remains available for
 loading a game's data.idx directly. Reload refreshes the selected source.
 
-This catalog is a snapshot: update the package when the server's item data changes.
+This catalog is a snapshot: update the package when the server's data changes.
 '@ | Set-Content -LiteralPath (Join-Path $packageRoot 'README.txt') -Encoding utf8
 
 $size = (Get-ChildItem -LiteralPath $packageRoot -Recurse -File | Measure-Object -Property Length -Sum).Sum
 Write-Host "Packaged $($assets.Count) loose data files ($sheetCount icon sheets)."
+Write-Host "Packaged monster tables with $manifestCount referenced model files in the manifest."
 Write-Host ('Package: {0} ({1:N1} MB)' -f $packageRoot, ($size / 1MB))

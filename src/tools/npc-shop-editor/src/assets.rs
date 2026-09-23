@@ -1,5 +1,5 @@
 //! Read-only access to extracted assets or a shipped data.idx and its archives.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -11,7 +11,15 @@ use roselib::io::RoseFile;
 pub struct Assets {
     root: PathBuf,
     packed: Option<HashMap<String, Entry>>,
+    /// Loose tester packages ship tables but not meshes or textures. The
+    /// packager records which referenced model files exist in the source data,
+    /// so model checks give the same answer in the package as in the full tree.
+    manifest: Option<HashSet<String>>,
 }
+
+/// Written beside `3DDATA` by `scripts/package-gm-item-browser.ps1`.
+pub const MANIFEST_NAME: &str = "ASSET_MANIFEST.TXT";
+const MANIFEST_HEADER: &str = "# ROSE GM browser asset manifest v1";
 
 struct Entry {
     archive: PathBuf,
@@ -51,6 +59,7 @@ impl Assets {
             return Ok(Self {
                 root,
                 packed: Some(entries),
+                manifest: None,
             });
         }
         for root in [
@@ -62,9 +71,15 @@ impl Assets {
         .flatten()
         {
             if find_ci(root, "3DDATA/STB/LIST_WEAPON.STB").is_ok() {
+                let manifest = match fs::read_to_string(root.join(MANIFEST_NAME)) {
+                    Ok(text) => Some(parse_manifest(&text)?),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+                    Err(e) => return Err(e).context("reading the asset manifest"),
+                };
                 return Ok(Self {
                     root: root.to_path_buf(),
                     packed: None,
+                    manifest,
                 });
             }
         }
@@ -91,12 +106,68 @@ impl Assets {
             .with_context(|| format!("reading {path}"))?;
         Ok(bytes)
     }
+
+    /// Whether the game could open `path`, without reading it.
+    pub fn exists(&self, path: &str) -> bool {
+        let key = normalize(path);
+        match &self.packed {
+            Some(entries) => entries.contains_key(&key),
+            None => {
+                self.manifest.as_ref().is_some_and(|m| m.contains(&key))
+                    || find_ci(&self.root, &key).is_ok_and(|p| p.is_file())
+            }
+        }
+    }
+
+    /// Loose data without a manifest can only prove existence for files it
+    /// actually holds; callers use this to tell "missing" from "not shipped".
+    pub fn has_manifest(&self) -> bool {
+        self.manifest.is_some()
+    }
+
+    pub fn is_packed(&self) -> bool {
+        self.packed.is_some()
+    }
 }
 
-fn normalize(path: &str) -> String {
-    path.replace('\\', "/")
-        .trim_matches('/')
-        .to_ascii_uppercase()
+pub fn write_manifest(paths: impl IntoIterator<Item = String>) -> String {
+    let mut keys: Vec<String> = paths.into_iter().map(|p| normalize(&p)).collect();
+    keys.sort_unstable();
+    keys.dedup();
+    let mut text = format!("{MANIFEST_HEADER}\n");
+    for key in keys {
+        text.push_str(&key);
+        text.push('\n');
+    }
+    text
+}
+
+fn parse_manifest(text: &str) -> Result<HashSet<String>> {
+    let mut lines = text.lines();
+    if lines.next().map(str::trim) != Some(MANIFEST_HEADER) {
+        bail!("{MANIFEST_NAME} has an unknown format");
+    }
+    Ok(lines
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(normalize)
+        .collect())
+}
+
+/// Upper-case, forward slashes, with `.` and `..` segments resolved: model
+/// tables can write paths such as `3Ddata\NPC\..\x.DDS`, which the game resolves.
+pub fn normalize(path: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    for part in path.split(['/', '\\']) {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            part => parts.push(part),
+        }
+    }
+    parts.join("/").to_ascii_uppercase()
 }
 
 fn find_ci(root: &Path, path: &str) -> Result<PathBuf> {

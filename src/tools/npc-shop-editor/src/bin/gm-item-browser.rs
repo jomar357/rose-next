@@ -5,14 +5,40 @@ use std::sync::{mpsc, Arc};
 
 use egui::{Color32, RichText};
 use egui_extras::{Column, TableBuilder};
-use npc_shop_editor::assets::Assets;
+use npc_shop_editor::assets::{self, Assets};
 use npc_shop_editor::catalog::{Catalog, CatalogItem, Filter, RangeFilter};
 use npc_shop_editor::data::ItemCategory;
 use npc_shop_editor::icons::IconStore;
+use npc_shop_editor::monsters::{
+    Monster, MonsterCatalog, MonsterFilter, Severity, StatusFilter, MAX_SPAWN_COUNT, PACKAGE_TABLES,
+};
+
+/// Broken monster rows keep their place in the list, drawn in rose.
+const ROSE: Color32 = Color32::from_rgb(255, 96, 150);
+const AMBER: Color32 = Color32::from_rgb(235, 185, 80);
 
 fn main() -> eframe::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
-    let root = std::env::args_os().nth(1).map(PathBuf::from).or_else(|| {
+    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    if args.first().is_some_and(|a| a == "--package-monsters") {
+        // Used by scripts/package-gm-item-browser.ps1. The release build has no
+        // console, so the packager redirects stderr and checks the exit code.
+        let code = match (args.get(1), args.get(2)) {
+            (Some(data), Some(out)) => match package_monsters(Path::new(data), Path::new(out)) {
+                Ok(()) => 0,
+                Err(e) => {
+                    eprintln!("{e:#}");
+                    1
+                }
+            },
+            _ => {
+                eprintln!("usage: gm-item-browser --package-monsters <data> <package-data>");
+                2
+            }
+        };
+        std::process::exit(code);
+    }
+    let root = args.first().map(PathBuf::from).or_else(|| {
         let beside_exe = std::env::current_exe().ok()?.parent()?.to_path_buf();
         [Some(beside_exe), std::env::current_dir().ok()]
             .into_iter()
@@ -23,7 +49,7 @@ fn main() -> eframe::Result<()> {
             })
     });
     eframe::run_native(
-        "ROSE GM Item Browser",
+        "ROSE GM Browser",
         eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default()
                 .with_inner_size([1320.0, 820.0])
@@ -34,7 +60,53 @@ fn main() -> eframe::Result<()> {
     )
 }
 
-type Loaded = Result<(Catalog, Arc<Assets>), String>;
+/// Copy the monster tables and write the manifest of model files they
+/// reference, so a package without meshes or textures checks monsters exactly
+/// as the full data does.
+fn package_monsters(data: &Path, out: &Path) -> anyhow::Result<()> {
+    let source = Assets::open(data)?;
+    let catalog = MonsterCatalog::load(&source)?;
+    if !catalog.file_checks || !catalog.warnings.is_empty() {
+        anyhow::bail!(
+            "refusing to package incomplete monster data:\n{}",
+            catalog.warnings.join("\n")
+        );
+    }
+    for table in PACKAGE_TABLES {
+        let target = out.join(table);
+        std::fs::create_dir_all(target.parent().unwrap())?;
+        std::fs::write(&target, source.read(table)?)?;
+    }
+    std::fs::write(
+        out.join(assets::MANIFEST_NAME),
+        assets::write_manifest(catalog.present_files.iter().cloned()),
+    )?;
+    let packaged = MonsterCatalog::load(&Assets::open(out)?)?;
+    let verdicts = |c: &MonsterCatalog| -> Vec<_> {
+        c.monsters
+            .iter()
+            .map(|m| (m.id, m.issues.clone()))
+            .collect()
+    };
+    if verdicts(&packaged) != verdicts(&catalog) {
+        anyhow::bail!("the packaged monster data does not reproduce the source's checks");
+    }
+    Ok(())
+}
+
+struct LoadedData {
+    items: Result<Catalog, String>,
+    monsters: Result<MonsterCatalog, String>,
+    assets: Arc<Assets>,
+}
+
+type Loaded = Result<LoadedData, String>;
+
+#[derive(Clone, Copy, PartialEq)]
+enum Tab {
+    Items,
+    Monsters,
+}
 
 #[derive(Clone, Copy, PartialEq)]
 enum Sort {
@@ -64,18 +136,107 @@ impl Sort {
     }
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum MobSort {
+    Id,
+    Name,
+    Level,
+    Hp,
+    Attack,
+    Defense,
+    Exp,
+    Status,
+}
+
+impl MobSort {
+    const ALL: [(Self, &'static str); 8] = [
+        (Self::Id, "ID"),
+        (Self::Name, "Name"),
+        (Self::Level, "Level"),
+        (Self::Hp, "Max HP"),
+        (Self::Attack, "Attack"),
+        (Self::Defense, "Defense"),
+        (Self::Exp, "EXP"),
+        (Self::Status, "Status"),
+    ];
+    fn label(self) -> &'static str {
+        Self::ALL.iter().find(|(key, _)| *key == self).unwrap().1
+    }
+}
+
+struct MonsterView {
+    catalog: Option<MonsterCatalog>,
+    filter: MonsterFilter,
+    sort: MobSort,
+    descending: bool,
+    results: Vec<usize>,
+    selected: Option<usize>,
+    count: i32,
+}
+
+impl MonsterView {
+    fn new() -> Self {
+        Self {
+            catalog: None,
+            filter: MonsterFilter::default(),
+            sort: MobSort::Id,
+            descending: false,
+            results: Vec::new(),
+            selected: None,
+            count: 1,
+        }
+    }
+
+    fn refresh(&mut self) {
+        let Some(catalog) = &self.catalog else {
+            return;
+        };
+        self.results = catalog
+            .monsters
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| self.filter.matches(m))
+            .map(|(i, _)| i)
+            .collect();
+        self.results.sort_by(|&a, &b| {
+            let (a, b) = (&catalog.monsters[a], &catalog.monsters[b]);
+            let cmp = match self.sort {
+                MobSort::Id => a.id.cmp(&b.id),
+                MobSort::Name => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+                MobSort::Level => a.level.cmp(&b.level),
+                MobSort::Hp => a.max_hp.cmp(&b.max_hp),
+                MobSort::Attack => a.attack.cmp(&b.attack),
+                MobSort::Defense => a.defense.cmp(&b.defense),
+                MobSort::Exp => a.exp.cmp(&b.exp),
+                MobSort::Status => a.worst().cmp(&b.worst()),
+            };
+            (if self.descending { cmp.reverse() } else { cmp }).then_with(|| a.id.cmp(&b.id))
+        });
+        if self
+            .selected
+            .is_some_and(|selected| !self.results.contains(&selected))
+        {
+            self.selected = None;
+        }
+    }
+}
+
 struct Browser {
+    tab: Tab,
     catalog: Option<Catalog>,
     icons: IconStore,
     loading: Option<mpsc::Receiver<Loaded>>,
     root: Option<PathBuf>,
     error: Option<String>,
+    /// One half failed to load while the other worked.
+    load_notes: Vec<String>,
     filter: Filter,
     sort: Sort,
     descending: bool,
     results: Vec<usize>,
     selected: Option<usize>,
     quantity: i32,
+    mobs: MonsterView,
     copied: Option<(String, std::time::Instant)>,
 }
 
@@ -83,17 +244,20 @@ impl Browser {
     fn new(cc: &eframe::CreationContext<'_>, root: Option<PathBuf>) -> Self {
         cc.egui_ctx.set_visuals(egui::Visuals::dark());
         let mut app = Self {
+            tab: Tab::Items,
             catalog: None,
             icons: IconStore::empty(Path::new(".")),
             loading: None,
             root: None,
             error: None,
+            load_notes: Vec::new(),
             filter: Filter::default(),
             sort: Sort::Type,
             descending: false,
             results: Vec::new(),
             selected: None,
             quantity: 1,
+            mobs: MonsterView::new(),
             copied: None,
         };
         if let Some(root) = root {
@@ -107,18 +271,26 @@ impl Browser {
         self.catalog = None;
         self.results.clear();
         self.selected = None;
+        self.mobs.catalog = None;
+        self.mobs.results.clear();
+        self.mobs.selected = None;
         self.error = None;
+        self.load_notes.clear();
         self.icons = IconStore::empty(Path::new("."));
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
         self.loading = Some(rx);
         std::thread::spawn(move || {
-            let result = (|| -> anyhow::Result<_> {
-                let assets = Arc::new(Assets::open(&root)?);
-                let catalog = Catalog::load(&assets)?;
-                Ok((catalog, assets))
-            })()
-            .map_err(|e| format!("{e:#}"));
+            let result = Assets::open(&root)
+                .map(|assets| {
+                    let assets = Arc::new(assets);
+                    LoadedData {
+                        items: Catalog::load(&assets).map_err(|e| format!("{e:#}")),
+                        monsters: MonsterCatalog::load(&assets).map_err(|e| format!("{e:#}")),
+                        assets,
+                    }
+                })
+                .map_err(|e| format!("{e:#}"));
             let _ = tx.send(result);
             ctx.request_repaint();
         });
@@ -136,16 +308,43 @@ impl Browser {
             }
         };
         self.loading = None;
-        match result {
-            Ok((mut catalog, assets)) => {
-                match IconStore::from_assets(assets) {
-                    Ok(icons) => self.icons = icons,
-                    Err(e) => catalog.warnings.push(format!("Icons unavailable: {e:#}")),
-                }
-                self.catalog = Some(catalog);
-                self.refresh();
+        let loaded = match result {
+            Ok(loaded) => loaded,
+            Err(e) => {
+                self.error = Some(e);
+                return;
             }
-            Err(e) => self.error = Some(e),
+        };
+        match (loaded.items, loaded.monsters) {
+            (Err(items), Err(monsters)) => {
+                self.error = Some(format!("Items: {items}\n\nMonsters: {monsters}"));
+            }
+            (items, monsters) => {
+                match items {
+                    Ok(mut catalog) => {
+                        match IconStore::from_assets(loaded.assets) {
+                            Ok(icons) => self.icons = icons,
+                            Err(e) => catalog.warnings.push(format!("Icons unavailable: {e:#}")),
+                        }
+                        self.catalog = Some(catalog);
+                        self.refresh();
+                    }
+                    Err(e) => {
+                        self.load_notes.push(format!("Items unavailable: {e}"));
+                        self.tab = Tab::Monsters;
+                    }
+                }
+                match monsters {
+                    Ok(catalog) => {
+                        self.mobs.catalog = Some(catalog);
+                        self.mobs.refresh();
+                    }
+                    Err(e) => {
+                        self.load_notes.push(format!("Monsters unavailable: {e}"));
+                        self.tab = Tab::Items;
+                    }
+                }
+            }
         }
     }
 
@@ -193,10 +392,11 @@ impl Browser {
     fn filters(&mut self, ui: &mut egui::Ui) {
         ui.heading("Find an item");
         ui.add_space(8.0);
-        ui.add(
-            egui::TextEdit::singleline(&mut self.filter.search)
-                .hint_text("Name, ID, type:ID...")
-                .desired_width(f32::INFINITY),
+        search_box(
+            ui,
+            &mut self.filter.search,
+            ITEM_SEARCH,
+            "Name, ID, type:ID...",
         );
         ui.add_space(8.0);
         let previous_category = self.filter.category;
@@ -267,6 +467,7 @@ impl Browser {
         ui.separator();
         ui.label("Select an item to inspect it.");
         ui.label("Copy its command, then paste it into game chat.");
+        ui.small("Ctrl+F jumps to the search box. Double-click a name to copy its command.");
     }
 
     fn details(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
@@ -381,12 +582,14 @@ impl Browser {
                         draw_icon(ui, ctx, &mut self.icons, item, 40.0);
                     });
                     row.col(|ui| {
-                        if ui
+                        let response = ui
                             .selectable_label(self.selected == Some(index), &item.item.name)
-                            .on_hover_text(&item.description)
-                            .clicked()
-                        {
+                            .on_hover_text(&item.description);
+                        if response.clicked() {
                             self.selected = Some(index);
+                        }
+                        if response.double_clicked() {
+                            copy = item.command(1);
                         }
                     });
                     row.col(|ui| {
@@ -420,15 +623,318 @@ impl Browser {
             self.copy(command, ctx);
         }
     }
+
+    fn monster_filters(&mut self, ui: &mut egui::Ui) {
+        let mobs = &mut self.mobs;
+        ui.heading("Find a monster");
+        ui.add_space(8.0);
+        search_box(
+            ui,
+            &mut mobs.filter.search,
+            MOB_SEARCH,
+            "Name or ID (#123 = exact ID)",
+        );
+        ui.add_space(8.0);
+        egui::ComboBox::from_label("Show")
+            .width(160.0)
+            .selected_text(mobs.filter.status.label())
+            .show_ui(ui, |ui| {
+                for (status, label) in StatusFilter::ALL {
+                    ui.selectable_value(&mut mobs.filter.status, status, label);
+                }
+            });
+        ui.checkbox(&mut mobs.filter.include_town_npcs, "Include town NPCs")
+            .on_hover_text("Town NPCs are in the same table, but /mon cannot spawn them.");
+        ui.add_space(12.0);
+        ui.label(RichText::new("Stat ranges").strong());
+        ui.small("Leave a bound blank for no limit.");
+        range_ui(ui, "Level", &mut mobs.filter.level);
+        range_ui(ui, "Max HP", &mut mobs.filter.hp);
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            ui.label("Spawn count");
+            ui.add(egui::DragValue::new(&mut mobs.count).clamp_range(1..=MAX_SPAWN_COUNT));
+        })
+        .response
+        .on_hover_text("Second /mon argument. The server caps it at 100.");
+        if ui.button("Clear filters").clicked() {
+            mobs.filter = MonsterFilter::default();
+        }
+        ui.add_space(12.0);
+        ui.label(RichText::new("Names in rose are broken.").color(ROSE));
+        ui.small(
+            "The server refuses them, or they spawn invisible, untextured or frozen. \
+             Select one to see why.",
+        );
+        ui.label(RichText::new("Amber status = minor problems.").color(AMBER));
+        ui.small("For example a missing weapon prop or a blank in-game name.");
+        ui.separator();
+        ui.label("Copy a command, then paste it into game chat.");
+        ui.small("/mon ID COUNT spawns around you. GM access is required in the game.");
+        ui.small("Ctrl+F jumps to the search box. Double-click a name to copy its command.");
+    }
+
+    fn monster_details(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        let Some(monster) = self
+            .mobs
+            .selected
+            .and_then(|i| self.mobs.catalog.as_ref()?.monsters.get(i))
+        else {
+            ui.label("Select a monster for details, problems and its GM command.");
+            return;
+        };
+        let mut command_to_copy = None;
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                ui.label(monster_name(monster).strong().size(15.0));
+                let mut line = format!("ID {}", monster.id);
+                if monster.table_name != monster.name && !monster.table_name.is_empty() {
+                    line += &format!("  |  Table name \"{}\"", monster.table_name);
+                }
+                if monster.town_npc() {
+                    line += "  |  Town NPC";
+                }
+                ui.label(line);
+                ui.label(format!(
+                    "Level {}   HP {} ({} per level)   Attack {}   Hit {}   Defense {}   Resistance {}   Dodge {}",
+                    monster.level,
+                    monster.max_hp,
+                    monster.hp,
+                    monster.attack,
+                    monster.hit,
+                    monster.defense,
+                    monster.resistance,
+                    monster.avoid
+                ));
+                ui.label(format!(
+                    "EXP {}   {} damage   Attack speed {}   Range {:.1} m   Walk/run {}/{}",
+                    monster.exp,
+                    if monster.magic_damage {
+                        "Magic"
+                    } else {
+                        "Physical"
+                    },
+                    monster.attack_speed,
+                    monster.attack_range as f32 / 100.0,
+                    monster.walk_speed,
+                    monster.run_speed
+                ));
+            });
+            ui.separator();
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Count");
+                    ui.add(
+                        egui::DragValue::new(&mut self.mobs.count).clamp_range(1..=MAX_SPAWN_COUNT),
+                    );
+                });
+                match monster.command(self.mobs.count) {
+                    Some(command) => {
+                        ui.horizontal(|ui| {
+                            ui.monospace(&command);
+                            if ui.button("Copy command").clicked() {
+                                command_to_copy = Some(command);
+                            }
+                        });
+                    }
+                    None => {
+                        ui.colored_label(ROSE, "/mon cannot spawn this row.");
+                    }
+                }
+            });
+        });
+        if monster.issues.is_empty() {
+            ui.colored_label(Color32::LIGHT_GREEN, "No problems found.");
+        } else {
+            ui.add_space(4.0);
+            for issue in &monster.issues {
+                let (color, tag) = match issue.severity {
+                    Severity::Error => (ROSE, "Broken"),
+                    Severity::Warning => (AMBER, "Minor"),
+                };
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new(tag).color(color).strong());
+                    ui.label(&issue.text);
+                });
+            }
+        }
+        if let Some(blocker) = monster.spawn_blocker.filter(|_| monster.town_npc()) {
+            ui.small(blocker);
+        }
+        if let Some(command) = command_to_copy {
+            self.copy(command, ctx);
+        }
+    }
+
+    fn monster_table(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        let MonsterView {
+            catalog,
+            filter: _,
+            sort,
+            descending,
+            results,
+            selected,
+            count,
+        } = &mut self.mobs;
+        let Some(catalog) = catalog.as_ref() else {
+            return;
+        };
+        let broken = results
+            .iter()
+            .filter(|&&i| catalog.monsters[i].worst() == Some(Severity::Error))
+            .count();
+        ui.horizontal(|ui| {
+            ui.strong(format!(
+                "{} matching / {} rows",
+                results.len(),
+                catalog.monsters.len()
+            ));
+            if broken > 0 {
+                ui.label(RichText::new(format!("{broken} broken")).color(ROSE));
+            }
+            ui.separator();
+            egui::ComboBox::from_label("Sort")
+                .selected_text(sort.label())
+                .show_ui(ui, |ui| {
+                    for (value, label) in MobSort::ALL {
+                        ui.selectable_value(sort, value, label);
+                    }
+                });
+            ui.checkbox(descending, "Descending");
+        });
+        if !catalog.file_checks {
+            ui.colored_label(
+                AMBER,
+                "Missing-file checks are off for this folder: see Data warnings above.",
+            );
+        }
+        ui.add_space(6.0);
+        if results.is_empty() {
+            ui.label("No matching monsters. Adjust or clear the filters.");
+            return;
+        }
+        let mut copy = None;
+        // Own ID: egui keeps column widths per table ID, and the item table
+        // would otherwise hand its widths to this one.
+        ui.push_id("monster_table", |ui| {
+            TableBuilder::new(ui)
+                .striped(true)
+                .resizable(true)
+                .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                .column(Column::initial(300.0).at_least(150.0).clip(true))
+                .column(Column::initial(55.0))
+                .column(Column::initial(50.0))
+                .columns(Column::initial(62.0), 4)
+                .column(Column::initial(95.0))
+                .column(Column::remainder().at_least(62.0))
+                .header(24.0, |mut header| {
+                    for label in [
+                        "Name", "ID", "Level", "Max HP", "Attack", "Defense", "Resist.", "Status",
+                        "Command",
+                    ] {
+                        header.col(|ui| {
+                            ui.strong(label);
+                        });
+                    }
+                })
+                .body(|body| {
+                    body.rows(26.0, results.len(), |mut row| {
+                        let index = results[row.index()];
+                        let monster = &catalog.monsters[index];
+                        row.set_selected(*selected == Some(index));
+                        row.col(|ui| {
+                            let response = ui
+                                .selectable_label(*selected == Some(index), monster_name(monster));
+                            if response.clicked() {
+                                *selected = Some(index);
+                            }
+                            if response.double_clicked() {
+                                copy = monster.command(*count);
+                            }
+                        });
+                        row.col(|ui| {
+                            ui.monospace(monster.id.to_string());
+                        });
+                        for value in [
+                            monster.level,
+                            monster.max_hp,
+                            monster.attack,
+                            monster.defense,
+                            monster.resistance,
+                        ] {
+                            row.col(|ui| {
+                                ui.label(value.to_string());
+                            });
+                        }
+                        row.col(|ui| {
+                            let (text, color) = status(monster);
+                            let response = ui.label(RichText::new(text).color(color));
+                            if !monster.issues.is_empty() {
+                                response.on_hover_ui(|ui| {
+                                    for issue in &monster.issues {
+                                        ui.label(&issue.text);
+                                    }
+                                });
+                            }
+                        });
+                        row.col(|ui| {
+                            let command = monster.command(*count);
+                            let hover = command
+                                .clone()
+                                .unwrap_or_else(|| monster.spawn_blocker.unwrap_or("").to_string());
+                            if ui
+                                .add_enabled(command.is_some(), egui::Button::new("Copy"))
+                                .on_hover_text(&hover)
+                                .on_disabled_hover_text(&hover)
+                                .clicked()
+                            {
+                                copy = command;
+                                *selected = Some(index);
+                            }
+                        });
+                    });
+                });
+        });
+        if let Some(command) = copy {
+            self.copy(command, ctx);
+        }
+    }
+
+    fn warnings(&self) -> Vec<&str> {
+        let items = self.catalog.iter().flat_map(|c| &c.warnings);
+        let mobs = self.mobs.catalog.iter().flat_map(|c| &c.warnings);
+        self.load_notes
+            .iter()
+            .chain(items)
+            .chain(mobs)
+            .map(String::as_str)
+            .collect()
+    }
 }
 
 impl eframe::App for Browser {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_load();
+        let loaded = self.catalog.is_some() || self.mobs.catalog.is_some();
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.heading("ROSE GM Item Browser");
+                ui.heading("ROSE GM Browser");
                 ui.separator();
+                if loaded {
+                    let items = self.catalog.as_ref().map_or(0, |c| c.items.len());
+                    let mobs = self.mobs.catalog.as_ref().map_or(0, |c| c.monsters.len());
+                    ui.add_enabled_ui(self.catalog.is_some(), |ui| {
+                        ui.selectable_value(&mut self.tab, Tab::Items, format!("Items ({items})"));
+                    });
+                    ui.add_enabled_ui(self.mobs.catalog.is_some(), |ui| {
+                        ui.selectable_value(
+                            &mut self.tab,
+                            Tab::Monsters,
+                            format!("Monsters ({mobs})"),
+                        );
+                    });
+                    ui.separator();
+                }
                 if ui
                     .add_enabled(
                         self.loading.is_none(),
@@ -473,38 +979,37 @@ impl eframe::App for Browser {
             if let Some(root) = &self.root {
                 ui.small(root.display().to_string());
             }
-            if let Some(catalog) = &self.catalog {
-                if !catalog.warnings.is_empty() {
-                    egui::CollapsingHeader::new(format!(
-                        "Data warnings ({})",
-                        catalog.warnings.len()
-                    ))
-                    .show(ui, |ui| {
+            let warnings = self.warnings();
+            if !warnings.is_empty() {
+                egui::CollapsingHeader::new(format!("Data warnings ({})", warnings.len())).show(
+                    ui,
+                    |ui| {
                         egui::ScrollArea::vertical()
                             .max_height(110.0)
                             .show(ui, |ui| {
-                                for warning in &catalog.warnings {
+                                for warning in warnings {
                                     ui.colored_label(Color32::LIGHT_YELLOW, warning);
                                 }
                             });
-                    });
-                }
+                    },
+                );
             }
         });
-        if self.catalog.is_none() {
+        if !loaded {
             egui::CentralPanel::default().show(ctx, |ui| {
                 ui.add_space(55.0);
                 if self.loading.is_some() {
                     ui.spinner();
-                    ui.heading("Loading items...");
+                    ui.heading("Loading items and monsters...");
                 } else {
-                    ui.heading("Find items. Copy commands. Get testing.");
+                    ui.heading("Find items and monsters. Copy commands. Get testing.");
                     ui.label(
                         "Keep the supplied data folder beside this tool for automatic loading.",
                     );
                     ui.label("You can also open another data folder or a VFS index.");
                     ui.label(
-                        "The tool reads game data. GM access is required to use /item in the game.",
+                        "The tool reads game data. GM access is required to use /item and /mon \
+                         in the game.",
                     );
                     if let Some(error) = &self.error {
                         ui.colored_label(Color32::LIGHT_RED, error);
@@ -513,6 +1018,22 @@ impl eframe::App for Browser {
             });
             return;
         }
+        if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F)) {
+            let id = match self.tab {
+                Tab::Items => ITEM_SEARCH,
+                Tab::Monsters => MOB_SEARCH,
+            };
+            ctx.memory_mut(|m| m.request_focus(egui::Id::new(id)));
+        }
+        match self.tab {
+            Tab::Items => self.items_page(ctx),
+            Tab::Monsters => self.monsters_page(ctx),
+        }
+    }
+}
+
+impl Browser {
+    fn items_page(&mut self, ctx: &egui::Context) {
         let old_filter = self.filter.clone();
         let old_sort = (self.sort, self.descending);
         egui::SidePanel::left("filters")
@@ -535,6 +1056,81 @@ impl eframe::App for Browser {
             self.refresh();
             ctx.request_repaint();
         }
+    }
+
+    fn monsters_page(&mut self, ctx: &egui::Context) {
+        let old_filter = self.mobs.filter.clone();
+        let old_sort = (self.mobs.sort, self.mobs.descending);
+        egui::SidePanel::left("monster_filters")
+            .exact_width(255.0)
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| self.monster_filters(ui));
+            });
+        if old_filter != self.mobs.filter {
+            self.mobs.refresh();
+        }
+        egui::TopBottomPanel::bottom("monster_details")
+            .min_height(130.0)
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical()
+                    .max_height(230.0)
+                    .show(ui, |ui| self.monster_details(ui, ctx));
+            });
+        egui::CentralPanel::default().show(ctx, |ui| self.monster_table(ui, ctx));
+        if old_sort != (self.mobs.sort, self.mobs.descending) {
+            self.mobs.refresh();
+            ctx.request_repaint();
+        }
+    }
+}
+
+const ITEM_SEARCH: &str = "item_search";
+const MOB_SEARCH: &str = "monster_search";
+
+/// A full-width search field with a clear button; Ctrl+F focuses it by `id`.
+fn search_box(ui: &mut egui::Ui, text: &mut String, id: &str, hint: &str) {
+    ui.horizontal(|ui| {
+        let clear = !text.is_empty()
+            && ui
+                .small_button("x")
+                .on_hover_text("Clear the search")
+                .clicked();
+        ui.add(
+            egui::TextEdit::singleline(text)
+                .id(egui::Id::new(id))
+                .hint_text(hint)
+                .desired_width(f32::INFINITY),
+        );
+        if clear {
+            text.clear();
+        }
+    });
+}
+
+fn monster_name(monster: &Monster) -> RichText {
+    let text = RichText::new(&monster.name);
+    match monster.worst() {
+        Some(Severity::Error) => text.color(ROSE),
+        _ if monster.town_npc() => text.color(Color32::GRAY),
+        _ => text,
+    }
+}
+
+fn status(monster: &Monster) -> (String, Color32) {
+    let errors = monster
+        .issues
+        .iter()
+        .filter(|i| i.severity == Severity::Error)
+        .count();
+    let warnings = monster.issues.len() - errors;
+    if errors > 0 {
+        (format!("Broken ({errors})"), ROSE)
+    } else if warnings > 0 {
+        (format!("{warnings} minor"), AMBER)
+    } else if monster.town_npc() {
+        ("Town NPC".into(), Color32::GRAY)
+    } else {
+        ("OK".into(), Color32::LIGHT_GREEN)
     }
 }
 

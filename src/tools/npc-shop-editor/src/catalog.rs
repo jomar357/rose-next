@@ -109,9 +109,9 @@ impl Catalog {
     }
 }
 
-type Names = HashMap<String, (String, String)>;
+pub(crate) type Names = HashMap<String, (String, String)>;
 
-fn english_names(assets: &Assets, path: &str) -> Result<Names> {
+pub(crate) fn english_names(assets: &Assets, path: &str) -> Result<Names> {
     let mut stl = STL::new();
     stl.read(&mut Cursor::new(assets.read(path)?))
         .map_err(|e| anyhow::anyhow!("{e}"))?;
