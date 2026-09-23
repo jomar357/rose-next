@@ -2,7 +2,9 @@
 
 #include "RoseRmlUi.h"
 
+#include "RoseRmlBuffBar.h"
 #include "RoseRmlDamageMeter.h"
+#include "RoseRmlStatusPanel.h"
 #include "RoseRmlRenderer.h"
 #include "RoseRmlSystem.h"
 
@@ -20,6 +22,8 @@ RoseRmlRenderer* g_pRenderer = NULL;
 RoseRmlSystem* g_pSystem = NULL;
 Rml::Context* g_pContext = NULL;
 RoseRmlDamageMeter g_DamageMeter;
+RoseRmlStatusPanel g_StatusPanel; ///< UI2: replaces CAvatarInfoDlg
+RoseRmlBuffBar g_BuffBar; ///< UI2: replaces CEndurancePack::Draw
 bool g_bInitialised = false;
 int g_iEnabled = -1; ///< -1 = not yet resolved
 
@@ -40,16 +44,23 @@ ResolveEnabled() {
 
     g_iEnabled = 0;
 
-    const char* pEnv = getenv("ROSE_RMLUI");
-    if (pEnv != NULL && *pEnv != '0') {
-        g_iEnabled = 1;
-    } else {
-        char szBuf[16] = {0};
-        /// Same INI the D3D9EX A/B switch uses.
-        GetPrivateProfileStringA("VIDEO", "RMLUI", "0", szBuf, sizeof(szBuf),
-            ".\\rose-next.ini");
-        if (szBuf[0] != '\0' && szBuf[0] != '0')
+    /// UI2 ( RoseUi2.h ) is built on this overlay, so asking for UI2 also
+    /// switches RmlUi on -- a player picking the new interface should not have
+    /// to know about a second key.
+    const char* kEnvKeys[] = {"ROSE_RMLUI", "ROSE_UI2"};
+    const char* kIniKeys[] = {"RMLUI", "UI2"};
+    for (int i = 0; i < 2 && !g_iEnabled; ++i) {
+        const char* pEnv = getenv(kEnvKeys[i]);
+        if (pEnv != NULL && *pEnv != '0') {
             g_iEnabled = 1;
+        } else {
+            char szBuf[16] = {0};
+            /// Same INI the D3D9EX A/B switch uses.
+            GetPrivateProfileStringA("VIDEO", kIniKeys[i], "0", szBuf, sizeof(szBuf),
+                ".\\rose-next.ini");
+            if (szBuf[0] != '\0' && szBuf[0] != '0')
+                g_iEnabled = 1;
+        }
     }
 
     /// Always say which path is live: a toggle that silently does nothing
@@ -197,6 +208,8 @@ Initialise(HWND hWnd, void* pD3DDevice, int iWidth, int iHeight) {
     }
 
     g_DamageMeter.Initialise(g_pContext, kAssetDir);
+    g_StatusPanel.Initialise(g_pContext, kAssetDir);
+    g_BuffBar.Initialise(g_pContext, kAssetDir);
 
     g_bInitialised = true;
     return true;
@@ -208,6 +221,8 @@ Shutdown() {
         return;
 
     g_DamageMeter.Shutdown();
+    g_StatusPanel.Shutdown();
+    g_BuffBar.Shutdown();
     g_pContext = NULL;
 
     Rml::Debugger::Shutdown();
@@ -275,7 +290,14 @@ Update() {
 
     SyncDeviceIfChanged();
     g_DamageMeter.Update();
+    g_StatusPanel.Update();
+    g_BuffBar.Update();
     g_pContext->Update();
+}
+
+bool
+IsInitialised() {
+    return g_bInitialised;
 }
 
 int

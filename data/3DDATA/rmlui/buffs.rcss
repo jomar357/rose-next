@@ -1,0 +1,111 @@
+/* UI2 buff bar -- LAYOUT ONLY ( colours and materials: rose-theme.rcss ).
+   Reload in game with /uireload. */
+
+/* Default spot is where the legacy strip drew ( ENDU_ICON_X/Y = 250, 40 ). */
+#buffs {
+    position: absolute;
+    left: 250px;
+    top: 40px;
+    width: 250px;              /* icons wrap after ten */
+    cursor: move;
+}
+
+/* --- icons ------------------------------------------------------------------ */
+.icons {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+.buff {
+    position: relative;        /* anchors its tooltip */
+    width: 22px;
+    margin-right: 3px;
+    margin-bottom: 2px;
+}
+
+.frame {
+    width: 22px;
+    height: 22px;
+    border: 1px #000000c0;
+    border-radius: 3px;
+    background-color: #000000a0;
+}
+
+.frame img {
+    width: 20px;
+    height: 20px;
+}
+
+/* Remaining time, under the icon. */
+.time {
+    display: block;
+    text-align: center;
+    font-size: 9px;
+    color: #e6e6e6;
+    font-effect: outline(1px #000000c0);
+}
+
+/* The last 10 s blink, like the legacy strip ( which toggled every 200 ms ). */
+@keyframes buff-blink {
+    from { opacity: 1; }
+    to   { opacity: 0.15; }
+}
+.buff.expiring .frame img {
+    animation: 0.35s quadratic-in-out infinite alternate buff-blink;
+}
+.buff.expiring .time { color: #ff9a5a; }
+
+/* Worn equipment: the item icon with a red cast and a red rim. */
+.worn { margin-top: 3px; }
+.worn .frame { border-color: #b02a10ff; }
+.worn .frame img { image-color: #ffb4b4; }
+
+/* --- tooltips ------------------------------------------------------------- */
+.tip {
+    display: none;
+    z-index: 10;
+    left: 0px;
+    top: 26px;
+    padding: 4px 6px;
+    white-space: nowrap;
+}
+.buff:hover .tip { display: flex; }
+
+.tip-name {
+    display: block;
+    font-weight: bold;
+    color: #f0f0f0;
+}
+.tip-body {
+    display: block;
+    white-space: pre-line;     /* the goddess bonuses are one per line */
+}
+
+/* --- summon / fuel gauges ------------------------------------------------- */
+.mini {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    width: 180px;
+    margin-top: 3px;
+}
+
+.mini-label {
+    width: 70px;
+    font-size: 10px;
+    font-effect: outline(1px #000000c0);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.mini-bar {
+    flex-grow: 1;
+    height: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mini-text { font-size: 9px; }

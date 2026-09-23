@@ -1,0 +1,64 @@
+<rml>
+<head>
+    <title>Status</title>
+    <!-- Theme first ( materials, colours, states ), then this panel's layout. -->
+    <link type="text/rcss" href="rose-theme.rcss"/>
+    <link type="text/rcss" href="status.rcss"/>
+</head>
+<body data-model="status">
+    <!--
+        UI2 replacement for the legacy avatar info panel ( DlgInfo.xml ).
+        Shown by RoseRmlStatusPanel only while UI2 is on and you are in the
+        world. Clicking anywhere on the panel targets yourself; dragging it
+        moves it ( the spot is saved ); the Menu button opens the game menu.
+
+        Bars: numbers are exact and immediate, fills ease over 400 ms ( done in
+        C++, since RmlUi does not transition inline style changes ).
+    -->
+    <!-- The whole panel is its own drag handle. A press that travels under a
+         few pixels is a click ( self-target ), anything more is a move. -->
+    <handle id="status" move_target="status" class="ui-window"
+            data-event-mousedown="press()" data-event-click="self_target()">
+        <div class="head">
+            <span class="name">{{name}}</span>
+            <span class="level"><span class="ui-muted">Lv</span> {{level}}</span>
+        </div>
+
+        <div class="bar ui-gauge">
+            <div class="ui-gauge-fill hp" data-class-low="hp_low"
+                 data-style-width="hp_width + '%'"></div>
+            <span class="tag ui-gauge-text">HP</span>
+            <span class="val ui-gauge-text">{{hp}}</span>
+            <span class="pct ui-gauge-text">{{hp_pct}}</span>
+        </div>
+
+        <div class="bar ui-gauge">
+            <div class="ui-gauge-fill mp" data-style-width="mp_width + '%'"></div>
+            <span class="tag ui-gauge-text">MP</span>
+            <span class="val ui-gauge-text">{{mp}}</span>
+            <span class="pct ui-gauge-text">{{mp_pct}}</span>
+        </div>
+
+        <!-- One continuous fill with decorative tenths, as in 667 -- not ten gauges. -->
+        <div class="expbar ui-gauge">
+            <div class="ui-gauge-fill exp" data-style-width="exp_width + '%'"></div>
+            <div class="tick" style="left: 10%;"></div>
+            <div class="tick" style="left: 20%;"></div>
+            <div class="tick" style="left: 30%;"></div>
+            <div class="tick" style="left: 40%;"></div>
+            <div class="tick" style="left: 50%;"></div>
+            <div class="tick" style="left: 60%;"></div>
+            <div class="tick" style="left: 70%;"></div>
+            <div class="tick" style="left: 80%;"></div>
+            <div class="tick" style="left: 90%;"></div>
+        </div>
+
+        <div class="foot">
+            <span class="job">{{job}}</span>
+            <span class="stat"><span class="ui-muted">EXP</span> {{exp_pct}}</span>
+            <span class="stat"><span class="ui-muted">WT</span> {{weight}}</span>
+            <span class="ui-btn menu" data-event-click="open_menu()">Menu</span>
+        </div>
+    </handle>
+</body>
+</rml>

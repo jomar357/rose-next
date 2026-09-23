@@ -1,6 +1,7 @@
 #include "StdAfx.h"
 
 #include "it_mgr.h"
+#include "../rmlui/RoseUi2.h"
 #include "..\\Object.h"
 #include "CDragNDropMgr.h"
 #include "CHelpMgr.h"
@@ -356,6 +357,10 @@ IT_MGR::Update() {
 
     ProcCommand();
 
+    /// UI2: legacy dialogs with an RmlUi replacement stay hidden. Done here,
+    /// before anything draws, because game code re-shows them freely.
+    RoseUi2::HideReplacedDialogs();
+
     if (m_pCurrState->Draw())
         DrawDLGs(ptMouse);
 
@@ -687,7 +692,10 @@ IT_MGR::DrawDLGs(POINT ptMouse) {
         }
     }
 
-    g_pAVATAR->m_EndurancePack.Draw();
+    /// Buffs, summon/fuel gauges and worn-gear warnings. UI2 draws these in
+    /// RoseRmlBuffBar instead.
+    if (!RoseUi2::IsPieceReplaced(RoseUi2::PIECE_BUFF_BAR))
+        g_pAVATAR->m_EndurancePack.Draw();
 
     CToolTipMgr::GetInstance().Draw();
 

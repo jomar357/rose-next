@@ -17,6 +17,9 @@ namespace RoseRmlUi {
 /// Whether the spike is switched on for this run. Cheap; safe to call per frame.
 bool IsEnabled();
 
+/// Whether Initialise() succeeded, i.e. the overlay is actually drawing.
+bool IsInitialised();
+
 /// Creates the interfaces, the context and loads the spike document.
 /// Call once, after the D3D device exists.
 bool Initialise(HWND hWnd, void* pD3DDevice, int iWidth, int iHeight);

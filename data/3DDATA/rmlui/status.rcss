@@ -1,0 +1,110 @@
+/* UI2 status panel -- LAYOUT ONLY ( colours and materials: rose-theme.rcss ).
+   Reload in game with /uireload.
+
+   Footprint: the legacy buff icons are drawn at a fixed screen x of 250
+   ( CEndurancePack, ENDU_ICON_X ), so this panel must end before that. */
+
+#status {
+    left: 3px;
+    top: 3px;
+    width: 230px;
+    cursor: pointer;           /* the whole panel is the self-target button */
+}
+
+/* --- name / level ------------------------------------------------------------ */
+.head {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    height: 18px;
+    padding-left: 3px;
+    padding-right: 3px;
+    margin-bottom: 3px;
+}
+
+.name {
+    flex-grow: 1;
+    font-size: 12px;
+    font-weight: bold;
+    color: #f0f0f0;
+    font-effect: shadow(1px 1px #000000c0);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.level {
+    font-weight: bold;
+    color: #ff9a5a;
+}
+
+/* --- HP / MP ----------------------------------------------------------------- */
+.bar {
+    height: 17px;
+    margin-bottom: 2px;
+
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    padding-left: 5px;
+    padding-right: 5px;
+}
+
+.bar .tag { width: 22px; font-size: 10px; }
+.bar .val { flex-grow: 1; text-align: center; }
+.bar .pct { width: 34px; text-align: right; }
+
+/* Low HP: the fill breathes brighter so the danger reads without a number. */
+@keyframes low-hp {
+    from { background-color: #922500ff; }
+    to   { background-color: #d8401cff; }
+}
+.ui-gauge-fill.hp.low {
+    animation: 0.6s quadratic-in-out infinite alternate low-hp;
+}
+
+/* --- EXP ----------------------------------------------------------------------- */
+.expbar {
+    height: 7px;
+    margin-top: 1px;
+    margin-bottom: 4px;
+}
+
+/* Tenths. Positioned above the fill ( which is itself positioned ). */
+.tick {
+    position: absolute;
+    z-index: 1;
+    top: 0px;
+    bottom: 0px;
+    width: 1px;
+    background-color: #00000070;
+}
+
+/* --- job / exp / weight / menu ----------------------------------------------- */
+.foot {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    padding-left: 3px;
+}
+
+.job {
+    flex-grow: 1;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.stat {
+    margin-left: 8px;
+    font-size: 10px;
+}
+
+.menu {
+    margin-left: 8px;
+    height: 18px;
+    line-height: 17px;
+    padding-left: 8px;
+    padding-right: 8px;
+    font-size: 10px;
+}

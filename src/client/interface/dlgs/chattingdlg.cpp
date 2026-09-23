@@ -24,6 +24,7 @@
 #include "tgamectrl/tcontrolmgr.h"
 
 #include "rmlui/RoseRmlUi.h"
+#include "rmlui/RoseUi2.h"
 
 using namespace Rose;
 
@@ -565,6 +566,25 @@ CChatDLG::SendChatMsg(char* szMsg) {
             g_itMGR.AppendChatMsg(szBuf, IT_MGR::CHAT_TYPE_SYSTEM);
         } else {
             g_itMGR.AppendChatMsg("RmlUi is off ( [VIDEO] RMLUI=1 ).", IT_MGR::CHAT_TYPE_SYSTEM);
+        }
+
+        CWinCtrl* pEditCtrl = Find(IID_EDITBOX);
+        if (pEditCtrl != NULL && pEditCtrl->GetControlType() == CTRL_EDITBOX)
+            ((CTEditBox*)pEditCtrl)->clear_text();
+        return;
+    }
+
+    /// "/ui2" switches between the classic interface and UI2 ( the RmlUi
+    /// remake, converted dialog by dialog ) and saves the choice to
+    /// rose-next.ini. Local command, never sent.
+    if (stMsg == "/ui2") {
+        const bool bNext = !RoseUi2::IsActive();
+        if (RoseUi2::SetActive(bNext)) {
+            g_itMGR.AppendChatMsg(bNext ? "Interface: UI2." : "Interface: classic.",
+                IT_MGR::CHAT_TYPE_SYSTEM);
+        } else {
+            g_itMGR.AppendChatMsg("UI2 needs RmlUi: set [VIDEO] UI2=1 and restart.",
+                IT_MGR::CHAT_TYPE_SYSTEM);
         }
 
         CWinCtrl* pEditCtrl = Find(IID_EDITBOX);

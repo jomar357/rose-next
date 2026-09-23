@@ -1,6 +1,7 @@
 #include "stdafx.h"
 
 #include "RoseRmlDamageMeter.h"
+#include "RoseRmlLayout.h"
 
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/ElementDocument.h>
@@ -147,6 +148,9 @@ RoseRmlDamageMeter::Initialise(Rml::Context* pContext, const std::string& strAss
         return false;
     }
 
+    /// Remember where the player drags it ( the titlebar is the handle ).
+    RoseRmlLayout::Track(m_pDocument->GetElementById("meter"), "damagemeter");
+
     m_strTitle = ViewName(m_iView);
     LOG_INFO("[rmlui] damage meter document loaded");
     return true;
@@ -203,6 +207,10 @@ void
 RoseRmlDamageMeter::Update() {
     if (!m_bVisible || m_pDocument == NULL || g_pAVATAR == NULL)
         return;
+
+    /// A position saved at a larger resolution can be off screen now.
+    const Rml::Vector2i view = m_pContext->GetDimensions();
+    RoseRmlLayout::Clamp(m_pDocument->GetElementById("meter"), view.x, view.y);
 
     const DWORD dwNow = g_GameDATA.GetGameTime();
     if (m_dwLastRefresh != 0 && (dwNow - m_dwLastRefresh) < kSnapshotRefreshMs)

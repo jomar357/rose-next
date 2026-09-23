@@ -256,6 +256,26 @@ theme first and keeps its own `.rcss` to layout only; the damage meter is the re
 game (styles only — markup still needs a restart). Each gradient is one draw call and the backend
 does not batch; fine for a few panels, revisit before moving the whole HUD over.
 
+**UI2 is the RmlUi remake of the retail HUD, converted one piece at a time** (2026-09-23). The
+player picks classic or UI2 with `[VIDEO] UI2=1` (implies RmlUi) or the `/ui2` chat command, which
+switches live and saves the choice. `src/client/rmlui/RoseUi2.cpp` holds the whole "converted"
+switch: `kReplacedDialogs` (legacy `DLG_TYPE_*` hidden from the outside every frame in
+`IT_MGR::Update`, because game code re-shows dialogs freely — no legacy class is edited) and
+`kReplacedPieces` (HUD draws that are not dialogs, e.g. `CEndurancePack::Draw`, gated at their
+call site). Converted so far: the status panel (`DLG_TYPE_INFO` → `RoseRmlStatusPanel`, 667
+compact layout) and the buff strip (`PIECE_BUFF_BAR` → `RoseRmlBuffBar`: buffs, summon/fuel
+gauges, worn gear). Shared helpers: `RoseRmlLayout` (drag position saved in `[UI_LAYOUT]`,
+clamped on screen) and `RoseRmlIcons` (a legacy TSI sprite → `<img src rect>`, loaded through the
+VFS — no atlas re-cutting). Things that will bite:
+
+- **RmlUi fires `click` after a drag and has no drag threshold**, so a panel that is both a
+  handle and a button must compare press/release positions (the status panel uses 4 px).
+- A converted panel must reproduce **every** job of the legacy piece or be deliberately
+  documented as dropped: `CEndurancePack::Draw` also drew the summon/fuel gauges and the worn
+  gear, not just buffs. The status panel dropped the weapon/ammo slot and two dead buttons.
+- The drag-and-drop panels (quickbar, inventory) need a bridge first: `CDragNDropMgr` resolves
+  drop targets by legacy dialog type, so an RmlUi panel is invisible to it.
+
 Linear gradients are implemented in the D3D9 backend without a shader, and `border-radius` needs no
 renderer support, so skins need no image files at all. Radial/conic gradients, blurred `box-shadow`,
 `filter` and `transform` are **not** implemented and will warn or do nothing. Full design notes,

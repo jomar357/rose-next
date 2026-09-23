@@ -1,0 +1,60 @@
+<rml>
+<head>
+    <title>Buffs</title>
+    <!-- Theme first ( materials, colours, states ), then this panel's layout. -->
+    <link type="text/rcss" href="rose-theme.rcss"/>
+    <link type="text/rcss" href="buffs.rcss"/>
+</head>
+<body data-model="buffs">
+    <!--
+        UI2 replacement for the legacy buff strip ( CEndurancePack::Draw ):
+        status effects, summon capacity, cart fuel, and equipment about to
+        break. Shown by RoseRmlBuffBar only while UI2 is on, you are in the
+        world, and there is something to show.
+
+        Icons are the game's own atlas sprites ( src = DDS sheet, rect = the
+        sprite in it ), resolved by RoseRmlIcons. Tooltips are plain CSS: each
+        icon carries its tip and :hover shows it.
+
+        The whole strip is a drag handle; the spot is saved.
+    -->
+    <handle id="buffs" move_target="buffs">
+        <div class="icons">
+            <div class="buff" data-for="b : buffs" data-class-expiring="b.expiring">
+                <div class="frame"><img data-attr-src="b.src" data-attr-rect="b.rect"/></div>
+                <span class="time">{{b.time}}</span>
+                <div class="tip ui-window">
+                    <span class="tip-name">{{b.name}}</span>
+                    <span class="tip-body ui-muted">{{b.detail}}</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="mini" data-if="summon_on">
+            <span class="mini-label ui-muted">{{summon_label}}</span>
+            <div class="mini-bar ui-gauge">
+                <div class="ui-gauge-fill violet" data-style-width="summon_width + '%'"></div>
+                <span class="mini-text ui-gauge-text">{{summon}}</span>
+            </div>
+        </div>
+
+        <div class="mini" data-if="fuel_on">
+            <span class="mini-label ui-muted">{{fuel_label}}</span>
+            <div class="mini-bar ui-gauge">
+                <div class="ui-gauge-fill green" data-style-width="fuel_width + '%'"></div>
+                <span class="mini-text ui-gauge-text">{{fuel}}</span>
+            </div>
+        </div>
+
+        <div class="icons worn" data-if="worn.size > 0">
+            <div class="buff" data-for="w : worn">
+                <div class="frame"><img data-attr-src="w.src" data-attr-rect="w.rect"/></div>
+                <div class="tip ui-window">
+                    <span class="tip-name">{{w.name}}</span>
+                    <span class="tip-body ui-muted">Almost broken -- repair soon.</span>
+                </div>
+            </div>
+        </div>
+    </handle>
+</body>
+</rml>
