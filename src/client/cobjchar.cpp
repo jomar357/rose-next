@@ -4839,7 +4839,8 @@ CObjCHAR::Proc(void) {
                 staleDeathEvent)) {
             CObjCHAR* pAtkOBJ = g_pObjMGR->Get_CharOBJ(staleDeathEvent.attacker_id, true);
             LogString(LOG_DEBUG_,
-                "CombatTrace stale lethal melee event presented: attacker %d target %d event %u seq %u damage %d hp_after %d queue %d\n",
+                "CombatTrace stale lethal event presented: kind %d attacker %d target %d event %u seq %u damage %d hp_after %d queue %d\n",
+                static_cast<int>(staleDeathEvent.presentation_kind),
                 staleDeathEvent.attacker_id,
                 this->Get_INDEX(),
                 staleDeathEvent.event_id,

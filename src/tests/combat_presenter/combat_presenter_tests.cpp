@@ -1789,17 +1789,45 @@ main() {
     }
 
     {
+        // A projectile death waits for its bullet: inside the hard cap the stale
+        // fallback must not steal it, however old it is past the melee grace and
+        // whatever the swing predicate would say.
         HpHarness monster;
         DamageEvent projectile = event(1, 10, 35, 0, true);
         projectile.presentation_kind = DamagePresentationKind::ProjectileImpact;
         projectile.queued_at_ms = 1000;
         monster.queue.push(projectile);
-        expect(monster.present_stale_lethal(3000, 1500) == PresentationResult::NoEvent,
-            "stale lethal fallback must not steal projectile-impact deaths");
+        expect(monster.present_stale_lethal_with_live_swing(3000, 1500, 6000, false)
+                == PresentationResult::NoEvent,
+            "stale lethal fallback must not steal projectile-impact deaths inside the hard cap");
         expect(monster.visible_hp == 100,
             "projectile lethal event should wait for projectile impact");
         expect(monster.hit(10) == PresentationResult::PresentedDeath,
             "projectile lethal event should remain queued for its impact consumer");
+    }
+
+    {
+        // ...but a bullet that has not landed by the hard cap is never coming --
+        // the attacker was interrupted before firing or despawned (Del_Object
+        // drains only the avatar's queue), and the server never broadcasts a
+        // damage-killed mob's removal. The fallback presents the death instead
+        // of leaving the defender visually alive forever; the swing predicate is
+        // deliberately ignored for projectiles (the bullet owns their timing).
+        HpHarness monster;
+        DamageEvent projectile = event(1, 10, 35, 0, true);
+        projectile.presentation_kind = DamagePresentationKind::ProjectileImpact;
+        projectile.queued_at_ms = 1000;
+        monster.queue.push(projectile);
+        expect(monster.present_stale_lethal_with_live_swing(6999, 1500, 6000, true)
+                == PresentationResult::NoEvent,
+            "projectile lethal must keep waiting just inside the hard cap");
+        expect(monster.present_stale_lethal_with_live_swing(7000, 1500, 6000, true)
+                == PresentationResult::PresentedDeath,
+            "projectile lethal must present death at the hard cap");
+        expect(monster.visible_hp == 0,
+            "hard-capped projectile lethal should kill the defender");
+        expect(monster.displayed_damage == 35,
+            "hard-capped projectile lethal should show the final-hit digit");
     }
 
     {

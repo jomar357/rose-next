@@ -667,10 +667,18 @@ CObjCHAR::Send_combat_swing(CObjCHAR* pTarget, uniDAMAGE sDamage) {
         eventId,
         defenderSeq,
         resolve_summon_owner_index(*this));
-    const bool bSent = send_packet_nearby(*this, packet);
-    // Broadcast is centered on the attacker; the summon defender's owner may be
-    // outside that neighborhood.
-    mirror_lethal_packet_to_summon_owner(*pTarget, *this, sDamage, packet);
+    // Center the broadcast on the *defender*, like Send_combat_damage_event: the
+    // clients that hold (and can present) this event are exactly the defender's
+    // 9 sectors -- recv_combat_swing early-outs without the defender object, so
+    // the attacker's neighborhood adds nothing. Centered on the attacker (as it
+    // was until 2026-09-23), a fight straddling a sector boundary could kill a
+    // monster in full view of a client one ring away that never received the
+    // lethal swing -- and a damage-killed mob's removal is never broadcast
+    // (CObjMOB::Make_gsv_SUB_OBJECT), so that client kept a live-looking,
+    // unclickable monster forever ("monsters that are dead server-side").
+    const bool bSent = send_packet_nearby(*pTarget, packet);
+    // The summon defender's owner may be outside the defender's neighborhood.
+    mirror_lethal_packet_to_summon_owner(*pTarget, *pTarget, sDamage, packet);
     return bSent;
 }
 

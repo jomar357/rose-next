@@ -117,10 +117,15 @@ CObjectMANAGER::Get_EmptySlot() {
 //-------------------------------------------------------------------------------------------------
 void
 CObjectMANAGER::Set_ServerObjectIndex(short client_idx, WORD server_idx) {
-    short existing_client_idx = m_nServer2ClientOBJ[client_idx];
+    // Look up who currently owns this *server* index. This read used
+    // m_nServer2ClientOBJ[client_idx] -- the wrong slot -- since 2004, so
+    // neither warning below could ever fire correctly.
+    short existing_client_idx = m_nServer2ClientOBJ[server_idx];
 
     if (existing_client_idx == client_idx) {
-        LOG_WARN("Server added duplicate object, server id: (client id: )", server_idx);
+        LOG_WARN("Server added duplicate object, server id: {} (client id: {})",
+            server_idx,
+            client_idx);
         return;
     }
 
@@ -187,6 +192,22 @@ CObjectMANAGER::Set_EmptySlot(short nSlotNO, WORD wServerObjectIndex, CGameOBJ* 
         m_wClient2ServerOBJ[nSlotNO] = wServerObjectIndex;
         if (wServerObjectIndex) {
             // 0이면 서버에서 받은 객체가 아니거나 아직 받지 못한것..
+            // A server index being re-announced while another live client object
+            // still holds it means that object is stale -- the server never
+            // reuses an index for two live objects, so the old one missed its
+            // death or removal and is about to be orphaned (still drawn, no
+            // longer reachable by server index). Warn: this is the field
+            // signature of the "monster alive client-side, dead server-side"
+            // report, same shape as the ground-item double-drop orphan.
+            short existing_client_idx = m_nServer2ClientOBJ[wServerObjectIndex];
+            if (existing_client_idx > 0 && existing_client_idx != nSlotNO
+                && m_pOBJECTS[existing_client_idx]) {
+                LOG_WARN(
+                    "Server index {} re-announced while client object {} still holds it; old object orphaned (new client object {})",
+                    wServerObjectIndex,
+                    existing_client_idx,
+                    nSlotNO);
+            }
             m_nServer2ClientOBJ[wServerObjectIndex] = nSlotNO;
         }
 

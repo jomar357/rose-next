@@ -275,18 +275,38 @@ public:
         SwingStillPending&& swing_still_pending,
         DamageEvent& out) {
         for (auto it = m_events.begin(); it != m_events.end(); ++it) {
-            if (it->presentation_kind != DamagePresentationKind::MeleeHitFrame) {
+            const bool bProjectile =
+                it->presentation_kind == DamagePresentationKind::ProjectileImpact;
+            if (it->presentation_kind != DamagePresentationKind::MeleeHitFrame
+                && !bProjectile) {
                 continue;
             }
             if (!it->lethal && it->hp_after > dead_hp) {
                 continue;
             }
             const uint32_t age_ms = now_ms - it->queued_at_ms;
-            if (age_ms < grace_ms) {
-                continue;
-            }
-            if (age_ms < hard_cap_ms && swing_still_pending(*it)) {
-                continue;
+            if (bProjectile) {
+                // A projectile death waits for its bullet, and only for its
+                // bullet: no grace-time pop, no swing test. But a bullet that has
+                // not landed by the hard cap is never coming -- the attacker was
+                // interrupted before firing, or despawned (Del_Object drains only
+                // events queued on the avatar), and no discard path can run
+                // without the attacker object. Nothing else resolves a remote
+                // defender's lethal ProjectileImpact event (the orphan sweep
+                // excludes lethals on purpose), so without this cap the defender
+                // stays visually alive forever on a corpse the server deleted
+                // without a packet (CObjMOB::Make_gsv_SUB_OBJECT suppresses the
+                // removal of a damage-killed mob).
+                if (age_ms < hard_cap_ms) {
+                    continue;
+                }
+            } else {
+                if (age_ms < grace_ms) {
+                    continue;
+                }
+                if (age_ms < hard_cap_ms && swing_still_pending(*it)) {
+                    continue;
+                }
             }
 
             out = *it;
