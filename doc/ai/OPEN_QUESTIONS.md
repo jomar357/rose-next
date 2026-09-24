@@ -62,4 +62,8 @@ Newest sections last. Each item names its source and status. Close an item by mo
 
 ## Resolved
 
-_None yet._
+- **Q-001 (resolved 2026-09-24, PM-011)** Next priority: run the game locally.
+- **Q-003 (resolved 2026-09-24, PM-013)** The memory folder no longer exists; we build our own in `doc/ai/`.
+- **Q-002 (answered 2026-09-24, PM-012; verification in progress)** PM: "This is a complete source,
+  we can use everything here." Checking what the checkout actually provides is the first step of
+  PM-011; findings go in the session record and STATE.md.

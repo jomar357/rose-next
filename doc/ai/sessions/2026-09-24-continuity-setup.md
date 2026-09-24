@@ -88,11 +88,65 @@ Byte counts are not token counts; no token measurement was made.
 ## Commit (PM-010)
 
 - PM said "Commit the documentation changes"; answered a question choosing author
-  `jomar357 <jomarbruto07@gmail.com>`, applied with `git -c` for this commit only (no git identity
+  `jomar357` with the PM's account email, applied with `git -c` for this commit only (no git identity
   is configured on this machine), and committing directly on `master`. Push not authorised.
 - Staged by explicit paths (the five guides, `doc/ai/`, the two scripts); verifier re-run before
   committing. The hash cannot be written inside its own commit:
   `git log -1 --format=%H -- doc/ai/STATE.md`.
+
+## Run the game locally (PM-011 .. PM-016)
+
+After the commit, the PM set the priority "be able to run this game locally", said "install
+everything that is needed", stopped jCodeMunch use for this project, and approved the MEGA game-data
+download. Full verified procedure and every trap: [local-setup-runbook](../topics/project/local-setup-runbook.md);
+decisions IMP-012..IMP-017 in [DECISIONS](../DECISIONS.md).
+
+Chronology (all 2026-09-24):
+1. Inventory: no game data in the repo (by design); VS 2022 Build Tools with only v143; Rust i686
+   present; `just`, `pwsh`, PostgreSQL-on-PATH missing; Laragon PostgreSQL 18.2 running.
+2. Installed `pwsh` and `just` (winget). v142: four installer attempts "succeeded" without
+   installing (wrong component IDs, silently ignored); a fifth hit exit 8006 (leftover MSBuild
+   nodes); the sixth with IDs `...VC.14.29.16.11.*` installed MSVC 14.29.30133.
+3. First builds with a v143 override: thirdparty needed `WindowsTargetPlatformVersion=10.0`;
+   Rust needed thirdparty's `flatc` first and must run from `src/`; `rose-next.sln` failed on v143
+   (C7664 in `ioDataPOOL.h`, `std::unary_function` in three engine files). Switched to v142 rather
+   than edit game code (IMP-015).
+4. v142 build failed at `common`'s cargo pre-build: SQLite object compiled by MSVC 14.44, linked
+   against 14.29 libs. Fixed by building inside `vcvarsall x86 -vcvars_ver=14.29` after
+   `cargo clean -p libsqlite3-sys --release`. Build succeeded; 4 test programs pass.
+5. Game data: browser-pane download of "Rose deluxe + Plane fix.rar" (PM also saved a copy in the
+   repo root). It is a client distribution. Extraction slip: `-x!*.exe` did not match files in the
+   archive's subfolder, so its prebuilt binaries were extracted into `Exes/`; none was run; they
+   were deleted from `Exes/` (and the VFS's baked `Map Editor.exe/.pdb` + irrKlang DLL from `data/`).
+6. `rose-vfs extract-all` died past 2 GB → fixed sign extension in
+   `src/tools/vfs-browser/src/vfs.rs` (IMP-016) → all 36,264 files extracted and copied into `data/`
+   without overwriting tracked files.
+7. Database: existing empty `rose-next` DB had only migration 0001; applied 0002 and 0003.
+8. Local `dev/server/server.toml`; login, world and game servers started from `bin/release` and
+   connected (60 zones, 0 errors, 14 expected no-`.MOV` warnings).
+
+Still to do: PM creates an account; launch the client and log in (not yet verified).
+
+Processes left running at this checkpoint: `sho_loginserver.exe`, `sho_worldserver.exe`,
+`sho_gameserver.exe` (started as background tasks of this Claude session; they may stop when the
+session ends).
+
+## Launchers, account, PR (PM-017, PM-018)
+
+- `run/` launchers written and tested: `stop-servers.bat` and `start-servers.bat` (servers in
+  their own windows), `start-client.bat` (client reached the login scene). First versions broke
+  under a PATH containing Git's GNU `find`/`timeout`; tools are now called by full path.
+- Account: created `jomar` (GM 2048) with a generated password given in chat only; the client
+  rejected it ("Email too short", minimum 6); renamed to `jomar357` in the database; the account
+  script now enforces the client's limits (IMP-019).
+- The repo-root `.rar` was deleted at the PM's request.
+- Privacy check before publishing (public repo): removed the PM's email address from document
+  text (it remains in commit author metadata, as chosen); no passwords in any file.
+- PM asked for a PR: the work goes on branch `local-run-setup` and a PR into `master` (PM-018).
+- The Claude Code process restarted mid-task; recovered from the checkout and logs (servers and
+  a client were still running; no login yet recorded in the server logs).
+- The PM then reported: "I am already logged in and the game is working now" (PM-011 met, as
+  reported by the PM).
 
 ## Final verification
 

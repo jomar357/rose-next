@@ -154,9 +154,12 @@ impl Vfs {
                         out.push(VfsEntry {
                             vfs_index: i,
                             path: f.filepath.to_string_lossy().replace('\\', "/"),
-                            offset: f.offset as u64,
-                            size: f.size as u64,
-                            block_size: f.block_size as u64,
+                            // roselib reads these as i32; the on-disk fields are
+                            // unsigned (triggervfs reads them that way), so a plain
+                            // `as u64` sign-extends every offset past 2 GB.
+                            offset: f.offset as u32 as u64,
+                            size: f.size as u32 as u64,
+                            block_size: f.block_size as u32 as u64,
                             is_deleted: f.is_deleted,
                             is_compressed: f.is_compressed,
                             is_encrypted: f.is_encrypted,

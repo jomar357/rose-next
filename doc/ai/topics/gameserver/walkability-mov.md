@@ -66,4 +66,8 @@ opens the walkability grid and logs a warning. This is the server-side form of t
 
 ## Updates
 
-_None yet. Add dated entries (newest last) with source paths, revision and verification status._
+- **2026-09-24 (verified on this checkout's data, build of `28a777f` + local changes).** The
+  no-`.MOV` fallback now fires for more zones than the text above lists: the game server log
+  showed it for exactly 14 zones: 14, 57, 83, 85, 86, 87, 88, 89, 131, 133, 134, 135, 136, 144
+  (Lunar LZ02 was not among them). Oro (667 ships no `.MOV`) and Skaaj were imported after this text was
+  written.

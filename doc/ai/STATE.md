@@ -4,35 +4,39 @@ _Last updated: 2026-09-24 by session [2026-09-24-continuity-setup](sessions/2026
 
 ## Objective
 
-Continuity setup (PM-002): organise inherited Markdown knowledge into `doc/ai/` and establish the
-startup / checkpoint / closing protocol. **Complete, awaiting PM review.** No development work is
-authorised yet.
+**PM-011: be able to run the game locally** on the PM's machine: **achieved** 2026-09-24 (the PM
+logged in as `jomar357` and reported the game working). Continuity setup (PM-002) is done
+and committed (`28a777f`).
 
 ## Approved scope
 
-- Documentation and project instructions only (PM-003). No game code, runtime settings, assets,
-  databases, personal AI settings or vendored docs.
-- Commit of the documentation changes on `master` authorised and done (PM-010). **Push not authorised.**
-- Next development priority: **not yet given**; ask the PM (PM-009, Q-001).
+- PM-011 (run locally) and PM-014 (install everything needed). PM-015: do **not** use jCodeMunch here.
+- Game data from the README's MEGA archive (PM-016); no program from the archive is run.
+- Commits/pushes need explicit authorisation per action. PM-017/PM-018: commit this work and open
+  a PR into `master` from branch `local-run-setup` (no direct push to `master`).
 
-## Progress
+## Progress (details: [local-setup-runbook](topics/project/local-setup-runbook.md))
 
-- Done: archives with hashes; 69 verbatim topic files + mapping; compact `CLAUDE.md` ×4 and portable
-  `AGENTS.md`; INDEX, SESSION_PROTOCOL, DECISIONS, OPEN_QUESTIONS, UNAVAILABLE_KNOWLEDGE, this file,
-  HANDOFF, session record; `scripts/ai-docs-migrate-2026-09-24.py` and `scripts/verify-ai-docs.py`.
-- Verified: `python scripts/verify-ai-docs.py` passes (all five originals rebuilt byte-for-byte,
-  archives equal git blobs at `84f6206`, all relative links resolve).
+- Installed: PowerShell 7, `just`, MSVC v142 (14.29.30133 + ATL/MFC) in VS 2022 Build Tools.
+- Built (verified): thirdparty, Rust i686 tools and `rose-next.sln` in release x86 with v142 inside
+  a 14.29 developer environment; 4 test programs pass. Servers running (login, world, game).
+- `rose-vfs` fixed for offsets past 2 GB (IMP-016, uncommitted code change).
+- Game data: `Exes/` = client run folder (data.idx, rose.vfs, sound, …); `data/` = unpacked VFS
+  for the servers (36,264 files).
+- Database: Laragon PostgreSQL 18.2, existing empty `rose-next` DB; migrations 0002 and 0003 applied
+  on top of 0001 (verified). GM account `jomar357` (access 2048) exists; password given in chat
+  only.
+- Local server config: `dev/server/server.toml` (gitignored; generated login-server password, not
+  recorded anywhere).
 
 ## Blockers and constraints
 
-- This checkout has no game data, binaries, `build/` backups or reference dumps
-  ([UNAVAILABLE_KNOWLEDGE](UNAVAILABLE_KNOWLEDGE.md) U3-U5), so builds, data scripts and in-game
-  checks cannot run here (Q-002).
-- The previous maintainer's external memory is unavailable (U1).
+- None for PM-011.
 
 ## Next action
 
-Ask the PM for the next development priority, and whether to push `master` to `origin`.
+Get the PR from `local-run-setup` reviewed and merged; then ask the PM for the next development
+priority. Double-click launchers for testing: `run/`.
 
 ## Active session(s)
 
@@ -40,9 +44,11 @@ Ask the PM for the next development priority, and whether to push `master` to `o
 
 ## Repository
 
-- `C:\Users\Jomar\Desktop\Rose\rose-next`, branch `master`.
-- This session's documentation changes are committed on `master` as one commit on top of `84f6206`,
-  titled "Docs: AI continuity system; split oversized CLAUDE.md guides into doc/ai topics"
-  (find it with `git log -1 --format=%H -- doc/ai/STATE.md`). **Not pushed**: local `master` is
-  ahead of `origin/master` until the PM authorises a push.
-- No unrelated pre-existing changes (tree was clean at start).
+- `C:\Users\Jomar\Desktop\Rose\rose-next`. Work committed on branch `local-run-setup` (from `master`
+  `28a777f`, itself 1 ahead of `origin/master` `84f6206`), pushed, PR open into `master`.
+  Local `master` still points at `28a777f` and is not pushed.
+- Never commit: the game data (`data/`, `Exes/` game files) and `dev/server/` are gitignored. The
+  MEGA `.rar` was deleted from the repo root (a copy remains in `%USERPROFILE%\Downloads`).
+- Gitignored local state this work depends on: `data/` (2.3 GB), `Exes/` game files + client
+  binaries, `bin/`, `build/vfs-extract/`, `build/vfs-list.txt`, `dev/server/`, `src/target/` (stale).
+- Running at this checkpoint: login, world and game servers (own windows) and a client.

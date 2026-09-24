@@ -30,6 +30,7 @@ Check integrity at any time: `python scripts/verify-ai-docs.py` (read-only).
 
 | If you are working on… | Start with |
 |---|---|
+| Setting up / running the game on a machine | **project/local-setup-runbook** (start here), then the README |
 | Building anything, or a build that fails oddly | project/build-system-and-pitfalls, project/conventions-and-dev-environment |
 | Combat display, HP bars, death, damage digits | project/combat-damage-presentation, then the client/combat-* topics, gameserver/combat-flow-and-packet-rules |
 | Monster skills, AI files, imports that bring AI | project/missing-npc-row-degrade, project/ai-skill-reference-failures, gameserver/ai-guard-npc-rows-skills-status |
@@ -81,6 +82,7 @@ Every topic file starts with a provenance header and ends with an *Updates* sect
 | [The .vfs offset limit (2 GB -> 4 GB)](topics/project/vfs-offset-limit.md) | Unsigned offsets, vfread/vfseek fixes, pack.ps1 + verify-vfs.py, rose_N.vfs rollover. |
 | [Item import tooling](topics/project/item-import-tooling.md) | import-item.py, --art-only safety, icon tools, skill-tree art, ZSC/field model indices. |
 | [NPC dialog quest options (.CON QEX1 appendix)](topics/project/npc-dialog-qex1.md) | Lua 4 bytecode dialogs and the QEX1 appendix mechanism. |
+| [Local setup runbook](topics/project/local-setup-runbook.md) | **New 2026-09-24.** What this checkout contains, toolchain state, working build order, Rust and toolset traps, remaining steps to run locally. |
 
 ### client (from `src/client/CLAUDE.md`)
 
