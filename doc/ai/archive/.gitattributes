@@ -1,0 +1,2 @@
+# Archived originals must stay byte-identical: no EOL conversion, no diff filters.
+* -text

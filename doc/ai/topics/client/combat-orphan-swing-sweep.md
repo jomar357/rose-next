@@ -1,0 +1,20 @@
+# Client combat: orphan swing sweep
+
+> **Provenance:** moved verbatim on 2026-09-24 from `src/client/CLAUDE.md` lines 56-59 (revision `84f6206`).
+> Original bytes: [`src--client--CLAUDE.md.txt`](../../archive/2026-09-24/src--client--CLAUDE.md.txt).
+> **Status:** inherited knowledge written by earlier sessions. It was **not re-verified** during the 2026-09-24
+> migration; confirm against the code before relying on a claim. Mentions of "root/client/server
+> `CLAUDE.md`" inside the text mean the pre-2026-09-24 guides; find sections via [INDEX](../../INDEX.md).
+> **Editing rule:** never edit between `verbatim` markers (they are checked byte-for-byte by
+> `scripts/verify-ai-docs.py`). Record corrections, supersessions and new findings under *Updates*.
+
+<!-- verbatim:begin src=src/client/CLAUDE.md lines=56-59 sha256=2d6bc32671698dc63c192bf7f3865b44c97249001e031ec16735e63e820e4269 -->
+- **Orphan sweep (never leave an unpresentable swing queued).** `CObjCHAR::Proc()` resolves a pending confirmed swing through `CancelInterruptedCombatSwingPresentation()` once the attacker has left both `CS_BIT_ATTACK` and `CMD_ATTACK` — stop/move/target-change/death, or any future interrupt that slips past the dormant guard above. It waits `kOrphanedSwingGraceMs` (**3000 ms**) first and additionally requires the motion object's `m_CommandQueue` to be **empty**, because `StartConfirmedCombatSwing()` queues the event and *then* calls `SetCMD_ATTACK`, which pushes onto `m_CommandQueue` instead of applying while `CanApplyCommand()` is false (the attacker is casting, or its own queue has not drained) — during that window the attack motion legitimately does not exist yet, so a queued command defers the cancel outright.
+  - **The grace was 1000 ms and that was measurably too short — it cancelled swings that were still coming.** Pairing `CombatTrace combat swing received` with `queued presentation pop` by `event_id` over a real session gives the client's own swing→hit-frame latency: **median 1 s, 23% at ≥2 s, max 3 s.** Monster attack motions are long, the client runs a full swing behind the server's cadence whenever a packet lands while `CanApplyCommand()` is false, and monsters reposition between swings so the state test reads "not attacking" mid-sequence. When the sweep won that race the event was discarded and the real hit frame arrived ~1 s later to an empty queue, so `Hitted()` took the `NoEvent` branch and presented **nothing** — no digit, no hit effect, no sound, on a monster standing right next to you. Server HP stayed correct (the discard folds it into shadow HP and the next real hit reconciles the bar), which is what makes it a pure presentation loss and easy to misread as a dodge or as a skill-cast interaction. Confirmed twice in one log: `discarded without presentation … reason swing motion cancelled` followed ~1 s later by `queued presentation miss` for the same attacker/target pair.
+  - Widening is only safe because the defender-side orphaned-damage sweep (below) now backstops it; this sweep is no longer the last line of defence, and its resolution is a silent HP fold either way, so being later costs nothing visible. A cancel now logs `CombatTrace swing motion cancelled` with the attacker's state/command — that line is what separates a genuine interrupt from a lost swing next time.
+  - Not every `queued presentation miss` is this bug: an avatar-as-attacker miss right after a `lethal 1` swing on the same target is the avatar's self-repeating attack motion hitting a corpse (`Hitted()` shows a 0 digit via `IsPresentedDead()`, or nothing). Read the attacker/defender direction before investigating. `m_dwPendingCombatSwingTime` is stamped whenever the event id is set, so the id alone is the liveness check; **do not** also test the stamp against 0, which is a legitimate tick value. `Dead()` clears `m_bOwedHitReaction` *before* clearing the pending swing (HP is still above `DEAD_HP` there, so the owed flinch would otherwise play on a corpse-to-be).
+<!-- verbatim:end -->
+
+## Updates
+
+_None yet. Add dated entries (newest last) with source paths, revision and verification status._
