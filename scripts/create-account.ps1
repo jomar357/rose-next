@@ -32,13 +32,16 @@ param (
 
 $ErrorActionPreference = "Stop"
 
-# --- Validate inputs against the account table column widths -----------------
-# email varchar(30), password char(64), salt char(16)
-if ($Email.Length -eq 0 -or $Email.Length -gt 30) {
-    throw "Email must be 1-30 characters (got $($Email.Length))."
+# --- Validate inputs -----------------------------------------------------------
+# The table allows email varchar(30), but the client's login dialog refuses an ID
+# under 6 or a password under 8 characters (MIN_ID_LENGTH / MIN_PASSWORD_LENGTH in
+# src/client/interface/externalui/clogin.h, both max 30), so anything shorter
+# would create an account nobody can log in with.
+if ($Email.Length -lt 6 -or $Email.Length -gt 30) {
+    throw "Login name must be 6-30 characters (got $($Email.Length))."
 }
-if ($Password.Length -eq 0) {
-    throw "Password must not be empty."
+if ($Password.Length -lt 8 -or $Password.Length -gt 30) {
+    throw "Password must be 8-30 characters (got $($Password.Length))."
 }
 
 # --- Read the DB connection string from server.toml --------------------------

@@ -1,0 +1,2 @@
+# Windows batch files need CRLF line endings; the root .gitattributes forces LF.
+*.bat text eol=crlf

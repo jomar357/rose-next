@@ -1,0 +1,46 @@
+{
+ "captured": "2026-09-24",
+ "revision": "84f6206723fb4a8abf27df8a71eeb458fd734553",
+ "files": [
+  {
+   "original_path": "CLAUDE.md",
+   "archive": "doc/ai/archive/2026-09-24/root--CLAUDE.md.txt",
+   "bytes": 99586,
+   "sha256": "dc9da16dd98cef7e83473efe84ea10752c341200d0e0aee048bfd3c3bc8a257e",
+   "git_blob": "8ca0d3f992c15f9b1af9578d26a9abee4fc22798",
+   "matches_HEAD": true
+  },
+  {
+   "original_path": "src/client/CLAUDE.md",
+   "archive": "doc/ai/archive/2026-09-24/src--client--CLAUDE.md.txt",
+   "bytes": 176345,
+   "sha256": "432d7127a2bcbe41ba9ce7259313bfc378acac1107bc2d3bdff13a8b58d16bad",
+   "git_blob": "3c00f7453333e41c3d85a054fb4a4f1314966804",
+   "matches_HEAD": true
+  },
+  {
+   "original_path": "src/sho_gameserver/CLAUDE.md",
+   "archive": "doc/ai/archive/2026-09-24/src--sho_gameserver--CLAUDE.md.txt",
+   "bytes": 23060,
+   "sha256": "c3ae3915b4a467941f7c74e866e48a9ad43b99d9c748a136c75392a739c07ec4",
+   "git_blob": "e270a31bd77de28e606dedfe369fd30ea6a2022f",
+   "matches_HEAD": true
+  },
+  {
+   "original_path": "xadet/rose-online-map-editor/CLAUDE.md",
+   "archive": "doc/ai/archive/2026-09-24/xadet--rose-online-map-editor--CLAUDE.md.txt",
+   "bytes": 19140,
+   "sha256": "001390974c19f9f163b5b5db02c55492815e1d540e42f40e071fd4010f62aeb1",
+   "git_blob": "e531c00ecc3937e45fd0371faacfcc01bccb991a",
+   "matches_HEAD": true
+  },
+  {
+   "original_path": "AGENTS.md",
+   "archive": "doc/ai/archive/2026-09-24/root--AGENTS.md.txt",
+   "bytes": 663,
+   "sha256": "1d1358bfc48da8a2a9d06d89665516a2bb2466c8bc8f3b87daa3c3381d074fc0",
+   "git_blob": "7cf06a6c9bf81eaf00762e48386cdc8d10124acc",
+   "matches_HEAD": true
+  }
+ ]
+}

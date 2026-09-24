@@ -1,0 +1,1163 @@
+{
+ "date": "2026-09-24",
+ "revision": "84f6206723fb4a8abf27df8a71eeb458fd734553",
+ "archive_dir": "doc/ai/archive/2026-09-24",
+ "sources": [
+  {
+   "path": "CLAUDE.md",
+   "archive": "doc/ai/archive/2026-09-24/root--CLAUDE.md.txt",
+   "sha256": "dc9da16dd98cef7e83473efe84ea10752c341200d0e0aee048bfd3c3bc8a257e",
+   "lines": 856,
+   "segments": [
+    {
+     "lines": [
+      1,
+      22
+     ],
+     "dest": "doc/ai/topics/project/overview-and-architecture.md",
+     "sha256": "17cbc454ab5a6d8c921d89a0d5150f2fcbbd3f7ad9dfc63b89673a1e9b227f47",
+     "bytes": 1196,
+     "headings": [
+      "# CLAUDE.md — Rose Next Classic",
+      "## Project Overview",
+      "## Architecture"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      23,
+      54
+     ],
+     "dest": "doc/ai/topics/project/build-system-and-pitfalls.md",
+     "sha256": "2aedab0f5295cfb263d7e164bf54c896f6ad3c7e3f8a215afb5603315a6111e3",
+     "bytes": 4094,
+     "headings": [
+      "## Build System",
+      "# Full build (recommended)",
+      "# Manual steps:",
+      "# 1. Build thirdparty C++ deps",
+      "# 2. Build Rust crates (MUST be i686)",
+      "# 3. Build Rose Next C++ projects",
+      "### Key build facts"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      55,
+      94
+     ],
+     "dest": "doc/ai/topics/project/project-structure.md",
+     "sha256": "88e5301392026674cb0b36f96ef06f4d1c589846959942a06aac3c34bec4d741",
+     "bytes": 2287,
+     "headings": [
+      "## Project Structure"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      95,
+      108
+     ],
+     "dest": "doc/ai/topics/project/database-and-networking.md",
+     "sha256": "8763cfa5e0202a8e2b75bb255bb4d830fe7aef337ee4eee97dcc3ecc5b281016",
+     "bytes": 560,
+     "headings": [
+      "## Database",
+      "## Networking"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      109,
+      135
+     ],
+     "dest": "doc/ai/topics/project/conventions-and-dev-environment.md",
+     "sha256": "d013a136e9690c1a4820abb1395a1e01fe8ccbb9c2a4332c1002c1ee4d43f205",
+     "bytes": 1576,
+     "headings": [
+      "## Code Conventions",
+      "## Dev Environment"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      136,
+      148
+     ],
+     "dest": "doc/ai/topics/project/combat-damage-presentation.md",
+     "sha256": "cbcc1a8a26be7194023fc83dab2390abbd9cb33878a30eefc87f6a4642858c48",
+     "bytes": 6678,
+     "headings": [
+      "## Important Patterns",
+      "### Combat Damage Presentation"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      149,
+      163
+     ],
+     "dest": "doc/ai/topics/project/rendering-device-d3d9ex.md",
+     "sha256": "209f0f71451f2e4c619180eec39ad3426910f5e5a9be5d8ffe30ae53eafd1d29",
+     "bytes": 3584,
+     "headings": [
+      "### Rendering Device (Direct3D 9Ex)"
+     ],
+     "links": [
+      {
+       "orig": "doc/d3d9ex-migration.md",
+       "new": "../../../d3d9ex-migration.md",
+       "repaired": false,
+       "target": "doc/d3d9ex-migration.md",
+       "target_exists": true
+      }
+     ]
+    },
+    {
+     "lines": [
+      164,
+      170
+     ],
+     "dest": "doc/ai/topics/project/bone-particle-budget.md",
+     "sha256": "fffcd33646abcd3ff0b3e02c56eeb739e8cd7cbe87ce411e896dc802787e8772",
+     "bytes": 1392,
+     "headings": [
+      "### Bone Particle Budget (Client/Engine)"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      171,
+      209
+     ],
+     "dest": "doc/ai/topics/project/monster-spawning-regen.md",
+     "sha256": "93f94b9f1efb36350af3d155076d467dc832ed946dab09dc8c2a8a98e9bece74",
+     "bytes": 2523,
+     "headings": [
+      "### Monster Spawning: A Regen Point's Cap Is Not A Cap"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      210,
+      212
+     ],
+     "dest": "doc/ai/topics/project/overview-and-architecture.md",
+     "sha256": "c79e15b8a5f7c069a31b328eae1eef3fb97e49676e7225bfe45c7220f798684b",
+     "bytes": 223,
+     "headings": [
+      "### Server Zone Architecture"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      213,
+      233
+     ],
+     "dest": "doc/ai/topics/project/client-only-features.md",
+     "sha256": "4f1e4332aa940fc2d7d5e57f360a78fee6367293e4e5bba94692679173955b5f",
+     "bytes": 7308,
+     "headings": [
+      "### Summon Control (CTRL+Click)",
+      "### Summon Info Panel (Client)",
+      "### Monster Inspector (Client-Only Window Skill)",
+      "### NPC Overhead Quest Icons (Client-Only)",
+      "### Damage Meter (Client-Only)",
+      "### Chat Item Links (Client-Only)",
+      "### Item Preview Panel (Client-Only)"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      234,
+      284
+     ],
+     "dest": "doc/ai/topics/project/rmlui-ui-layer.md",
+     "sha256": "8e3c972b7d4bea15690d49a90d78cbc296bb468d323bfe4107a555c22ed2f239",
+     "bytes": 3978,
+     "headings": [
+      "### RmlUi UI Layer (Client)"
+     ],
+     "links": [
+      {
+       "orig": "doc/rmlui-evaluation.md",
+       "new": "../../../rmlui-evaluation.md",
+       "repaired": false,
+       "target": "doc/rmlui-evaluation.md",
+       "target_exists": true
+      }
+     ]
+    },
+    {
+     "lines": [
+      285,
+      331
+     ],
+     "dest": "doc/ai/topics/project/cull-bounds-zsc.md",
+     "sha256": "c8a116965142d04b05f1fcdd200d1242d6afe926d13e01e6fc406cb437e54094",
+     "bytes": 2952,
+     "headings": [
+      "### Cull Bounds Come From Geometry, Not From The ZSC (Client/Engine)"
+     ],
+     "links": [
+      {
+       "orig": "doc/zsc-bounding-boxes.md",
+       "new": "../../../zsc-bounding-boxes.md",
+       "repaired": false,
+       "target": "doc/zsc-bounding-boxes.md",
+       "target_exists": true
+      }
+     ]
+    },
+    {
+     "lines": [
+      332,
+      398
+     ],
+     "dest": "doc/ai/topics/project/depth-buffer-precision.md",
+     "sha256": "fd0f91c3f762640b942e45d42259e6f30f71134cddc06e5b9a1b6c4b10421a2e",
+     "bytes": 4554,
+     "headings": [
+      "### Depth Buffer Precision (Engine)"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      399,
+      446
+     ],
+     "dest": "doc/ai/topics/project/coplanar-placements.md",
+     "sha256": "b04484901baa81a4253034b0c9bc4a15ba3165a64274a9c1f247b88aabc849e1",
+     "bytes": 3266,
+     "headings": [
+      "### Coplanar Placements Flicker; Depth Precision Cannot Save Them (Data)"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      447,
+      469
+     ],
+     "dest": "doc/ai/topics/project/object-lightmaps-atlas.md",
+     "sha256": "7264b15f309b2034ed23220a3a0f8ba9c6ddca3ff092e9a5244e94064c6736d9",
+     "bytes": 1512,
+     "headings": [
+      "### Object Lightmaps Are A Gutterless Atlas (Engine)"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      470,
+      479
+     ],
+     "dest": "doc/ai/topics/project/missing-assets-degrade.md",
+     "sha256": "39c4684d9f8216e533473d8d58794b67633a822933987256ffde49f03082925b",
+     "bytes": 2362,
+     "headings": [
+      "### Missing Assets Must Degrade, Not Kill (Engine/VFS)"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      480,
+      527
+     ],
+     "dest": "doc/ai/topics/project/missing-npc-row-degrade.md",
+     "sha256": "086d830301556a6c5a064455aff75421e3dc59be8cff95c27ce594c9e10ffc1b",
+     "bytes": 2961,
+     "headings": [
+      "### A Missing NPC Row Must Degrade, Not Kill (Client/Server)"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      528,
+      654
+     ],
+     "dest": "doc/ai/topics/project/ai-skill-reference-failures.md",
+     "sha256": "dc1a16ef9c0abc9b82d1b54797500b03cff22da4e9f29ac1b59e5a291f3ff323",
+     "bytes": 9703,
+     "headings": [],
+     "links": []
+    },
+    {
+     "lines": [
+      655,
+      664
+     ],
+     "dest": "doc/ai/topics/project/debugging-client-crash.md",
+     "sha256": "b4839fec5ddfef4da8493cbccbd14529ddc518abc9a041aaf3d6110556898e03",
+     "bytes": 1712,
+     "headings": [
+      "### Debugging a Client Crash or Freeze"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      665,
+      673
+     ],
+     "dest": "doc/ai/topics/project/terrain-streaming-performance.md",
+     "sha256": "fd3cba57a7f089bb6f61f10f395f5c7776fd9329811c0858b7e8472b5e4a7927",
+     "bytes": 1967,
+     "headings": [
+      "### Terrain Streaming Performance"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      674,
+      683
+     ],
+     "dest": "doc/ai/topics/project/shared-data-and-item-encoding.md",
+     "sha256": "92609274b4792003536f7aa763fbef8f99e74d551e87230cca1d608a829025b3",
+     "bytes": 1180,
+     "headings": [
+      "### Shared Data Types",
+      "### Item Encoding And Package Items"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      684,
+      728
+     ],
+     "dest": "doc/ai/topics/project/buffs-passives-percent.md",
+     "sha256": "3e9492e2a28ea0a30d3c247200a5b11797252b04ba0b4ae0b56d2544145f3554",
+     "bytes": 2760,
+     "headings": [
+      "### Buffs And Passives Are Percentage-Based"
+     ],
+     "links": [
+      {
+       "orig": "doc/balance-analysis.md",
+       "new": "../../../balance-analysis.md",
+       "repaired": false,
+       "target": "doc/balance-analysis.md",
+       "target_exists": true
+      }
+     ]
+    },
+    {
+     "lines": [
+      729,
+      748
+     ],
+     "dest": "doc/ai/topics/project/monster-balance-level-gate.md",
+     "sha256": "cc2a5537e7609a6175a2c40ca06fdc9ac7521cbd4b25bb5e54f7bcb5930b44b2",
+     "bytes": 3975,
+     "headings": [
+      "### Monster Balance And The Level Gate"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      749,
+      763
+     ],
+     "dest": "doc/ai/topics/project/oro-667-import.md",
+     "sha256": "a9fa72576b6f9dfe105324d4e31cd90ad19d1e673525c31d9fd90201c69756ff",
+     "bytes": 6157,
+     "headings": [
+      "### Oro Is The 667 Build's Oro (2026-09-13)"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      764,
+      797
+     ],
+     "dest": "doc/ai/topics/project/skaaj-import.md",
+     "sha256": "73280719aaca4a716ed6216a9e1c4f727c8aa5888ea7b3ceed5f111f422be13b",
+     "bytes": 2447,
+     "headings": [
+      "### Skaaj Is Jrose's Cat-Folk Island (imported 2026-09-18, not yet validated in game)"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      798,
+      815
+     ],
+     "dest": "doc/ai/topics/project/data-repair-tooling.md",
+     "sha256": "51b1dba5691d12724342bfa9604bef19e705ba293aeab5678b8f84ff8b360dc2",
+     "bytes": 7987,
+     "headings": [
+      "### Data Repair Tooling"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      816,
+      835
+     ],
+     "dest": "doc/ai/topics/project/vfs-offset-limit.md",
+     "sha256": "227bbb8d46f9907c0038b1382d0a64ab1dddf25a5a7c53fc71c1eba5bde987fc",
+     "bytes": 3632,
+     "headings": [
+      "### The .vfs Offset Limit (2 GB -> 4 GB)"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      836,
+      844
+     ],
+     "dest": "doc/ai/topics/project/item-import-tooling.md",
+     "sha256": "d1e5da1d53e73b7cc12ca342c6731724eb00c78a893781b6e0a36d859c1738c1",
+     "bytes": 3271,
+     "headings": [
+      "### Item Import Tooling"
+     ],
+     "links": [
+      {
+       "orig": "doc/jrose-back-import.md",
+       "new": "../../../jrose-back-import.md",
+       "repaired": false,
+       "target": "doc/jrose-back-import.md",
+       "target_exists": true
+      },
+      {
+       "orig": "doc/skill-tree-art.md",
+       "new": "../../../skill-tree-art.md",
+       "repaired": false,
+       "target": "doc/skill-tree-art.md",
+       "target_exists": true
+      }
+     ]
+    },
+    {
+     "lines": [
+      845,
+      847
+     ],
+     "dest": "doc/ai/topics/project/npc-dialog-qex1.md",
+     "sha256": "206fccde2457bc061e006ac494c4efbbc5c1a19b9db9e680ee19ae92b1819061",
+     "bytes": 941,
+     "headings": [
+      "### NPC Dialog Quest Options (.CON QEX1 Appendix)"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      848,
+      856
+     ],
+     "dest": "doc/ai/topics/project/build-system-and-pitfalls.md",
+     "sha256": "86e2897e507f6beb7b08395bad69a0243de80725c79d699cd7a1fcf7bb887734",
+     "bytes": 848,
+     "headings": [
+      "## Common Pitfalls"
+     ],
+     "links": []
+    }
+   ]
+  },
+  {
+   "path": "src/client/CLAUDE.md",
+   "archive": "doc/ai/archive/2026-09-24/src--client--CLAUDE.md.txt",
+   "sha256": "432d7127a2bcbe41ba9ce7259313bfc378acac1107bc2d3bdff13a8b58d16bad",
+   "lines": 745,
+   "segments": [
+    {
+     "lines": [
+      1,
+      39
+     ],
+     "dest": "doc/ai/topics/client/overview.md",
+     "sha256": "11d7b6fe4793bbd0ba4fd67f55b11ec47bef21c65e12b91c68de956919ef9232",
+     "bytes": 1669,
+     "headings": [
+      "# CLAUDE.md — Rose Next Client",
+      "## Overview",
+      "## Key Subsystems",
+      "## Important Classes",
+      "## Networking"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      40,
+      49
+     ],
+     "dest": "doc/ai/topics/client/combat-core-and-queue.md",
+     "sha256": "bbfe5496350a6c4dca6a3677fdf3f9a72f79e66fae2eb4f70caee1d3dfca53e4",
+     "bytes": 3295,
+     "headings": [
+      "## Combat Presentation System"
+     ],
+     "links": [
+      {
+       "orig": "../../doc/combat-crowd-drain.md",
+       "new": "../../../combat-crowd-drain.md",
+       "repaired": false,
+       "target": "doc/combat-crowd-drain.md",
+       "target_exists": true
+      }
+     ]
+    },
+    {
+     "lines": [
+      50,
+      55
+     ],
+     "dest": "doc/ai/topics/client/combat-preempted-and-remote-casts.md",
+     "sha256": "d219a8d9c49827e23754d9385a7567af877727af8f21d6b512b73d94c5af716d",
+     "bytes": 12411,
+     "headings": [],
+     "links": []
+    },
+    {
+     "lines": [
+      56,
+      59
+     ],
+     "dest": "doc/ai/topics/client/combat-orphan-swing-sweep.md",
+     "sha256": "2d6bc32671698dc63c192bf7f3865b44c97249001e031ec16735e63e820e4269",
+     "bytes": 3121,
+     "headings": [],
+     "links": []
+    },
+    {
+     "lines": [
+      60,
+      64
+     ],
+     "dest": "doc/ai/topics/client/combat-projectile-classification.md",
+     "sha256": "0a785b63b679e1feaf0faefd60ffa8245506956e2051a4b437d0f2b2b8a2c76b",
+     "bytes": 5388,
+     "headings": [],
+     "links": []
+    },
+    {
+     "lines": [
+      65,
+      73
+     ],
+     "dest": "doc/ai/topics/client/combat-hp-authority-and-healing.md",
+     "sha256": "4dba76b63ae9eb5888dd7fbde262304b3e14ff5ce21cea35af8439c7c654a3eb",
+     "bytes": 8517,
+     "headings": [],
+     "links": []
+    },
+    {
+     "lines": [
+      74,
+      78
+     ],
+     "dest": "doc/ai/topics/client/combat-death.md",
+     "sha256": "3f085f4a5d3e1daecebc5e4781ff58ec9f1346bacabb366ed45126f32cda376a",
+     "bytes": 9458,
+     "headings": [],
+     "links": []
+    },
+    {
+     "lines": [
+      79,
+      86
+     ],
+     "dest": "doc/ai/topics/client/combat-phantom-swings.md",
+     "sha256": "727d0954cd1fbc9c60e4d94acc0e5e7e84b248d44f146c2641b1a79b2873db4b",
+     "bytes": 7997,
+     "headings": [],
+     "links": []
+    },
+    {
+     "lines": [
+      87,
+      94
+     ],
+     "dest": "doc/ai/topics/client/combat-drain-and-stranding.md",
+     "sha256": "35088d3a50e37b470941e2328828c3ba860b31b9a8f773398ae8f664b224e161",
+     "bytes": 7372,
+     "headings": [],
+     "links": []
+    },
+    {
+     "lines": [
+      95,
+      116
+     ],
+     "dest": "doc/ai/topics/client/ai-chase-and-attack-speed.md",
+     "sha256": "f8ae3472978718d76cddf79f0a322d49f1f00e988eafbad5f67f36c410bf6cf0",
+     "bytes": 6553,
+     "headings": [
+      "### AI Chase Movement (CMD_MOVE with target)",
+      "### Attack Speed Presentation"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      117,
+      134
+     ],
+     "dest": "doc/ai/topics/client/cart-castle-gear.md",
+     "sha256": "265b6a9075c6fde47cf8c9f7a0da79aecaa913f8b862dcd2ca3fa6c224603e76",
+     "bytes": 2632,
+     "headings": [
+      "### Cart / Castle Gear Combat",
+      "### Cart / Castle Gear Visual Loading"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      135,
+      157
+     ],
+     "dest": "doc/ai/topics/client/terrain-streaming-queues-and-patches.md",
+     "sha256": "ce66adb8b02f47de54b794969702e6e65e1a494bb66579235be35317fc756371",
+     "bytes": 4491,
+     "headings": [
+      "### Zone Warp / Terrain Streaming"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      158,
+      173
+     ],
+     "dest": "doc/ai/topics/client/terrain-cull-bounds-and-patch-index.md",
+     "sha256": "aaccc1b003ecc6d0a4733c722cc5cc64a0d0c4e790fbf5f252f78b3cf6fec5e0",
+     "bytes": 3833,
+     "headings": [],
+     "links": [
+      {
+       "orig": "../../doc/zsc-bounding-boxes.md",
+       "new": "../../../zsc-bounding-boxes.md",
+       "repaired": false,
+       "target": "doc/zsc-bounding-boxes.md",
+       "target_exists": true
+      }
+     ]
+    },
+    {
+     "lines": [
+      174,
+      189
+     ],
+     "dest": "doc/ai/topics/client/terrain-prefetch-and-vfs-reads.md",
+     "sha256": "74bc979108b1ae02099c32ad3aecba237e06a6309651da2a50dbf96952cafd32",
+     "bytes": 3979,
+     "headings": [],
+     "links": []
+    },
+    {
+     "lines": [
+      190,
+      221
+     ],
+     "dest": "doc/ai/topics/client/frame-hitch-campaign-2026-08-28.md",
+     "sha256": "808605b701a3424da12263af6d3a1b8f036dda7dfbf7847377fba34dbffacb6b",
+     "bytes": 5083,
+     "headings": [],
+     "links": []
+    },
+    {
+     "lines": [
+      222,
+      249
+     ],
+     "dest": "doc/ai/topics/client/chunk-hitch-and-load-budgets.md",
+     "sha256": "8a8268068c4ad790497a5473b9d2aa418efcdaf39790ef9ef841cc488cd13da3",
+     "bytes": 4593,
+     "headings": [],
+     "links": []
+    },
+    {
+     "lines": [
+      250,
+      272
+     ],
+     "dest": "doc/ai/topics/client/streaming-diagnostics-and-spike-log.md",
+     "sha256": "50f14ce5abe35aed9f8f13536b8c8b05f80238db64b4422c2cc28330f62c4213",
+     "bytes": 4306,
+     "headings": [],
+     "links": []
+    },
+    {
+     "lines": [
+      273,
+      312
+     ],
+     "dest": "doc/ai/topics/client/character-spawn-and-texture-create.md",
+     "sha256": "43220c52baafb2fe84a3a6ed4081151ef6f9d54669926efa0440916700778ee6",
+     "bytes": 8074,
+     "headings": [],
+     "links": []
+    },
+    {
+     "lines": [
+      313,
+      321
+     ],
+     "dest": "doc/ai/topics/client/streaming-diagnostics-and-spike-log.md",
+     "sha256": "5e55bcc8cf85d2ee92a7492515eaf01c0ab9eaf83bcedc7c1efd0ed077038ada",
+     "bytes": 2850,
+     "headings": [],
+     "links": []
+    },
+    {
+     "lines": [
+      322,
+      353
+     ],
+     "dest": "doc/ai/topics/client/loading-screen-cache-warming.md",
+     "sha256": "5e7692ae21c5b80fa9590cf9fbddfc3d80ab3d48a2699431924ebc1c741c57da",
+     "bytes": 6235,
+     "headings": [],
+     "links": []
+    },
+    {
+     "lines": [
+      354,
+      363
+     ],
+     "dest": "doc/ai/topics/client/overhead-names-cnamebox.md",
+     "sha256": "5f32a8acaf0cc81f36f8426242f022a6dc37a222916af94b6f09171b658f5543",
+     "bytes": 2379,
+     "headings": [
+      "## Overhead Name Drawing (`CNameBox`)"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      364,
+      397
+     ],
+     "dest": "doc/ai/topics/client/bone-particles.md",
+     "sha256": "eb39d4172154e07aeb8e3cebb04d260816bfafb40af39b9aaf63f6cb78a6e87f",
+     "bytes": 5048,
+     "headings": [
+      "## Bone-Attached Particle Budgeting",
+      "## Bone Particle Texture Batching",
+      "## Particle Emit-Accumulator (death-then-spawn timing)"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      398,
+      421
+     ],
+     "dest": "doc/ai/topics/client/input-pvp-summon-control.md",
+     "sha256": "49ac63d85a9aa1a787839caf158b9b5632cc0316b5c3c75ae1a4273829616e26",
+     "bytes": 3778,
+     "headings": [
+      "## Input Dispatch",
+      "## PVP: You Are Never Your Own Enemy",
+      "## Summon Control (CTRL+Click)"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      422,
+      431
+     ],
+     "dest": "doc/ai/topics/client/summon-info-panel.md",
+     "sha256": "8a6e12cc5d3f491cb553c57282670ff74f47514a0385d3240ef7ac22333ae0f5",
+     "bytes": 3759,
+     "headings": [
+      "## Summon Info Panel"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      432,
+      443
+     ],
+     "dest": "doc/ai/topics/client/monster-inspector.md",
+     "sha256": "ed6aec5a696371b0c5562ee282bfa569820ed34c4042ea0d28ac5f6ce10c3aca",
+     "bytes": 6018,
+     "headings": [
+      "## Monster Inspector"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      444,
+      461
+     ],
+     "dest": "doc/ai/topics/client/npc-quest-icons.md",
+     "sha256": "d4db4943ede6b30880b128ebddd0f7f1101889e6ad309fff6ad2aa8390a2227a",
+     "bytes": 7750,
+     "headings": [
+      "## NPC Overhead Quest Icons"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      462,
+      487
+     ],
+     "dest": "doc/ai/topics/client/chat-links-and-item-preview.md",
+     "sha256": "a6b7cb42bbc5c9ff7ebcc50d5b7961b1519d26d8935eb5bb0eac078b0c6d3988",
+     "bytes": 7601,
+     "headings": [
+      "## Chat Item Links",
+      "## Item Preview Panel (Alt+Click try-on)"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      488,
+      501
+     ],
+     "dest": "doc/ai/topics/client/damage-meter.md",
+     "sha256": "7d4063ca3d3a0a9d74f6860b976cbdb632aff9f7daaf21572be55dbf81d9d84a",
+     "bytes": 5519,
+     "headings": [
+      "## Damage Meter (\"/dps\")"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      502,
+      554
+     ],
+     "dest": "doc/ai/topics/client/rmlui-layer.md",
+     "sha256": "990ea685d18f9099eb24e8911453e4e40905be4964c47ab5d9c6d82aa12329a2",
+     "bytes": 3881,
+     "headings": [
+      "## RmlUi UI Layer (`rmlui/`)"
+     ],
+     "links": [
+      {
+       "orig": "doc/rmlui-evaluation.md",
+       "new": "../../../rmlui-evaluation.md",
+       "repaired": true,
+       "target": "doc/rmlui-evaluation.md",
+       "target_exists": true
+      }
+     ]
+    },
+    {
+     "lines": [
+      555,
+      634
+     ],
+     "dest": "doc/ai/topics/client/model-node-and-dummy-indices.md",
+     "sha256": "847e190907884d75d4614602688b6eca7d54308dbbb73150155218def7582aeb",
+     "bytes": 5542,
+     "headings": [
+      "## A Character Can Outlive Its Model Node",
+      "## Dummy Indices: `getNumDummies()` Is Authored Count + 1, And A Valid Index Is `< count`"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      635,
+      692
+     ],
+     "dest": "doc/ai/topics/client/frame-timing-device-screen-modes.md",
+     "sha256": "407cb3af87661aa03db85c678fc32b16bf6b2f942355ad7a8b1c555597184a21",
+     "bytes": 10892,
+     "headings": [
+      "## Frame Timing & Timer Precision",
+      "## Device, Swap Chain & Screen Modes",
+      "### Three screen modes, and which predicate to use",
+      "### Window sizing must match the backbuffer"
+     ],
+     "links": [
+      {
+       "orig": "src/client/game.cpp#L172",
+       "new": "../../../../src/client/game.cpp#L172",
+       "repaired": true,
+       "target": "src/client/game.cpp",
+       "target_exists": true
+      },
+      {
+       "orig": "src/client/winmain.cpp#L19-L30",
+       "new": "../../../../src/client/winmain.cpp#L19-L30",
+       "repaired": true,
+       "target": "src/client/winmain.cpp",
+       "target_exists": true
+      },
+      {
+       "orig": "doc/d3d9ex-migration.md",
+       "new": "../../../d3d9ex-migration.md",
+       "repaired": true,
+       "target": "doc/d3d9ex-migration.md",
+       "target_exists": true
+      },
+      {
+       "orig": "doc/d3d9ex-migration.md",
+       "new": "../../../d3d9ex-migration.md",
+       "repaired": true,
+       "target": "doc/d3d9ex-migration.md",
+       "target_exists": true
+      },
+      {
+       "orig": "src/engine/src/zz_renderer_d3d.cpp#L734-L800",
+       "new": "../../../../src/engine/src/zz_renderer_d3d.cpp#L734-L800",
+       "repaired": true,
+       "target": "src/engine/src/zz_renderer_d3d.cpp",
+       "target_exists": true
+      },
+      {
+       "orig": "src/engine/src/zz_renderer_d3d.cpp#L798",
+       "new": "../../../../src/engine/src/zz_renderer_d3d.cpp#L798",
+       "repaired": true,
+       "target": "src/engine/src/zz_renderer_d3d.cpp",
+       "target_exists": true
+      }
+     ]
+    },
+    {
+     "lines": [
+      693,
+      745
+     ],
+     "dest": "doc/ai/topics/client/build-launch-logging.md",
+     "sha256": "e79dd7c548681110bc9e7813697afb80a9fc5224e664316eb10fb801aa216407",
+     "bytes": 2321,
+     "headings": [
+      "## Build",
+      "## Conventions",
+      "## Client Launch",
+      "### Diagnostic logging"
+     ],
+     "links": []
+    }
+   ]
+  },
+  {
+   "path": "src/sho_gameserver/CLAUDE.md",
+   "archive": "doc/ai/archive/2026-09-24/src--sho_gameserver--CLAUDE.md.txt",
+   "sha256": "c3ae3915b4a467941f7c74e866e48a9ad43b99d9c748a136c75392a739c07ec4",
+   "lines": 207,
+   "segments": [
+    {
+     "lines": [
+      1,
+      57
+     ],
+     "dest": "doc/ai/topics/gameserver/overview.md",
+     "sha256": "a508371903e6b7c5c29e52ea9815e09c40e3a53bde674b17ce106cef57c8ff0f",
+     "bytes": 2452,
+     "headings": [
+      "# CLAUDE.md — Rose Next Game Server",
+      "## Overview",
+      "## Architecture",
+      "## Key Source Layout",
+      "## Networking",
+      "## Zone System"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      58,
+      92
+     ],
+     "dest": "doc/ai/topics/gameserver/combat-flow-and-packet-rules.md",
+     "sha256": "ad2973163146ded71e0d41b94d7fad5a948fabd91cda4e053fcb2d4884d84e7d",
+     "bytes": 9139,
+     "headings": [
+      "## Combat Flow",
+      "### A Repeat Attack Order Is A No-Op",
+      "### PVP Ally Rule (clan fields, party zones)",
+      "### Combat Presentation Packet Rules"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      93,
+      108
+     ],
+     "dest": "doc/ai/topics/gameserver/ai-guard-npc-rows-skills-status.md",
+     "sha256": "54c751b7c6b4d7c3aee288cac58840a541f4b75d317460fb3963339d7e4b040b",
+     "bytes": 4681,
+     "headings": [
+      "### AI Script Guard",
+      "### A Junk NPC Row Must Degrade, Not Kill",
+      "### Skill Damage Presentation",
+      "### Status Effect Application"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      109,
+      125
+     ],
+     "dest": "doc/ai/topics/gameserver/overview.md",
+     "sha256": "25e5bb2710e3d4a27e7adb3a80a4e035194adf2cb5e81e1dbd3693110aed5195",
+     "bytes": 351,
+     "headings": [
+      "## Configuration"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      126,
+      141
+     ],
+     "dest": "doc/ai/topics/gameserver/summon-control.md",
+     "sha256": "5c6c5a90a4883047334c93a14896121934443336b0cfe8d5093bca9e60ad86be",
+     "bytes": 2506,
+     "headings": [
+      "## Summon Control (CTRL+Click)",
+      "### CObjSUMMON manual-order window",
+      "### PlayerOrderMoveTo (do NOT use SetCMD_MOVE2D for player clicks)"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      142,
+      194
+     ],
+     "dest": "doc/ai/topics/gameserver/walkability-mov.md",
+     "sha256": "6d0a70dcb2e1aee134b9f99700947ae0582e53f9984bce2630b574200050ef53",
+     "bytes": 3450,
+     "headings": [
+      "## Walkability, and why a missing .MOV killed every leash in Karkia"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      195,
+      207
+     ],
+     "dest": "doc/ai/topics/gameserver/overview.md",
+     "sha256": "0f0cb81945a172061f793cad1d8c0809ffdd10a92219be38a9152a6d1d6f3b66",
+     "bytes": 481,
+     "headings": [
+      "## Dependencies",
+      "## Conventions"
+     ],
+     "links": []
+    }
+   ]
+  },
+  {
+   "path": "xadet/rose-online-map-editor/CLAUDE.md",
+   "archive": "doc/ai/archive/2026-09-24/xadet--rose-online-map-editor--CLAUDE.md.txt",
+   "sha256": "001390974c19f9f163b5b5db02c55492815e1d540e42f40e071fd4010f62aeb1",
+   "lines": 305,
+   "segments": [
+    {
+     "lines": [
+      1,
+      127
+     ],
+     "dest": "doc/ai/topics/map-editor/overview-build-architecture.md",
+     "sha256": "a8d01bb929ae3b21204a2bfa9370749e81325bc0980b802db5c8bcb9f6a074c2",
+     "bytes": 6569,
+     "headings": [
+      "# CLAUDE.md — ROSE Online Map Editor (xadet)",
+      "## What This Is",
+      "## Build, Deploy, Run",
+      "## Architecture",
+      "### Engine manager layout (`Map Editor/Engine/`)",
+      "### UI (`Map Editor/Forms/`)",
+      "### Misc (`Map Editor/Misc/`)",
+      "### Editor-local data",
+      "## ROSE Data File Reference"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      128,
+      162
+     ],
+     "dest": "doc/ai/topics/map-editor/debugging-and-editing-guidelines.md",
+     "sha256": "0c9f4653e8befd11185b16cb46fbdc1da51eb66833c6235d06188f1d38e5cbce",
+     "bytes": 1758,
+     "headings": [
+      "## Debugging Workflow",
+      "## Editing Guidelines"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      163,
+      294
+     ],
+     "dest": "doc/ai/topics/map-editor/compatibility-fixes.md",
+     "sha256": "03c2d68ca589b51132d3a2e09a828d79432285f5a2ccfc17331e671029dc450a",
+     "bytes": 10281,
+     "headings": [
+      "## Compatibility Fixes Already Made"
+     ],
+     "links": []
+    },
+    {
+     "lines": [
+      295,
+      305
+     ],
+     "dest": "doc/ai/topics/map-editor/verification-checklist.md",
+     "sha256": "0cd1d1e7875ca31f490e17216ce8b44b181cf7a355557e8baf1a54a25ff7b890",
+     "bytes": 532,
+     "headings": [
+      "## Verification Checklist"
+     ],
+     "links": []
+    }
+   ]
+  },
+  {
+   "path": "AGENTS.md",
+   "archive": "doc/ai/archive/2026-09-24/root--AGENTS.md.txt",
+   "sha256": "1d1358bfc48da8a2a9d06d89665516a2bb2466c8bc8f3b87daa3c3381d074fc0",
+   "lines": 13,
+   "segments": [
+    {
+     "lines": [
+      1,
+      13
+     ],
+     "dest": "doc/ai/UNAVAILABLE_KNOWLEDGE.md",
+     "sha256": "1d1358bfc48da8a2a9d06d89665516a2bb2466c8bc8f3b87daa3c3381d074fc0",
+     "bytes": 663,
+     "headings": [
+      "# Project instructions"
+     ],
+     "links": []
+    }
+   ]
+  }
+ ]
+}
