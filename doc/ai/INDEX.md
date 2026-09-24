@@ -24,7 +24,7 @@ Check integrity at any time: `python scripts/verify-ai-docs.py` (read-only).
 
 | Date | Record | Summary |
 |---|---|---|
-| 2026-09-24 | [2026-09-24-continuity-setup](sessions/2026-09-24-continuity-setup.md) | Continuity system created; guides migrated to topics |
+| 2026-09-24 | [2026-09-24-continuity-setup](sessions/2026-09-24-continuity-setup.md) | Continuity system created; guides migrated to topics; game running locally; PR #1 merged; closed |
 
 ## Finding a topic by task
 

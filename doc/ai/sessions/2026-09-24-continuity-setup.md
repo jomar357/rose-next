@@ -1,6 +1,6 @@
 # Session 2026-09-24: continuity setup
 
-- **Status:** open (not closed; the PM has not used the closing phrase)
+- **Status:** **closed** 2026-09-24 by the PM's closing phrase (PM-019); see *Closing* below
 - **Tool / model:** Claude Code desktop app, `claude-opus-5-5`
 - **Checkout:** `C:\Users\Jomar\Desktop\Rose\rose-next`, remote `origin` = https://github.com/jomar357/rose-next.git
 - **Branch / base:** `master` at `84f6206723fb4a8abf27df8a71eeb458fd734553`, even with `origin/master` at start
@@ -148,10 +148,159 @@ session ends).
 - The PM then reported: "I am already logged in and the game is working now" (PM-011 met, as
   reported by the PM).
 
+## Closing (2026-09-24, PM-019)
+
+**Completed this session**
+- Continuity system (PM-002): compact guides, 69 verbatim topics, archive, mapping, records, protocol,
+  verifier. Commit `28a777f`.
+- Run the game locally (PM-011): toolchain installed, v142 build, game data, database, servers,
+  launchers, account; the PM logged in and reported the game working. Commit `4a349a3`.
+- PR #1 (https://github.com/jomar357/rose-next/pull/1) merged into `master` as `5f5d006`.
+
+**Repository state at closing** (recorded after the merge, before these record edits)
+- Repo `C:\Users\Jomar\Desktop\Rose\rose-next`, remote `origin` https://github.com/jomar357/rose-next.git.
+- Branch `master` at `5f5d006`, even with `origin/master`. Branch `local-run-setup` at `4a349a3`
+  exists locally and on `origin` (not deleted).
+- Working tree was clean after the merge. The only changes after that are these closing record
+  edits (`doc/ai/DECISIONS.md`, `STATE.md`, `HANDOFF.md`, this file): **uncommitted, unpushed**.
+- No unrelated pre-existing changes.
+- Local state needed to continue, all gitignored and only on this machine: `data/` (unpacked VFS,
+  2.3 GB), `Exes/` (client run folder: data.idx, rose.vfs, sound, the built client binaries),
+  `bin/release/` (build output), `dev/server/server.toml` + `dev/server/log/`, `build/vfs-extract/`
+  and `build/vfs-list.txt`, stale `src/target/`. Game-data source archive:
+  `%USERPROFILE%\Downloads\Rose deluxe + Plane fix.rar`. Database: Laragon PostgreSQL 18.2,
+  database `rose-next`, account `jomar357` (password given to the PM in chat only).
+- Processes left running at closing, deliberately (the PM is playing): `sho_loginserver.exe`,
+  `sho_worldserver.exe`, `sho_gameserver.exe`, `rosenext.exe`. Stop with `run/stop-all.bat`.
+- A background `grep` started by the AI for a secret scan may still be running over `data/`; it is
+  read-only and harmless.
+
+**Verification at closing**
+- `python scripts/verify-ai-docs.py` on the working tree with these closing edits: result recorded
+  in the closing reply (run after writing this file).
+- `gh pr view 1`: state MERGED, merge commit `5f5d006`, merged 2026-09-24T11:07:25Z.
+- `git status -sb` after `git pull --ff-only`: `master...origin/master`, clean.
+- Build and tests: last run earlier this session on the tree now committed as `4a349a3` (release x86,
+  v142); **not re-run** after the merge. The merge commit's tree equals `4a349a3`'s (merged with no
+  other changes on `master`).
+- Not verified by the AI: gameplay beyond the login scene (PM-reported working).
+
+**Open at closing**
+- Next development priority: not given.
+- Commit of these closing record edits: needs PM authorisation.
+- Suggested, not authorised: rotate the credentials in the tracked `Exes/server.toml` and untrack it;
+  delete the merged branch `local-run-setup`.
+- Inherited open questions and conflicts: [OPEN_QUESTIONS](../OPEN_QUESTIONS.md).
+
+## Addendum after closing (2026-09-24, PM-020)
+
+The PM asked to add this device's Claude memory to `AGENTS.md`, then closed again.
+- Memory folder inspected: `MEMORY.md` + `user-pm-role.md` (one user-profile note written this
+  session; no project facts that are not also in `doc/ai/`).
+- `AGENTS.md`: new step 3 (optional, this machine only, yields to `doc/ai/`); intro sentence
+  adjusted. Unlike the inherited pointer (U1), the path exists and is marked optional.
+- Repository at this second closing: `master` = `origin/master` = `5f5d006`; **uncommitted**:
+  `AGENTS.md`, `doc/ai/DECISIONS.md`, `HANDOFF.md`, `INDEX.md`, `STATE.md`, this file. Nothing else
+  changed; processes as recorded above.
+- Verification: `python scripts/verify-ai-docs.py` (result in the closing reply); `git status`.
+- Then the PM said "commit and push" (PM-021): these edits were committed on `master` and pushed
+  to `origin/master`.
+
 ## Final verification
 
-_Pending: the session has not been closed._
+See *Closing* above.
 
 ## Previous handoff
 
-None: this is the first session with a HANDOFF.md.
+The handoff that was current when this session closed (replaced at closing), verbatim except that its two relative links were re-targeted for this folder:
+
+> # Latest handoff
+>
+> _From session [2026-09-24-continuity-setup](2026-09-24-continuity-setup.md), interim checkpoint
+> 2026-09-24. The session is **not closed**. Previous interim handoff (continuity setup complete,
+> waiting on priority/commit/data questions) is superseded; its substance is in the session record
+> and in DECISIONS PM-010..PM-016._
+>
+> ## Completed
+>
+> - Continuity system committed (`28a777f`, local only, not pushed).
+> - PM-011 "run the game locally": toolchain installed (pwsh, just, MSVC v142); everything builds in
+>   release x86; the project's 4 test programs pass; game data from the README's MEGA archive is in
+>   `Exes/` (client) and `data/` (servers); database migrated; login, world and game servers run
+>   against `dev/server/server.toml`.
+>
+> ## Remaining
+>
+> - PM-011 achieved: the PM logged in as `jomar357` and reported the game working.
+> - Review and merge the PR from `local-run-setup` into `master`; then fast-forward local `master`.
+> - Launchers for testing without commands: [run/README.md](../../../run/README.md).
+>
+> ## Watch out for
+>
+> - Build inside `vcvarsall x86 -vcvars_ver=14.29` with `RUSTUP_TOOLCHAIN=stable-i686-pc-windows-msvc`;
+>   mixing MSVC 14.44 and 14.29 breaks the Rust link.
+> - Do not use jCodeMunch in this repo (PM-015). Do not use the tracked `Exes/server.toml`.
+> - The servers were started by a Claude session and may not survive it; restart per the runbook.
+>
+> ## Next-session prompt (copy as is)
+>
+> ```text
+> You are continuing work on Rose Next (C:\Users\Jomar\Desktop\Rose\rose-next) under the direction
+> of the Project Manager. Read, in order: CLAUDE.md, doc/ai/INDEX.md, doc/ai/STATE.md,
+> doc/ai/HANDOFF.md, then doc/ai/topics/project/local-setup-runbook.md. Reconcile them with the
+> checkout (git status -sb, git rev-parse HEAD, git status --porcelain=v1 -uall) and report any
+> mismatch; if STATE.md lists an open session that was never closed, treat its work as interrupted
+> and recover from its session record plus the diff. Run `python scripts/verify-ai-docs.py --quiet`.
+> The current objective is PM-011 (run the game locally). Check whether the three servers are running
+> and restart them per the runbook (or run/start-servers.bat) if not, then ask the PM for the next
+> development priority (PM-011 is achieved). Do not use jCodeMunch in this repo. Do not commit or push without the PM's explicit say-so.
+> Open a new session record under doc/ai/sessions/ and follow doc/ai/SESSION_PROTOCOL.md.
+> ```
+
+Before that: none (this was the first session with a HANDOFF.md).
+
+### Handoff replaced at the second closing (verbatim, links re-targeted for this folder)
+
+> # Latest handoff
+>
+> _From session [2026-09-24-continuity-setup](2026-09-24-continuity-setup.md), closed 2026-09-24
+> by the PM ("Our work here is done"). The previous handoff is preserved verbatim in that session
+> record._
+>
+> ## Completed
+>
+> - AI continuity system: compact `CLAUDE.md` guides, verbatim topic files, archive, records,
+>   session protocol, `scripts/verify-ai-docs.py`.
+> - The game runs locally on the PM's machine: v142 build, game data, database, servers, client,
+>   double-click launchers in `run/`. The PM logged in as `jomar357` and reported it working.
+> - PR #1 merged into `master` (`5f5d006`).
+>
+> ## Remaining
+>
+> - No development task is authorised: ask the PM for the next priority.
+> - The closing record edits (DECISIONS, STATE, HANDOFF, session record) are uncommitted; ask before
+>   committing.
+> - Suggestions awaiting a PM decision: rotate the credentials in the tracked `Exes/server.toml` and
+>   untrack it; delete the merged branch `local-run-setup`.
+>
+> ## Watch out for
+>
+> - Build inside `vcvarsall x86 -vcvars_ver=14.29` with `RUSTUP_TOOLCHAIN=stable-i686-pc-windows-msvc`
+>   (see the runbook). Never `cargo clean --release` without `-p`.
+> - Do not use jCodeMunch in this repo (PM-015). Do not use the tracked `Exes/server.toml`.
+> - Game data and build output are local only (gitignored).
+>
+> ## Next-session prompt (copy as is)
+>
+> ```text
+> You are continuing work on Rose Next (C:\Users\Jomar\Desktop\Rose\rose-next) under the direction
+> of the Project Manager. Read, in order: CLAUDE.md, doc/ai/INDEX.md, doc/ai/STATE.md,
+> doc/ai/HANDOFF.md. Reconcile them with the checkout (git status -sb, git rev-parse HEAD,
+> git status --porcelain=v1 -uall) and report any mismatch; the last session closed with its
+> closing record edits uncommitted on master. Run `python scripts/verify-ai-docs.py --quiet`.
+> No development task is authorised: ask the PM for the next priority and whether to commit the
+> pending record edits. For running the game, read doc/ai/topics/project/local-setup-runbook.md and
+> use the launchers in run/. Do not use jCodeMunch in this repo. Do not commit, push, merge or delete
+> anything without the PM's explicit say-so. Open a new session record under doc/ai/sessions/ and
+> follow doc/ai/SESSION_PROTOCOL.md.
+> ```

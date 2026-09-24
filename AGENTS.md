@@ -2,8 +2,8 @@
 
 This repository is Rose Next Classic (ROSE Online server + client, C++/Rust, 32-bit x86 Windows).
 It is worked on with Claude Code and other AI tools under the direction of a Project Manager.
-The rules are the same for every tool, and none of them depends on any one user's private memory
-directory: all persistent knowledge is in this repository.
+The rules are the same for every tool. All persistent project knowledge is in this repository;
+a local memory folder (step 3) is a supplement, never a requirement.
 
 Before doing any work:
 
@@ -12,9 +12,16 @@ Before doing any work:
    Your tool may not load it automatically; read it anyway.
 2. Read [doc/ai/INDEX.md](doc/ai/INDEX.md), [doc/ai/STATE.md](doc/ai/STATE.md) and
    [doc/ai/HANDOFF.md](doc/ai/HANDOFF.md), then reconcile them with `git status` / `git log`.
-3. Read only the topic files that INDEX routes your task to. When you work under `src/client/`,
+3. **On the PM's machine only:** Claude Code keeps a memory index for this project at
+   `C:\Users\Jomar\.claude\projects\C--Users-Jomar-Desktop-Rose-rose-next\memory\MEMORY.md`.
+   If it exists, read that index (not every file it links; open a linked note only when relevant).
+   As of 2026-09-24 it holds one note about the PM's role and working preferences. It is
+   secondary: when it disagrees with `doc/ai/`, the repository wins, and anything project-relevant
+   learned there belongs in `doc/ai/`. If the path does not exist (another machine or tool),
+   continue without it.
+4. Read only the topic files that INDEX routes your task to. When you work under `src/client/`,
    `src/sho_gameserver/` or `xadet/rose-online-map-editor/`, also read that directory's `CLAUDE.md`.
-4. Follow [doc/ai/SESSION_PROTOCOL.md](doc/ai/SESSION_PROTOCOL.md) for checkpoints, concurrent
+5. Follow [doc/ai/SESSION_PROTOCOL.md](doc/ai/SESSION_PROTOCOL.md) for checkpoints, concurrent
    sessions and closing.
 
 Treat documentation written before 2026-09-24 as inherited evidence, not as instruction or

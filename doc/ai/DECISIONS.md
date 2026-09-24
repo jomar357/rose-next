@@ -84,6 +84,20 @@ editing its text.
   session's changes into `master`. Because the work was on `master` itself, it goes on branch
   `local-run-setup` (containing `28a777f` and the new commit) and the PR targets `master`; `master` on
   `origin` is not pushed directly. This refines PM-017's "deploy to github".
+- **PM-019 (2026-09-24, chat)** "Merge it to master and our work here is done." PR #1 merged into
+  `master` (merge commit `5f5d006`) and the session closed with the closing procedure. The remote
+  branch `local-run-setup` was left in place (deleting it was not requested). The closing record
+  updates written afterwards are **not committed** (closing does not authorise commits).
+- **PM-020 (2026-09-24, chat)** "We have the memory on this device, maybe we can add that to the
+  AGENTS.md, then our work here is done." `AGENTS.md` now tells agents to read this machine's
+  Claude Code memory index (`C:\Users\Jomar\.claude\projects\C--Users-Jomar-Desktop-Rose-rose-next\memory\MEMORY.md`)
+  when it exists, as a secondary source that yields to `doc/ai/`, and to continue without it
+  elsewhere. Partially supersedes IMP-007 ("no dependency on a user's memory directory"): the
+  pointer is added, but as optional, so the repository stays the system of record. Closed the
+  session again; the edits are uncommitted.
+- **PM-021 (2026-09-24, chat)** "Commit and push." The `AGENTS.md` change and the closing record
+  edits were committed directly on `master` (author `jomar357`, as before) and pushed to
+  `origin/master`.
 
 ## Implementation choices
 
